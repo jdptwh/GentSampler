@@ -96,10 +96,14 @@ public:
         // vertical order (mockup): stem lanes -> cue flags -> waveform
         bool showStems = false;
         for (auto& sp : stemPeaks) if (! sp.empty()) { showStems = true; break; }
-        const int rulerH  = (! peaks.empty()) ? stemRulerH : 0;
+        // C1: the top ruler is stem-lane furniture (mockup's drawComposite has no
+        // top ruler at all — only the bottom one). Reserve it only when the stem
+        // band will actually show; composite view gives that space back to the wave.
+        const bool stemsShowing = showStems && h > 180;   // same gate bandH uses below
+        const int rulerH  = (! peaks.empty() && stemsShowing) ? stemRulerH : 0;
         const int bandTop = rulerH + 2;
         // stem lanes are a prominent band, roughly balanced with the waveform below
-        const int bandH   = (showStems && h > 180)   // Phase B hero is 196 tall; lanes must stay reachable
+        const int bandH   = stemsShowing   // Phase B hero is 196 tall; lanes must stay reachable
                                 ? juce::jlimit (56, 250, (int) ((h - rulerH - 70) * 0.52)) : 0;
         const int flagH   = 15;
         const int flagY   = bandTop + bandH + (bandH > 0 ? 9 : 0);
@@ -129,20 +133,8 @@ public:
             }
         }
 
-        // pad regions behind the waveform (selected window emphasized brighter).
-        // OPEN/gated slices have no region band — they show a ▶ gate affordance instead.
-        for (int i = 0; i < 16; ++i)
-        {
-            if (p.getCue (i) < 0) continue;                  // unassigned
-            if (p.isOpenSlice (i)) continue;                 // open: drawn as a gate affordance, not a window
-            const float xs = sampleToX (p.getCue (i));
-            const float xe = sampleToX (p.getEffectiveCueEnd (i));
-            if (xe < 0.0f || xs > (float) w) continue;
-            const auto col = padSourceColour (i, p);
-            g.setColour (col.withAlpha (i == sel ? 0.22f : 0.09f));
-            g.fillRect (juce::jmax (0.0f, xs), (float) top,
-                        juce::jmin ((float) w, xe) - juce::jmax (0.0f, xs), (float) (waveBottom - top));
-        }
+        // C1: composite view no longer tints slice regions behind the wave — the
+        // flags carry pad-source colour (C2). No per-slice fill here by design.
 
         // stem ribbon lanes — the mute/solo controls (mockup: tinted pill + ribbon + hover-solo)
         if (bandH > 0)
@@ -419,6 +411,30 @@ public:
             juce::Path tip;
             tip.addTriangle (px - 4.0f, (float) top, px + 4.0f, (float) top, px, (float) top + 6.0f);
             g.fillPath (tip);
+        }
+
+        // C1: composite-view time ruler along the bottom of the wave, muted mono
+        // (mockup drawComposite: rgba(155,161,168,.5) @ 10px mono, five even marks).
+        // Composite-only (no stem lanes) — height-relative so it survives C3's
+        // 160px hero without edits.
+        if (bandH == 0 && sr > 0.0)
+        {
+            g.setColour (Theme::t2.withAlpha (0.5f));
+            g.setFont (Theme::mono (10.0f * 1.12f));
+            const int rulerY = waveBottom - 13;
+            for (int t = 0; t <= 4; ++t)
+            {
+                const double frac = t / 4.0;
+                const double secs = (viewStart + frac * viewSpan) / sr;
+                const int mm = (int) (secs / 60.0);
+                const int ssd = ((int) secs) % 60;
+                const juce::String lbl = juce::String (mm) + ":" + juce::String (ssd).paddedLeft ('0', 2);
+                const int tx = (int) (frac * (float) (w - 1));
+                const auto just = t == 0 ? juce::Justification::bottomLeft
+                                : t == 4 ? juce::Justification::bottomRight
+                                         : juce::Justification::centredBottom;
+                g.drawText (lbl, juce::jlimit (0, w - 44, tx - 22), rulerY, 44, 12, just);
+            }
         }
 
         // scrollbar strip
