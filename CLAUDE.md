@@ -91,6 +91,11 @@ Follow ROUTING.md in the repo root. Summary:
 
 ## Known landmines
 Running list of past failures and their fixes, so they never recur.
+- 2026-07-02 — Undo scope is PARTIAL: CueSnap (PluginProcessor.cpp ~325) snapshots
+  cue/end windows ONLY — stem-source (padStemMask) and grain param changes are NOT
+  undoable; Ctrl+Z after those reverts just the slice windows. Both surfaces sync
+  correctly to whatever undo restores. Backlog: extend undo coverage (BACKLOG.md).
+  Don't "fix" this casually — undo granularity needs a spec.
 - 2026-07-02 — COPY_PLUGIN_AFTER_BUILD deleted the deployed plugin: JUCE's
   copyDir.cmake REMOVE_RECURSEs the destination, wiping the CUDA/cuDNN DLLs
   next to the deployed binary (restored from the artefact dir). Deploy is now
