@@ -12,9 +12,16 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Last completed: Redesign Phase B (geometry 1040×700) through B6 polish — overlay chips, value formats (PAN C / PITCH st / CHOKE·OFF), 880×592 floor, all 17 sweep-review findings fixed (incl. the dead transcribe drag chip and the unreachable stem mute/solo lanes) 
-- In progress: In progress: Nothing live — holding for your FL validation of the Phase B build
-- Next up: Phase C (stem-map hero + slice-detail strip) is next up, not started.
+- Last completed: Redesign Phase C, Task C2 — hero flags now carry a soft pad-source
+  hue glow, the selected pad's slice window gets the amber cue-region fill/glow
+  border, per-pad playheads got a bright-core + horizontal-bloom treatment, and the
+  B6-flagged chip/scrollbar collision is resolved (WaveformView::setBottomChromeInset,
+  wired from layoutContent()'s real chip geometry — height-relative, no 196-derived
+  literal). C1 (composite wave repaint) was already committed (d2ec10b).
+- In progress: Nothing live — C2 built+verified (build clean, pluginval strictness 5
+  SUCCESS); holding for sign-off before C3 (functional Slice Detail strip).
+- Next up: Phase C3 — Slice Detail strip (draggable CUE/END handles, same edit path
+  as the main-map handles), then C4 plumbing, then the C5 gate.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

@@ -29,6 +29,21 @@ inline juce::Colour padSourceColour (int i, const GentSamplerAudioProcessor& p)
     return padColour (i);
 }
 
+// C2: the hero-map visuals (flags/slice-line glow, playheads) show what each pad
+// actually PLAYS — mockup: "FULL = neutral #C7CCD2". Unlike padSourceColour (used
+// by the pad grid, which keeps every pad a distinct rainbow hue even when its
+// source is FULL/multi-stem), the map must fall back to Theme::fullStem instead
+// of the rainbow padColour so an unset/FULL/multi-stem pad reads as neutral on
+// the map, matching the mockup's stem-hue legend exactly.
+inline juce::Colour padMapHue (int i, const GentSamplerAudioProcessor& p)
+{
+    const std::uint8_t m = p.getPadStemMask (i);
+    if (m != 0 && (std::uint8_t) (m & (m - 1)) == 0)
+        for (int k = 0; k < 6; ++k)
+            if (m == (std::uint8_t) (1u << k)) return stemColour (k);
+    return Theme::fullStem;
+}
+
 // ---------------------------------------------------------------------------
 class WaveformView : public juce::Component,
                      private juce::Timer
@@ -43,6 +58,13 @@ public:
     void setFollow (bool shouldFollow)                     { follow = shouldFollow; }
     void fullView()                                        { if (cachedLen > 0) setView (0.0, (double) cachedLen); }
 
+    // C2: the hero's corner-anchored overlay chips (mockup .ov.bl/.br) sit on solid
+    // plates below the wave; reserve that band so the scrollbar + end-handle grips
+    // don't render underneath them (the actual collision B6 flagged). The caller
+    // (PluginEditor::layoutContent) owns the real chip geometry and passes its
+    // height here — height-relative, no 196-derived offset baked in.
+    void setBottomChromeInset (int px)                     { bottomChromeH = juce::jmax (0, px); repaint(); }
+
     std::function<void()> onRequestLoad;                   // called when the empty map is clicked
 
     // ------------------------------------------------------------------ paint
@@ -51,7 +73,9 @@ public:
         g.fillAll (Theme::well);
         const int w = getWidth(), h = getHeight();
         const int sb = 11;                      // scrollbar strip height
-        const int waveBottom = h - sb;
+        // C2: pull the interactive/scrollbar band up above the reserved corner-chip
+        // plates (mockup .ov.bl/.ov.br) so nothing important renders under them.
+        const int waveBottom = h - sb - bottomChromeH;
         {   // recessed-well inner top shadow (mockup .hero inset)
             juce::ColourGradient sh (juce::Colours::black.withAlpha (0.5f), 0.0f, 0.0f,
                                      juce::Colours::transparentBlack, 0.0f, 10.0f, false);
@@ -266,11 +290,35 @@ public:
             }
         }
 
+        // C2: active cue region — the selected pad's slice window gets the amber
+        // translucent fill + glowing border (mockup drawFlags: fillStyle
+        // rgba(232,153,58,.10) then strokeRect rgba(255,184,92,.65) w2). Only when
+        // the selected pad has a real closed window (open/gated slices have no
+        // window to fill — C3's strip covers that case with its OPEN tag). Painted
+        // before the flags/handles loop (wave < cue region < flags/handles) so the
+        // region doesn't overdraw the selected pad's line glow or end-handle bracket.
+        if (p.getCue (sel) >= 0 && ! p.isOpenSlice (sel))
+        {
+            const float rs = sampleToX (p.getCue (sel));
+            const float re = sampleToX (p.getEffectiveCueEnd (sel));
+            const float ra = juce::jmin (rs, re), rb = juce::jmax (rs, re);
+            if (rb >= 0.0f && ra <= (float) w)
+            {
+                const float ca = juce::jmax (0.0f, ra), cb = juce::jmin ((float) w, rb);
+                auto region = juce::Rectangle<float> (ca, (float) top, cb - ca, (float) (waveBottom - top));
+                g.setColour (Theme::accent.withAlpha (0.10f));
+                g.fillRect (region);
+                Theme::featherGlow (g, region, 0.0f, Theme::glow.withAlpha (0.35f), 5.0f, 3);
+                g.setColour (Theme::glow.withAlpha (0.65f));
+                g.drawRect (region.reduced (1.0f), 2.0f);
+            }
+        }
+
         // region edges, flags, end handles + active-window highlight
         for (int i = 0; i < 16; ++i)
         {
             if (p.getCue (i) < 0) continue;                  // unassigned
-            const auto col = padSourceColour (i, p);
+            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
             const bool open   = p.isOpenSlice (i);
             const bool selPad = (i == sel);
             const float xs = sampleToX (p.getCue (i));
@@ -280,6 +328,18 @@ public:
 
             if (xs >= -16.0f && xs <= (float) w)
             {
+                // C2: soft hue glow behind the slice line (mockup drawFlags: stroked at
+                // globalAlpha .85 with the flag's shadowColor bleeding onto it) —
+                // feathered fills widening outward from the line, cheapest bloom that
+                // survives JUCE's lack of a shadowBlur primitive.
+                for (int gl = 3; gl >= 1; --gl)
+                {
+                    const float gw = (float) gl * 2.6f;
+                    const float galpha = a * 0.16f / (float) gl;
+                    g.setColour (col.withAlpha (galpha));
+                    g.fillRect (xs - gw * 0.5f, (float) top, gw, (float) (waveBottom - top));
+                }
+
                 // start line (selected is brighter + 2px so the active edge stands out)
                 g.setColour (col.withAlpha (a));
                 if (selPad) g.fillRect ((float) xs - 1.0f, (float) top, 2.0f, (float) (waveBottom - top));
@@ -297,6 +357,10 @@ public:
                 flag.lineTo (fx + fw, fy + fh);
                 flag.lineTo (fx, fy + fh);
                 flag.closeSubPath();
+                // flag glow (mockup shadowColor=col, shadowBlur=9): reuse the shared
+                // feathered-rect bloom against the flag's bounding box.
+                Theme::featherGlow (g, flag.getBounds().expanded (1.0f), 2.0f,
+                                    col.withAlpha (0.5f), 6.0f, 4);
                 g.setColour (selPad ? col.brighter (0.25f) : col);
                 g.fillPath (flag);
                 g.setColour (juce::Colours::black.withAlpha (0.92f));
@@ -396,18 +460,24 @@ public:
             }
         }
 
-        // playheads: one moving line per sounding pad, in that pad's colour
+        // C2: glowing playheads — one moving line per sounding pad, in that pad's
+        // colour. Mockup's drawFlags playhead: a horizontal linear-gradient bloom
+        // (transparent -> col @.30 -> transparent, +-14px) behind a bright 3px core.
         for (int i = 0; i < 16; ++i)
         {
             const int pp = p.getPadPlayPos (i);
             if (pp < 0) continue;
             const float px = sampleToX (pp);
             if (px < 0.0f || px > (float) w) continue;
-            const auto col = padSourceColour (i, p);
-            g.setColour (col.withAlpha (0.25f));
-            g.fillRect (px - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
+            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
+            const auto bloom = col.brighter (0.35f);
+            juce::ColourGradient pg (bloom.withAlpha (0.0f), px - 14.0f, 0.0f,
+                                     bloom.withAlpha (0.0f), px + 14.0f, 0.0f, false);
+            pg.addColour (0.5, bloom.withAlpha (0.30f));
+            g.setGradientFill (pg);
+            g.fillRect (px - 14.0f, (float) top, 28.0f, (float) (waveBottom - top));
             g.setColour (col.brighter (0.7f).withAlpha (0.95f));
-            g.drawVerticalLine ((int) px, (float) top, (float) waveBottom);
+            g.fillRect (px - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
             juce::Path tip;
             tip.addTriangle (px - 4.0f, (float) top, px + 4.0f, (float) top, px, (float) top + 6.0f);
             g.fillPath (tip);
@@ -477,7 +547,7 @@ public:
             return;
         }
 
-        if (e.y >= h - sb)                                   // scrollbar
+        if (e.y >= h - sb - bottomChromeH)                   // scrollbar (shifted above the chip band)
         {
             drag = DragMode::scroll;
             const double clickedSample = (double) e.x / (double) juce::jmax (1, w) * (double) cachedLen;
@@ -849,6 +919,7 @@ private:
     int flagBarY = 0, flagBarH = 15;        // flag pennant row (set in paint), used for flag clicks
     int hoverLane = -1;                     // stem lane under the mouse (for solo reveal)
     int stemLabW = 60, stemSoloW = 18, stemRulerH = 14;
+    int bottomChromeH = 0;                  // C2: reserved band for the .ov.bl/.ov.br chip plates
 
     DragMode drag = DragMode::none;
     int dragPad = -1;

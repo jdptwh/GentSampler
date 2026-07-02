@@ -883,6 +883,14 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         sliceMenu.setBounds  (bx, by, 52, 24);
         // bottom-right: FULL VIEW ghost
         fullBtn.setBounds (in.getRight() - 78, by, 78, 24);
+
+        // C2: tell the wave how tall the bottom chip band is — this is the mockup's
+        // own 8px .ov inset + 24px chip height (in), expressed via the layout rects
+        // (displayRect.getBottom() - by) rather than re-hardcoded, so it keeps
+        // tracking correctly if those two literals ever change. It lifts the wave's
+        // scrollbar/end-handles clear of the chip plates instead of rendering
+        // underneath them.
+        wave.setBottomChromeInset (displayRect.getBottom() - by);
     }
 
     full.removeFromTop (8);
