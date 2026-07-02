@@ -12,33 +12,32 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Redesign Phase C, Task C4 — selection/state-plumbing audit closed
-  two real gaps: (1) WaveformView's 30Hz timer never watched p.selectedPad on its
-  own, so a pad-grid click on an ALREADY-assigned pad (no uiDirty bump on that path)
-  could leave the map's cue-region highlight/bold line/bold flag stale until
-  playback happened to start it repainting — now watched directly (lastSel), same
-  pattern SliceDetailStrip already used for its own hash; (2) the strip's granular
-  freeze/position marker reads grainOnFor/getGrainPosFor/grainFreezeFor straight off
-  APVTS-backed knobs that never bumped uiDirty, so turning GRAIN/FREEZE on or
-  scrubbing the inspector's POS knob while the strip was visible didn't move the
-  marker — now watched via a cheap folded hash (lastGrainHash), repaint-only (no
-  peak rebuild). Everything else in the audit matrix (source/stem-mask hue, map<->
-  strip slice-edit sync either direction, undo/redo, load/clear file-identity via
-  cachedSrc pointer + new-SourceSample-per-load, stem-separation completion) was
-  already correctly wired through the existing uiDirty/hash mechanisms — no changes
-  needed there. (Caveat, pre-existing: undo/redo RESTORES cue/end only — CueSnap
-  doesn't cover padStemMask or grain params; both surfaces sync fine to what it
-  restores. On the C5 report as a known limitation.) Timer sweep of all 4 juce::Timer components (WaveformView/
-  SliceDetailStrip/PadGrid at 30Hz, editor-level at 15Hz) found no stale-Theme-token
-  caching, no stale post-C3-geometry bounds, and consistent (unchanged) hidden/
-  minimized behavior — none stop their timer, matching pre-existing convention.
-  Build clean, pluginval strictness 5 SUCCESS.
-- In progress: Nothing live — C4 built+verified; holding for the C5 sign-off gate.
-- Next up: Phase C5 — GATE. Deliver FL screenshot at 1040x700, hero/strip
-  side-by-sides vs mockup, a GRAIN-on shot with the freeze marker, an open-slice
-  shot, plus the written functional-check list (strip-drag audition, snap, undo,
-  open-slice conversion, no main-map regressions, granular marker drives
-  grainPosition). Stop for Joe; C6 is polish from his flags, then commit.
+- Last completed: SLICE_FEEL_TASK.md Task F1 — shared HandleDragEngine (struct +
+  free functions: handleDragBegin/handleDragMove/handleDragEnd/resolveSnap) added
+  beside applyEndHandleDrag in Source/PluginEditor.h. Both WaveformView and
+  SliceDetailStrip's CUE/END handle mouseDown/mouseDrag/mouseUp now drive this one
+  engine instead of each calling p.setCue(..., snap=true) directly: mouseDown only
+  arms the gesture (anchor = getCue/getEffectiveCueEnd, no edit, no pushUndo);
+  mouseDrag accumulates (e.x-lastX)*sppNow in a double per-event and applies via
+  setCue(pad,resolved,false) for CUE or the unchanged applyEndHandleDrag for END,
+  with pushUndo() firing lazily on the first event where proposed != anchor (a
+  press-and-release with zero movement now produces NO undo entry — the one
+  intended behavior change the spec calls out). Snap moved OUT of the drag path
+  per the spec: applyEndHandleDrag's own snap block was deleted; a new shared
+  resolveSnap() helper in the engine now resolves snap once (full strength in F1,
+  unchanged feel) for BOTH CUE and END before either setCue(...,false) or
+  applyEndHandleDrag is called — isolated into its own function so F3's 6px-
+  threshold+Alt swap is a body-only edit. SliceDetailStrip additionally freezes
+  zoomLo/zoomHi (both in its own paint() recompute and its timerCallback's hash-
+  triggered rebuildPeaks) for the duration of an active CUE/END gesture, clearing
+  the freeze on mouseUp so the strip re-zooms on the next tick. Right-click END
+  reset untouched (immediate pushUndo + setCueEnd(pad,-1)). Build clean, pluginval
+  strictness 5 SUCCESS. F2 (Shift fine mode) is next; F3-F5 not started.
+- In progress: Nothing live — F1 built+gated, holding for reviewer/Joe's F1 spot check
+  before F2 starts (spec runs F1→F5 in order with a gate between each).
+- Next up: SLICE_FEEL_TASK.md Task F2 — Shift = 0.10x fine-mode rate threaded
+  through the same HandleDragEngine.handleDragMove `rate` parameter (already wired
+  for this in F1).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

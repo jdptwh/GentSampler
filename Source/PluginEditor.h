@@ -53,21 +53,130 @@ inline juce::Colour padMapHue (int i, const GentSamplerAudioProcessor& p)
 // OWN current zoom (map and strip zoom independently, so 8px means a different
 // sample count on each) — this preserves the map's existing zoom-dependent
 // behaviour byte-for-byte while giving the strip the identical rule at its zoom.
+// F1: snap block removed (SLICE_FEEL_TASK.md F1 bullet 3 / AC-F1.7) — the caller
+// (HandleDragEngine::handleDragMove) now resolves snap BEFORE calling this, so
+// `proposedEndSample` arriving here is already the final (possibly snapped)
+// candidate. This function's only remaining job is the collapse-vs-window
+// decision and the cue+33 floor, both byte-identical to before.
 inline void applyEndHandleDrag (GentSamplerAudioProcessor& p, int pad,
                                 int proposedEndSample, int collapseToleranceSamples)
 {
     const int cue = p.getCue (pad);
     if (proposedEndSample <= cue + collapseToleranceSamples)
-    {
         p.setCueEnd (pad, cue);                                   // collapse -> open/gated
-    }
     else
+        p.setCueEnd (pad, juce::jmax (cue + 33, proposedEndSample));
+}
+
+// ---------------------------------------------------------------------------
+// F1: HandleDragEngine — the single shared implementation of relative-drag
+// CUE/END/grain-marker editing for BOTH edit surfaces (WaveformView hero map,
+// SliceDetailStrip). Ground rule 1 (SLICE_FEEL_TASK.md): all drag/snap/nudge
+// decision logic lives HERE, once; surfaces only supply their own hit-testing,
+// spp (samples-per-pixel) and repaint calls — no per-surface fork of the
+// decision tree itself.
+//
+// Shape is deliberately future-proofed for F2 (fine-mode rate), F3 (snap
+// threshold resolve step) and F5 (grain-marker reuse) so those tasks are pure
+// additions to this struct/these functions, not rewrites:
+//   - `rate` is already threaded through handleDragMove (F1 hardcodes 1.0;
+//     F2 sets it from e.mods.isShiftDown() at the call site).
+//   - the snap step below is isolated in resolveSnap() so F3 can replace its
+//     body with the 6px-threshold test without touching the accumulator.
+//   - `handle` already carries a `grain` enumerator so F5's marker drag can
+//     drive this exact accumulator/lazy-undo path with no third drag impl.
+struct HandleDragEngine
+{
+    enum class Handle { none, cue, end, grain };
+
+    Handle handle = Handle::none;
+    int    pad = -1;
+    int    anchorSample = 0;      // getCue/getEffectiveCueEnd at mouseDown
+    int    lastX = 0;             // last raw event x (screen px)
+    double accumSamples = 0.0;    // double accumulation -> immune to view-scroll & rounding drift
+    bool   undoPushed = false;    // lazy pushUndo guard: first EFFECTIVE movement only
+
+    bool isActive() const { return handle != Handle::none && pad >= 0; }
+};
+
+// mouseDown: arm the gesture. No setCue/setCueEnd call, no pushUndo here — F1
+// ground rule: "click-without-move creates no undo entry" (AC-F1.1/AC-F1.2).
+inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
+                             int pad, HandleDragEngine::Handle handle, int startX)
+{
+    g.pad = pad;
+    g.handle = handle;
+    g.lastX = startX;
+    g.accumSamples = 0.0;
+    g.undoPushed = false;
+    g.anchorSample = (handle == HandleDragEngine::Handle::cue)
+                         ? p.getCue (pad)
+                         : p.getEffectiveCueEnd (pad);   // OPEN -> len-1, see risk #6
+}
+
+// Single shared snap-resolve step (F1 bullet 3: snap moves OUT of the drag path,
+// into the engine, for both CUE and END — applyEndHandleDrag's own snap block is
+// removed). F1 applies full-strength snap when snapEnabled ("snap semantics
+// unchanged in F1" — SLICE_FEEL_TASK.md F1 section, last bullet); F3 replaces
+// only this function's body with the 6px-capture-threshold + Alt-bypass test —
+// the accumulator/lazy-undo mechanics and this call site are untouched by F3.
+inline int resolveSnap (GentSamplerAudioProcessor& p, int proposed)
+{
+    if (! p.snapEnabled.load())
+        return proposed;
+    return (p.gridStepSamples() > 0.0) ? p.nearestGridLine (proposed)
+                                        : p.nearestTransient (proposed);
+}
+
+// mouseDrag per event: incremental accumulation in sample space (double), then
+// apply via the existing processor calls with snap=false (the engine, not
+// setCue, now owns snap resolution for the drag path — ground rule 2). `rate`
+// is the F2 hook (1.0 in F1; Shift => 0.10 from F2 onward). `collapseTolSamp`
+// is the surface's own ~8px-at-its-zoom tolerance for applyEndHandleDrag,
+// unchanged from the pre-F1 per-surface computation.
+inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
+                            int x, double samplesPerPixel, int collapseTolSamples,
+                            double rate = 1.0)
+{
+    if (! g.isActive()) return;
+
+    g.accumSamples += (double) (x - g.lastX) * samplesPerPixel * rate;
+    g.lastX = x;
+    const int proposed = g.anchorSample + juce::roundToInt (g.accumSamples);
+
+    if (proposed == g.anchorSample && ! g.undoPushed)
+        return;                                    // no effective movement yet: no edit, no undo
+
+    if (! g.undoPushed)
     {
-        int s = proposedEndSample;
-        if (p.snapEnabled.load())                                 // snap window end to grid
-            s = (p.gridStepSamples() > 0.0) ? p.nearestGridLine (s) : p.nearestTransient (s);
-        p.setCueEnd (pad, juce::jmax (cue + 33, s));
+        p.pushUndo();
+        g.undoPushed = true;
     }
+
+    if (g.handle == HandleDragEngine::Handle::cue)
+    {
+        p.setCue (g.pad, resolveSnap (p, proposed), false);
+    }
+    else if (g.handle == HandleDragEngine::Handle::end)
+    {
+        // F1 bullet 3 / AC-F1.7: snap resolved HERE (once, shared with CUE above),
+        // not inside applyEndHandleDrag (that block was removed) — the resolved
+        // value is what the collapse-vs-window decision sees, same as F3's shared
+        // resolve step will do (F3 only swaps resolveSnap's body for the threshold
+        // test; this call site is unchanged from F1 to F3).
+        applyEndHandleDrag (p, g.pad, resolveSnap (p, proposed), collapseTolSamples);
+    }
+    else if (g.handle == HandleDragEngine::Handle::grain)
+    {
+        // F5 wires this branch; F1 leaves it inert (grain marker drag is not yet
+        // routed through the engine in this task).
+    }
+}
+
+inline void handleDragEnd (HandleDragEngine& g)
+{
+    g.handle = HandleDragEngine::Handle::none;
+    g.pad = -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -638,11 +747,16 @@ public:
                 {
                     if (e.mods.isRightButtonDown())
                     { p.pushUndo(); p.setCueEnd (sel, -1); repaint(); return; }
-                    p.pushUndo(); drag = DragMode::endEdge; dragPad = sel; return;
+                    // F1: no pushUndo/setCueEnd here — arm the engine only, edit is lazy.
+                    drag = DragMode::endEdge; dragPad = sel;
+                    handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
+                    return;
                 }
                 if (ds <= 5.0f)                                   // selected start edge
                 {
-                    p.pushUndo(); drag = DragMode::startEdge; dragPad = sel; return;
+                    drag = DragMode::startEdge; dragPad = sel;
+                    handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::cue, e.x);
+                    return;
                 }
             }
         }
@@ -659,9 +773,9 @@ public:
                 return;
             }
             p.selectedPad = hp;
-            p.pushUndo();
             drag = DragMode::endEdge;
             dragPad = hp;
+            handleDragBegin (dragEngine, p, hp, HandleDragEngine::Handle::end, e.x);
             return;
         }
 
@@ -670,9 +784,9 @@ public:
         if (sp >= 0)
         {
             p.selectedPad = sp;
-            p.pushUndo();
             drag = DragMode::startEdge;
             dragPad = sp;
+            handleDragBegin (dragEngine, p, sp, HandleDragEngine::Handle::cue, e.x);
             return;
         }
 
@@ -705,7 +819,19 @@ public:
                 break;
             }
             case DragMode::startEdge:
-                if (dragPad >= 0) { p.setCue (dragPad, xToSample (e.x), true); repaint(); }
+            case DragMode::endEdge:
+                if (dragPad >= 0 && dragEngine.isActive())
+                {
+                    // F1: relative-drag engine — same accumulator/lazy-undo/snap decision
+                    // for both handles, one call site, no per-surface fork (ground rule 1).
+                    // Collapse affordance is still "~8 screen px of the start line", converted
+                    // to THIS view's own sample-space tolerance so the byte-for-byte behaviour
+                    // at every zoom level is unchanged (8px * current samples-per-pixel).
+                    const double samplesPerPixel = viewSpan / (double) juce::jmax (1, getWidth());
+                    const int tol = (int) (8.0 * samplesPerPixel);
+                    handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol);
+                    repaint();
+                }
                 break;
             case DragMode::placeStart:
             {
@@ -716,26 +842,18 @@ public:
                 repaint();
                 break;
             }
-            case DragMode::endEdge:
-                if (dragPad >= 0)
-                {
-                    // C3 review fix: shared decision tree (applyEndHandleDrag) — the collapse
-                    // affordance is still "~8 screen px of the start line", converted to THIS
-                    // view's own sample-space tolerance so the byte-for-byte behaviour at every
-                    // zoom level is unchanged (8px * current samples-per-pixel).
-                    const double samplesPerPixel = viewSpan / (double) juce::jmax (1, getWidth());
-                    const int tol = (int) (8.0 * samplesPerPixel);
-                    applyEndHandleDrag (p, dragPad, xToSample (e.x), tol);
-                    repaint();
-                }
-                break;
             case DragMode::none:
             default:
                 break;
         }
     }
 
-    void mouseUp (const juce::MouseEvent&) override { drag = DragMode::none; dragPad = -1; }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        handleDragEnd (dragEngine);
+        drag = DragMode::none;
+        dragPad = -1;
+    }
 
     void mouseDoubleClick (const juce::MouseEvent&) override
     {
@@ -968,6 +1086,7 @@ private:
 
     DragMode drag = DragMode::none;
     int dragPad = -1;
+    HandleDragEngine dragEngine;   // F1: shared relative-drag state for CUE/END gestures
     bool follow = true, wasPlaying = false;
     int lastTrig = -1;
     double scrollGrab = 0.0, panAnchorStart = 0.0;
@@ -1036,10 +1155,18 @@ public:
             const int cue = p.getCue (sel);
             const int end = p.getEffectiveCueEnd (sel);
             const bool open = p.isOpenSlice (sel);
-            const int span = juce::jmax (1, end - cue);
-            const int ctx  = (int) (span * 0.15);
-            zoomLo = juce::jmax (0, cue - ctx);
-            zoomHi = juce::jmin (cachedLen - 1, end + ctx);
+            // F1: freeze the zoom window for the duration of an active CUE/END gesture
+            // (AC-F1.5) — recomputing zoomLo/zoomHi live off cue/end here every repaint
+            // would make the waveform background swim under the handle mid-drag even
+            // though rebuildPeaks() itself is skipped. Recomputed again once the gesture
+            // ends (mouseUp clears the flag; the next tick's timerCallback rebuilds).
+            if (! gestureZoomFrozen)
+            {
+                const int span = juce::jmax (1, end - cue);
+                const int ctx  = (int) (span * 0.15);
+                zoomLo = juce::jmax (0, cue - ctx);
+                zoomHi = juce::jmin (cachedLen - 1, end + ctx);
+            }
             const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
 
             auto xOf = [&] (int s) { return (float) waveL + (float) (s - zoomLo) / (float) zoomSpan * (float) (waveR - waveL); };
@@ -1165,8 +1292,19 @@ public:
 
         const float dc = std::abs (cueX - (float) e.x);
         const float de = std::abs (endX - (float) e.x);
-        if (de <= 6.0f && de <= dc) { p.pushUndo(); drag = DragMode::endEdge; }
-        else if (dc <= 6.0f)        { p.pushUndo(); drag = DragMode::startEdge; }
+        // F1: arm the shared engine only — no pushUndo/edit here (lazy on first move).
+        if (de <= 6.0f && de <= dc)
+        {
+            drag = DragMode::endEdge;
+            handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
+            gestureZoomFrozen = true;
+        }
+        else if (dc <= 6.0f)
+        {
+            drag = DragMode::startEdge;
+            handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::cue, e.x);
+            gestureZoomFrozen = true;
+        }
         else if (p.grainOnFor (sel) && waveR > waveL)
         {
             // granular position marker: same hit-test tolerance as the CUE/END handles
@@ -1193,17 +1331,15 @@ public:
         switch (drag)
         {
             case DragMode::startEdge:
-                // SAME call as WaveformView's startEdge drag (p.setCue with snap=true)
-                p.setCue (sel, xToSample (e.x), true);
-                break;
             case DragMode::endEdge:
             {
-                // C3 review fix: shared decision tree (applyEndHandleDrag) — same rule as
-                // the main map's endEdge drag, with the ~8px collapse affordance converted
-                // to THIS strip's own sample-space tolerance at its own (much tighter) zoom.
+                // F1: relative-drag engine — same accumulator/lazy-undo/snap decision the
+                // hero map uses, one call site (ground rule 1). Collapse affordance is the
+                // same ~8px rule, converted to THIS strip's own sample-space tolerance at
+                // its own (much tighter) zoom.
                 const double samplesPerPixel = (double) zoomSpan / (double) juce::jmax (1, waveR - waveL);
                 const int tol = (int) (8.0 * samplesPerPixel);
-                applyEndHandleDrag (p, sel, xToSample (e.x), tol);
+                handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol);
                 break;
             }
             case DragMode::grainPos:
@@ -1220,7 +1356,15 @@ public:
         ++p.uiDirty;   // C4: nudge the hero to repaint too — single source of truth
     }
 
-    void mouseUp (const juce::MouseEvent&) override { drag = DragMode::none; }
+    void mouseUp (const juce::MouseEvent&) override
+    {
+        // F1: release the zoom freeze on gesture end so timerCallback's hash check
+        // (which was skipped mid-gesture) re-evaluates and rebuilds peaks at the
+        // post-drag cue/end window on the very next tick.
+        gestureZoomFrozen = false;
+        handleDragEnd (dragEngine);
+        drag = DragMode::none;
+    }
 
     void mouseMove (const juce::MouseEvent& e) override
     {
@@ -1250,7 +1394,13 @@ private:
         // rebuild peaks when the source, selection, zoom window, or width changes
         juce::int64 hh = (juce::int64) sel * 97 + (juce::int64) p.getCue (sel) * 7
                         + (juce::int64) p.getEffectiveCueEnd (sel);
-        if (s.get() != cachedSrc || getWidth() != cachedW || hh != cachedHash)
+        // F1: during an active CUE/END gesture the zoom window is frozen (AC-F1.5) —
+        // skip the hash-triggered rebuild so cue/end changes mid-drag don't re-zoom;
+        // source/width changes still apply immediately even mid-gesture. Recompute
+        // on mouseUp: gestureZoomFrozen clears there and the very next tick sees the
+        // post-drag cue/end in the hash and rebuilds normally.
+        const bool sourceOrWidthChanged = (s.get() != cachedSrc || getWidth() != cachedW);
+        if (sourceOrWidthChanged || (! gestureZoomFrozen && hh != cachedHash))
         {
             cachedSrc = s.get();
             cachedW = getWidth();
@@ -1325,6 +1475,8 @@ private:
     int waveL = 118, waveR = 0;
     float cueX = -1.0f, endX = -1.0f;
     DragMode drag = DragMode::none;
+    HandleDragEngine dragEngine;      // F1: shared relative-drag state for CUE/END gestures
+    bool gestureZoomFrozen = false;   // F1: freeze zoomLo/zoomHi while a handle gesture is active
     bool wasPlaying = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceDetailStrip)
