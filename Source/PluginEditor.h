@@ -101,6 +101,10 @@ struct HandleDragEngine
 
 // mouseDown: arm the gesture. No setCue/setCueEnd call, no pushUndo here — F1
 // ground rule: "click-without-move creates no undo entry" (AC-F1.1/AC-F1.2).
+// F5: Handle::grain seeds anchorSample from the marker's CURRENT absolute
+// sample position (cue + frac*(end-cue)), the same "anchor = current handle
+// position" rule CUE/END already follow — this is what makes AC-F5.1's
+// no-jump-at-grab guarantee hold for the marker too (see handleDragMove).
 inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
                              int pad, HandleDragEngine::Handle handle, int startX)
 {
@@ -109,9 +113,16 @@ inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
     g.lastX = startX;
     g.accumSamples = 0.0;
     g.undoPushed = false;
-    g.anchorSample = (handle == HandleDragEngine::Handle::cue)
-                         ? p.getCue (pad)
-                         : p.getEffectiveCueEnd (pad);   // OPEN -> len-1, see risk #6
+    if (handle == HandleDragEngine::Handle::cue)
+        g.anchorSample = p.getCue (pad);
+    else if (handle == HandleDragEngine::Handle::end)
+        g.anchorSample = p.getEffectiveCueEnd (pad);   // OPEN -> len-1, see risk #6
+    else // grain
+    {
+        const int cue = p.getCue (pad);
+        const int end = p.getEffectiveCueEnd (pad);
+        g.anchorSample = cue + (int) (p.getGrainPosFor (pad) * (float) juce::jmax (1, end - cue));
+    }
 }
 
 // Single shared snap-resolve step (F1 bullet 3: snap moves OUT of the drag path,
@@ -155,7 +166,15 @@ inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
     if (proposed == g.anchorSample && ! g.undoPushed)
         return;                                    // no effective movement yet: no edit, no undo
 
-    if (! g.undoPushed)
+    // F5: the grain marker is excluded from pushUndo. Grain position is an APVTS
+    // parameter (written via setGrainPosFor), not part of CueSnap (PluginProcessor.cpp
+    // snapshot() only captures cues[]/cueEnds[]) — verified against the pre-F5 grainPos
+    // drag path (SliceDetailStrip::mouseDrag's old DragMode::grainPos case), which never
+    // called pushUndo() at all. Matching that exactly here: a grain-only pushUndo would
+    // record a CueSnap entry that Ctrl+Z "restores" with zero visible effect (grain isn't
+    // in the snapshot), spending an undo slot for nothing. See CLAUDE.md's 2026-07-02
+    // landmine on partial undo scope.
+    if (! g.undoPushed && g.handle != HandleDragEngine::Handle::grain)
     {
         p.pushUndo();
         g.undoPushed = true;
@@ -176,8 +195,23 @@ inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
     }
     else if (g.handle == HandleDragEngine::Handle::grain)
     {
-        // F5 wires this branch; F1 leaves it inert (grain marker drag is not yet
-        // routed through the engine in this task).
+        // F5: grain marker reuses this exact accumulator (no third drag impl,
+        // AC-F5.3) but takes NEITHER of the two branches above's extra behaviour:
+        // no resolveSnap (the marker never had snap, and the spec says it never
+        // should — it's a performance control, not a cut point) and no
+        // applyEndHandleDrag collapse logic (there's no OPEN-slice concept for a
+        // grain position). anchorSample was seeded in handleDragBegin from the
+        // CURRENT marker sample (cue + frac*(end-cue)), so `proposed` here is
+        // already in absolute sample space, exactly like CUE/END. Clamp to the
+        // live [cue, effectiveEnd] window (it can move independently of the
+        // marker's own gesture, e.g. via nudge/other-pad edits, but not mid-drag
+        // in practice) and convert back to the fraction setGrainPosFor expects.
+        const int cue = p.getCue (g.pad);
+        const int end = p.getEffectiveCueEnd (g.pad);
+        const int clamped = juce::jlimit (cue, juce::jmax (cue, end), proposed);
+        const int span = juce::jmax (1, end - cue);
+        const float frac = (float) (clamped - cue) / (float) span;
+        p.setGrainPosFor (g.pad, frac);
     }
 }
 
@@ -1368,26 +1402,30 @@ public:
         }
         else if (p.grainOnFor (sel) && waveR > waveL)
         {
-            // granular position marker: same hit-test tolerance as the CUE/END handles
+            // F5: granular position marker — same hit-test tolerance as the CUE/END
+            // handles, now armed through the SAME shared engine (handleDragBegin
+            // seeds anchorSample from the marker's current sample position, so
+            // there's no jump at grab even if the click lands off-centre in the
+            // 6px zone — AC-F5.1). No gestureZoomFrozen (grain doesn't move
+            // cue/end, so the zoom window this strip shows can't move either —
+            // freezing it would be a no-op) and no onHandleGrabbed (armed-handle
+            // affordance is a cut-point/nudge concept; grain has neither).
             const int cue = p.getCue (sel), end = p.getEffectiveCueEnd (sel);
             const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
             const float gx = (float) waveL + (float) ((cue + (int) (p.getGrainPosFor (sel) * (end - cue))) - zoomLo)
                                 / (float) zoomSpan * (float) (waveR - waveL);
             if (std::abs (gx - (float) e.x) <= 6.0f)
+            {
                 drag = DragMode::grainPos;
+                handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::grain, e.x);
+            }
         }
     }
 
     void mouseDrag (const juce::MouseEvent& e) override
     {
         if (drag == DragMode::none || cachedLen <= 0) return;
-        const int sel = p.selectedPad.load();
         const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
-        auto xToSample = [&] (int x)
-        {
-            const double frac = (double) (x - waveL) / (double) juce::jmax (1, waveR - waveL);
-            return juce::jlimit (0, juce::jmax (0, cachedLen - 1), zoomLo + (int) (frac * zoomSpan));
-        };
 
         switch (drag)
         {
@@ -1411,10 +1449,13 @@ public:
             }
             case DragMode::grainPos:
             {
-                const int cue = p.getCue (sel), end = p.getEffectiveCueEnd (sel);
-                const int span = juce::jmax (1, end - cue);
-                const float frac = juce::jlimit (0.0f, 1.0f, (float) (xToSample (e.x) - cue) / (float) span);
-                p.setGrainPosFor (sel, frac);
+                // F5: same accumulator as CUE/END (AC-F5.3) — this strip's spp, and
+                // Shift = 0.10x fine rate (F2's rate hook), but NO altDown/snap (the
+                // engine's grain branch never calls resolveSnap regardless of what's
+                // passed, so there's nothing to gate here either way).
+                const double samplesPerPixel = (double) zoomSpan / (double) juce::jmax (1, waveR - waveL);
+                const double rate = e.mods.isShiftDown() ? 0.10 : 1.0;
+                handleDragMove (dragEngine, p, e.x, samplesPerPixel, 0, rate);
                 break;
             }
             default: break;

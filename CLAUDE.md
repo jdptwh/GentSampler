@@ -12,39 +12,40 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md Task F4 — arrow-key nudge + active-handle
-  affordance. `WaveformView`/`SliceDetailStrip` both call
-  `setWantsKeyboardFocus(true)` so clicking either grabs plugin keyboard focus;
-  unhandled keys bubble via JUCE's normal focused-component -> parent-chain
-  KeyListener walk to the editor's single `keyPressed` (non-ctrl branch),
-  confirmed the Ctrl+Z/Shift+Z/Y branch is untouched and still returns early
-  (AC-F4.7). Bindings: Left/Right/`,`/`.` nudge the armed handle (Shift = fine
-  rate); Up arms CUE, Down arms END. Armed-handle state is editor-held
-  (`armedHandle`/`armedHandlePad`), defaults to CUE, resets to CUE whenever
-  `selectedPad` changes (checked every `timerCallback` tick), and is also set
-  the moment either surface's `mouseDown` arms a CUE/END gesture via a new
-  `onHandleGrabbed` callback fired right after `handleDragBegin` at all 6 call
-  sites (4 map, 2 strip) — mirrored into `SliceDetailStrip::setArmedHandle` for
-  paint. Increment = 1 strip-pixel (`SliceDetailStrip::stripSpp()`, a new
-  public accessor exposing `(zoomHi-zoomLo)/(waveR-waveL)`); Shift =
-  `max(1, round(stripSpp/10))`. Nudge applies through the SAME edit calls the
-  drag path uses — CUE via `setCue(pad, s, false)`, END via
-  `applyEndHandleDrag(p, pad, s, 8*stripSpp)` — never through `resolveSnap`
-  (nudge is spec'd as snap's escape hatch); one shared `nudgeHandle()` helper
-  in PluginEditor.cpp, no third edit implementation. Undo coalescing: a
-  600ms-since-last-nudge timestamp (`juce::Time::getMillisecondCounter()`,
-  matching the codebase's existing lazy-timestamp idiom) gates `pushUndo()` so
-  a rapid burst is one undo entry. Affordance: strip-only, armed cap keeps its
-  existing full-alpha `Theme::accent` fill and gains a 1px accent outline ring
-  (`g.strokePath` on the same triangle `Path`); the other cap is byte-
-  unchanged; map handle rendering untouched. Build clean, pluginval strictness
-  5 SUCCESS; only Source/PluginEditor.h/.cpp touched (PluginProcessor
-  untouched — F4 needed no processor change). F5 (grain marker consistency,
-  reusing the F1 engine, no snap, no nudge) is next and last.
-- In progress: Nothing live — F4 built+gated, holding for F5.
-- Next up: SLICE_FEEL_TASK.md Task F5 — grain-marker relative-drag + Shift
-  fine mode via the same `HandleDragEngine` accumulator (no snap, no arrow
-  nudge); reviewer gate after F5 (full diff, single-edit-path invariant).
+- Last completed: SLICE_FEEL_TASK.md Task F5 (last task) — grain-marker
+  consistency. `SliceDetailStrip`'s granular position marker
+  (`DragMode::grainPos`) now arms and drives through the same
+  `HandleDragEngine` F1 built (no third drag implementation): `mouseDown` calls
+  `handleDragBegin(dragEngine, p, sel, Handle::grain, e.x)`, seeding
+  `anchorSample` from the marker's CURRENT absolute sample position
+  (`cue + frac*(end-cue)`) so grabbing it off-centre in its 6px zone never
+  jumps (AC-F5.1); `mouseDrag`'s `grainPos` case calls `handleDragMove` with
+  the strip's own spp and Shift = 0.10x fine rate (AC-F5.2), same as CUE/END.
+  `handleDragMove`'s `Handle::grain` branch clamps the accumulated proposed
+  sample to `[cue, effectiveEnd]`, converts to a fraction, and applies via
+  `p.setGrainPosFor(pad, frac)` — no `resolveSnap` call (grain never had snap
+  and never should, per spec) and no `applyEndHandleDrag` collapse logic
+  (no OPEN-slice concept for a marker). Undo: verified the OLD grainPos path
+  never called `pushUndo()` (grain params are an APVTS value, not part of
+  `CueSnap`'s cue[]/end[] snapshot — see the 2026-07-02 partial-undo-scope
+  landmine below); added a one-line guard in the shared `handleDragMove` so
+  the existing unconditional `pushUndo()` on first effective movement is
+  skipped specifically for `Handle::grain`, matching old behavior exactly
+  (a grain-only undo entry would have been a no-op push, wasting a slot).
+  Zoom freeze: verified the old grainPos path never touched
+  `gestureZoomFrozen` (grain drags can't move cue/end, so the strip's zoom
+  window has nothing to freeze) — left untouched, not set for grain gestures.
+  No `onHandleGrabbed` fire and no arrow-nudge path for grain (armed-handle
+  state and `nudgeHandle()` only ever branch cue/end). Build clean, pluginval
+  strictness 5 SUCCESS; only Source/PluginEditor.h touched (no processor or
+  .cpp changes needed for F5). SLICE_FEEL_TASK.md is now feature-complete
+  pending reviewer full-diff gate and Joe's FL hands-on feel pass (final
+  arbiter per spec, can bounce even with all machine gates green).
+- In progress: Nothing live — F5 built+gated, holding for reviewer + Joe's
+  FL feel pass on the whole SLICE_FEEL_TASK.md arc (F1-F5).
+- Next up: Reviewer full-diff gate on SLICE_FEEL_TASK.md, then Joe's FL feel
+  pass (no-jump grab, Shift fine ratio, Alt bypass, snap capture at 6px,
+  arrow/fallback nudge, grain marker feel). No further coded work queued.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

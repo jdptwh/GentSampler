@@ -1195,6 +1195,18 @@ void GentSamplerAudioProcessorEditor::nudgeHandle (bool right, bool fine)
     if (p.getCue (pad) < 0 || p.getSource() == nullptr)
         return;
 
+    // Final-review fix: the timer resets armed state on pad-selection change at
+    // only 15Hz, leaving a ~67ms window where a nudge fired right after clicking
+    // a new pad would hit the PREVIOUS pad's armed handle. Self-heal at point of
+    // use: a stale armedHandlePad means selection changed since arming — apply
+    // the spec's default (CUE) for the new pad before editing anything.
+    if (armedHandlePad != pad)
+    {
+        armedHandle    = HandleDragEngine::Handle::cue;
+        armedHandlePad = pad;
+        sliceDetail.setArmedHandle (armedHandle);
+    }
+
     const double spp = sliceDetail.stripSpp();
     const juce::int64 inc = fine ? juce::jmax ((juce::int64) 1, (juce::int64) juce::roundToInt (spp / 10.0))
                                   : juce::jmax ((juce::int64) 1, (juce::int64) juce::roundToInt (spp));
