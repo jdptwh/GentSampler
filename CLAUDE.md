@@ -12,32 +12,27 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md Task F1 — shared HandleDragEngine (struct +
-  free functions: handleDragBegin/handleDragMove/handleDragEnd/resolveSnap) added
-  beside applyEndHandleDrag in Source/PluginEditor.h. Both WaveformView and
-  SliceDetailStrip's CUE/END handle mouseDown/mouseDrag/mouseUp now drive this one
-  engine instead of each calling p.setCue(..., snap=true) directly: mouseDown only
-  arms the gesture (anchor = getCue/getEffectiveCueEnd, no edit, no pushUndo);
-  mouseDrag accumulates (e.x-lastX)*sppNow in a double per-event and applies via
-  setCue(pad,resolved,false) for CUE or the unchanged applyEndHandleDrag for END,
-  with pushUndo() firing lazily on the first event where proposed != anchor (a
-  press-and-release with zero movement now produces NO undo entry — the one
-  intended behavior change the spec calls out). Snap moved OUT of the drag path
-  per the spec: applyEndHandleDrag's own snap block was deleted; a new shared
-  resolveSnap() helper in the engine now resolves snap once (full strength in F1,
-  unchanged feel) for BOTH CUE and END before either setCue(...,false) or
-  applyEndHandleDrag is called — isolated into its own function so F3's 6px-
-  threshold+Alt swap is a body-only edit. SliceDetailStrip additionally freezes
-  zoomLo/zoomHi (both in its own paint() recompute and its timerCallback's hash-
-  triggered rebuildPeaks) for the duration of an active CUE/END gesture, clearing
-  the freeze on mouseUp so the strip re-zooms on the next tick. Right-click END
-  reset untouched (immediate pushUndo + setCueEnd(pad,-1)). Build clean, pluginval
-  strictness 5 SUCCESS. F2 (Shift fine mode) is next; F3-F5 not started.
-- In progress: Nothing live — F1 built+gated, holding for reviewer/Joe's F1 spot check
-  before F2 starts (spec runs F1→F5 in order with a gate between each).
-- Next up: SLICE_FEEL_TASK.md Task F2 — Shift = 0.10x fine-mode rate threaded
-  through the same HandleDragEngine.handleDragMove `rate` parameter (already wired
-  for this in F1).
+- Last completed: SLICE_FEEL_TASK.md Task F2 — Shift fine mode (0.10x rate) wired
+  at both HandleDragEngine.handleDragMove call sites (WaveformView::mouseDrag and
+  SliceDetailStrip::mouseDrag, Source/PluginEditor.h): each site now passes
+  `rate = e.mods.isShiftDown() ? 0.10 : 1.0`, read fresh per mouse event. No
+  engine-body changes — F1 had already threaded `rate` through the accumulator
+  (`accumSamples += (x-lastX)*sppNow*rate`), so this was a two-line-plus-comment
+  surgical edit at the call sites only. Mid-drag Shift press/release re-anchors
+  implicitly: because accumSamples is a running double and lastX advances every
+  event, a modifier change only changes the rate applied to the NEXT delta — nothing
+  resets lastX or accumSamples on a modifier change — so the position discontinuity
+  at the transition event is bounded by one event's worth of delta at the new vs.
+  old rate, well under the ±1-sample/±2-sample tolerances in AC-F2.2/F2.3. Snap
+  composition order unchanged from F1: rate scales the raw pixel delta inside the
+  accumulator; resolveSnap() still runs once on the fully-accumulated `proposed`
+  afterward (for both CUE and END). Build clean, pluginval strictness 5 SUCCESS.
+  F3 (snap capture threshold + Alt bypass) is next; F4-F5 not started.
+- In progress: Nothing live — F2 built+gated, holding for the F3 gate (reviewer
+  checkpoint per spec: after F3, the snap refactor).
+- Next up: SLICE_FEEL_TASK.md Task F3 — replace resolveSnap()'s full-strength body
+  with the 6-screen-px capture threshold + Alt-bypass test (shared by CUE and END,
+  same call sites).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

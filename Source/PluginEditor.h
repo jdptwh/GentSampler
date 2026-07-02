@@ -829,7 +829,10 @@ public:
                     // at every zoom level is unchanged (8px * current samples-per-pixel).
                     const double samplesPerPixel = viewSpan / (double) juce::jmax (1, getWidth());
                     const int tol = (int) (8.0 * samplesPerPixel);
-                    handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol);
+                    // F2: Shift = fine mode, 0.10x rate, read per mouse event so mid-drag
+                    // press/release re-anchors implicitly via the accumulator (no jump).
+                    const double rate = e.mods.isShiftDown() ? 0.10 : 1.0;
+                    handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate);
                     repaint();
                 }
                 break;
@@ -1339,7 +1342,10 @@ public:
                 // its own (much tighter) zoom.
                 const double samplesPerPixel = (double) zoomSpan / (double) juce::jmax (1, waveR - waveL);
                 const int tol = (int) (8.0 * samplesPerPixel);
-                handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol);
+                // F2: Shift = fine mode, 0.10x rate, read per mouse event so mid-drag
+                // press/release re-anchors implicitly via the accumulator (no jump).
+                const double rate = e.mods.isShiftDown() ? 0.10 : 1.0;
+                handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate);
                 break;
             }
             case DragMode::grainPos:
