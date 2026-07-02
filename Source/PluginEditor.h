@@ -195,11 +195,20 @@ public:
     explicit WaveformView (GentSamplerAudioProcessor& proc) : p (proc)
     {
         setOpaque (true);
+        setWantsKeyboardFocus (true);   // F4: clicking the map puts keyboard focus in the
+                                         // plugin so unhandled keys (arrows) bubble to the
+                                         // editor's keyPressed (single handler, ground rule 1)
         startTimerHz (30);
     }
 
     void setFollow (bool shouldFollow)                     { follow = shouldFollow; }
     void fullView()                                        { if (cachedLen > 0) setView (0.0, (double) cachedLen); }
+
+    // F4: fired right after handleDragBegin arms a CUE/END gesture from a mouse grab on
+    // this surface, so the editor can mirror it into its own armed-handle nudge target
+    // (SLICE_FEEL_TASK.md F4 — "set also when a handle is grabbed by mouse on EITHER
+    // surface").
+    std::function<void (HandleDragEngine::Handle)> onHandleGrabbed;
 
     // C2: the hero's corner-anchored overlay chips (mockup .ov.bl/.br) sit on solid
     // plates below the wave; reserve that band so the scrollbar + end-handle grips
@@ -758,12 +767,14 @@ public:
                     // F1: no pushUndo/setCueEnd here — arm the engine only, edit is lazy.
                     drag = DragMode::endEdge; dragPad = sel;
                     handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
+                    if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
                     return;
                 }
                 if (ds <= 5.0f)                                   // selected start edge
                 {
                     drag = DragMode::startEdge; dragPad = sel;
                     handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::cue, e.x);
+                    if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::cue);
                     return;
                 }
             }
@@ -784,6 +795,7 @@ public:
             drag = DragMode::endEdge;
             dragPad = hp;
             handleDragBegin (dragEngine, p, hp, HandleDragEngine::Handle::end, e.x);
+            if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
             return;
         }
 
@@ -795,6 +807,7 @@ public:
             drag = DragMode::startEdge;
             dragPad = sp;
             handleDragBegin (dragEngine, p, sp, HandleDragEngine::Handle::cue, e.x);
+            if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::cue);
             return;
         }
 
@@ -1124,7 +1137,30 @@ public:
     explicit SliceDetailStrip (GentSamplerAudioProcessor& proc) : p (proc)
     {
         setOpaque (false);
+        setWantsKeyboardFocus (true);   // F4: clicking the strip puts keyboard focus in the
+                                         // plugin so unhandled keys (arrows) bubble to the
+                                         // editor's keyPressed (single handler, ground rule 1)
         startTimerHz (30);
+    }
+
+    // F4: fired right after handleDragBegin arms a CUE/END gesture from a mouse grab on
+    // this surface, so the editor can mirror it into its own armed-handle nudge target
+    // (SLICE_FEEL_TASK.md F4 — "set also when a handle is grabbed by mouse on EITHER
+    // surface"). Not fired for the grain-marker drag (F5's concern, not a nudge target).
+    std::function<void (HandleDragEngine::Handle)> onHandleGrabbed;
+
+    // F4: armed-handle affordance — the editor owns the armed-handle state (nudge
+    // target) and pushes it here purely for the strip's own paint() to render the ring;
+    // the strip has no nudge logic of its own (ground rule 1: one decision tree).
+    void setArmedHandle (HandleDragEngine::Handle h)   { if (h != armedHandle) { armedHandle = h; repaint(); } }
+
+    // F4: default nudge increment = 1 strip-pixel = stripSpp samples, read directly from
+    // the strip's own current zoom window ((zoomHi-zoomLo)/(waveR-waveL)) — the editor
+    // has no independent notion of the strip's zoom, so it asks the strip for it rather
+    // than re-deriving/duplicating the computation (ground rule 1).
+    double stripSpp() const
+    {
+        return (double) juce::jmax (1, zoomHi - zoomLo) / (double) juce::jmax (1, waveR - waveL);
     }
 
     void paint (juce::Graphics& g) override
@@ -1236,7 +1272,11 @@ public:
                 }
 
                 // handles: amber glow line + triangle cap (mockup dwave handle glyphs)
-                auto drawHandle = [&] (float x, bool isOpenEnd)
+                // F4: armed-handle affordance (SLICE_FEEL_TASK.md F4) — the handle most
+                // recently grabbed/arrow-armed for arrow-key nudge renders its triangle cap
+                // full-alpha Theme::accent (unchanged fill, matches today) PLUS a 1px accent
+                // outline ring so it's visibly distinct; the other cap is untouched (no ring).
+                auto drawHandle = [&] (float x, bool isOpenEnd, bool isArmed)
                 {
                     g.setColour (Theme::glow.withAlpha (0.35f));
                     g.fillRect (x - 3.0f, 0.0f, 6.0f, (float) h);
@@ -1245,6 +1285,11 @@ public:
                     juce::Path cap;
                     cap.addTriangle (x - 5.0f, 0.0f, x + 5.0f, 0.0f, x, 7.0f);
                     g.fillPath (cap);
+                    if (isArmed)
+                    {
+                        g.setColour (Theme::accent);
+                        g.strokePath (cap, juce::PathStrokeType (1.0f));
+                    }
                     if (isOpenEnd)
                     {
                         g.setColour (Theme::well.withAlpha (0.85f));
@@ -1255,8 +1300,8 @@ public:
                         g.drawText ("OPEN", tag, juce::Justification::centred);
                     }
                 };
-                drawHandle (cueX, false);
-                drawHandle (endX, open);
+                drawHandle (cueX, false, armedHandle == HandleDragEngine::Handle::cue);
+                drawHandle (endX, open, armedHandle == HandleDragEngine::Handle::end);
             }
         }
 
@@ -1312,12 +1357,14 @@ public:
             drag = DragMode::endEdge;
             handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
             gestureZoomFrozen = true;
+            if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
         }
         else if (dc <= 6.0f)
         {
             drag = DragMode::startEdge;
             handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::cue, e.x);
             gestureZoomFrozen = true;
+            if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::cue);
         }
         else if (p.grainOnFor (sel) && waveR > waveL)
         {
@@ -1498,6 +1545,9 @@ private:
     HandleDragEngine dragEngine;      // F1: shared relative-drag state for CUE/END gestures
     bool gestureZoomFrozen = false;   // F1: freeze zoomLo/zoomHi while a handle gesture is active
     bool wasPlaying = false;
+    // F4: editor-pushed paint-only affordance state (nudge target lives in the editor —
+    // this is just what the strip's drawHandle() reads to ring the armed cap).
+    HandleDragEngine::Handle armedHandle = HandleDragEngine::Handle::cue;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceDetailStrip)
 };
@@ -2270,6 +2320,16 @@ private:
     juce::Image frameImg;                  // low-res frame-canvas radial (built once, stretched -> elliptical)
     juce::Rectangle<int> padChipRect;      // filled orange PAD chip in the header
     std::unique_ptr<juce::FileChooser> chooser;
+
+    // ---- F4: arrow-key nudge state (SLICE_FEEL_TASK.md F4) — editor-held per spec's
+    // file plan; the nudge target is "the handle most recently grabbed on either
+    // surface for the selected pad", defaulting to CUE and resetting to CUE whenever
+    // the selected pad changes. lastNudgeMs backs the 600ms undo-coalescing window.
+    HandleDragEngine::Handle armedHandle = HandleDragEngine::Handle::cue;
+    int    armedHandlePad = -1;          // selected pad the armed state was last set for
+    juce::uint32 lastNudgeMs = 0;
+    bool   nudgeUndoPending = false;     // true once a nudge has edited since the last coalesce window closed
+    void nudgeHandle (bool right, bool fine);   // F4 helper: single nudge edit path (PluginEditor.cpp)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (GentSamplerAudioProcessorEditor)
 };

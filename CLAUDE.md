@@ -12,32 +12,39 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md Task F3 — snap capture threshold + Alt
-  bypass, in the single shared `resolveSnap` (Source/PluginEditor.h): signature
-  extended to `resolveSnap(p, proposed, sppNow, altDown)`; body now bypasses
-  snap entirely when `altDown` (or `!snapEnabled`), else computes the grid/
-  transient candidate and only accepts it when `|cand - proposed| <= 6 * sppNow`
-  samples (6 screen px at the active surface's current zoom), otherwise passes
-  `proposed` through untouched. `nearestTransient`'s existing internal 50ms cap
-  is untouched (PluginProcessor.cpp not modified), so effective transient
-  capture is the min of the two, per spec. Both call sites inside
-  `handleDragMove` (CUE → `setCue`, END → `applyEndHandleDrag`) now pass
-  `samplesPerPixel` and a new `altDown` parameter through to `resolveSnap`;
-  `handleDragMove` itself gained an `altDown` parameter threaded from both
-  surface call sites (WaveformView::mouseDrag, SliceDetailStrip::mouseDrag),
-  each reading `e.mods.isAltDown()` fresh per event — same per-event-read
-  pattern as F2's Shift rate, no new persistent state. Still exactly one
-  resolve implementation; `applyEndHandleDrag`'s body, `assignPadCue`,
-  `snapCursor`/`placeStart`, and all auto-slice paths (`applySlices`,
-  `sliceTransients`, `sliceGrid`, `sliceBeats`, `computeBlendedSlices`) are
-  byte-unchanged (PluginProcessor.cpp/.h untouched this task — git diff
-  confirms only Source/PluginEditor.h changed). Build clean, pluginval
-  strictness 5 SUCCESS. F4 (arrow-key nudge + active-handle affordance) is
-  next; F5 not started.
-- In progress: Nothing live — F3 built+gated, holding for the F3 reviewer
-  checkpoint (spec: reviewer gate after F3, the snap refactor, and again after F5).
-- Next up: SLICE_FEEL_TASK.md Task F4 — arrow/comma-period nudge in
-  PluginEditor.cpp's `keyPressed`, plus the strip's armed-handle affordance.
+- Last completed: SLICE_FEEL_TASK.md Task F4 — arrow-key nudge + active-handle
+  affordance. `WaveformView`/`SliceDetailStrip` both call
+  `setWantsKeyboardFocus(true)` so clicking either grabs plugin keyboard focus;
+  unhandled keys bubble via JUCE's normal focused-component -> parent-chain
+  KeyListener walk to the editor's single `keyPressed` (non-ctrl branch),
+  confirmed the Ctrl+Z/Shift+Z/Y branch is untouched and still returns early
+  (AC-F4.7). Bindings: Left/Right/`,`/`.` nudge the armed handle (Shift = fine
+  rate); Up arms CUE, Down arms END. Armed-handle state is editor-held
+  (`armedHandle`/`armedHandlePad`), defaults to CUE, resets to CUE whenever
+  `selectedPad` changes (checked every `timerCallback` tick), and is also set
+  the moment either surface's `mouseDown` arms a CUE/END gesture via a new
+  `onHandleGrabbed` callback fired right after `handleDragBegin` at all 6 call
+  sites (4 map, 2 strip) — mirrored into `SliceDetailStrip::setArmedHandle` for
+  paint. Increment = 1 strip-pixel (`SliceDetailStrip::stripSpp()`, a new
+  public accessor exposing `(zoomHi-zoomLo)/(waveR-waveL)`); Shift =
+  `max(1, round(stripSpp/10))`. Nudge applies through the SAME edit calls the
+  drag path uses — CUE via `setCue(pad, s, false)`, END via
+  `applyEndHandleDrag(p, pad, s, 8*stripSpp)` — never through `resolveSnap`
+  (nudge is spec'd as snap's escape hatch); one shared `nudgeHandle()` helper
+  in PluginEditor.cpp, no third edit implementation. Undo coalescing: a
+  600ms-since-last-nudge timestamp (`juce::Time::getMillisecondCounter()`,
+  matching the codebase's existing lazy-timestamp idiom) gates `pushUndo()` so
+  a rapid burst is one undo entry. Affordance: strip-only, armed cap keeps its
+  existing full-alpha `Theme::accent` fill and gains a 1px accent outline ring
+  (`g.strokePath` on the same triangle `Path`); the other cap is byte-
+  unchanged; map handle rendering untouched. Build clean, pluginval strictness
+  5 SUCCESS; only Source/PluginEditor.h/.cpp touched (PluginProcessor
+  untouched — F4 needed no processor change). F5 (grain marker consistency,
+  reusing the F1 engine, no snap, no nudge) is next and last.
+- In progress: Nothing live — F4 built+gated, holding for F5.
+- Next up: SLICE_FEEL_TASK.md Task F5 — grain-marker relative-drag + Shift
+  fine mode via the same `HandleDragEngine` accumulator (no snap, no arrow
+  nudge); reviewer gate after F5 (full diff, single-edit-path invariant).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

@@ -435,6 +435,23 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     addKeyListener (this);
     setWantsKeyboardFocus (true);
 
+    // F4: mouse-grabbing a handle on EITHER surface arms it as the arrow-nudge target
+    // (SLICE_FEEL_TASK.md F4). Both surfaces call the same callback shape; the editor
+    // is the single owner of the armed-handle decision (ground rule 1).
+    wave.onHandleGrabbed = [this] (HandleDragEngine::Handle h)
+    {
+        armedHandle = h;
+        armedHandlePad = p.selectedPad.load();
+        sliceDetail.setArmedHandle (h);
+    };
+    sliceDetail.onHandleGrabbed = [this] (HandleDragEngine::Handle h)
+    {
+        armedHandle = h;
+        armedHandlePad = p.selectedPad.load();
+        sliceDetail.setArmedHandle (h);
+    };
+    sliceDetail.setArmedHandle (armedHandle);   // paint the initial CUE default
+
     followBtn.setToggleState (true, juce::dontSendNotification);
     followBtn.setTooltip ("Snap the waveform view to whichever pad was last triggered.");
     followBtn.onClick = [this] { wave.setFollow (followBtn.getToggleState()); };
@@ -1138,11 +1155,75 @@ void GentSamplerAudioProcessorEditor::resized()
 bool GentSamplerAudioProcessorEditor::keyPressed (const juce::KeyPress& k, juce::Component*)
 {
     const bool ctrl = k.getModifiers().isCommandDown() || k.getModifiers().isCtrlDown();
-    if (! ctrl) return false;
-    if (k.getKeyCode() == 'Z' && k.getModifiers().isShiftDown()) { p.redo(); return true; }
-    if (k.getKeyCode() == 'Z') { p.undo(); return true; }
-    if (k.getKeyCode() == 'Y') { p.redo(); return true; }
+    if (ctrl)
+    {
+        if (k.getKeyCode() == 'Z' && k.getModifiers().isShiftDown()) { p.redo(); return true; }
+        if (k.getKeyCode() == 'Z') { p.undo(); return true; }
+        if (k.getKeyCode() == 'Y') { p.redo(); return true; }
+        return false;
+    }
+
+    // F4: arrow-key nudge + FL fallback (SLICE_FEEL_TASK.md F4). Both surfaces call
+    // setWantsKeyboardFocus(true) so clicking either puts focus inside the plugin;
+    // this is the ONE place the nudge/arm decision lives (ground rule 1) — reached via
+    // JUCE's normal focused-component -> parent-chain KeyListener bubbling, which is
+    // untouched by the new setWantsKeyboardFocus calls (AC-F4.7).
+    const int code = k.getKeyCode();
+    if (code == juce::KeyPress::upKey)   { armedHandle = HandleDragEngine::Handle::cue; armedHandlePad = p.selectedPad.load(); sliceDetail.setArmedHandle (armedHandle); return true; }
+    if (code == juce::KeyPress::downKey) { armedHandle = HandleDragEngine::Handle::end; armedHandlePad = p.selectedPad.load(); sliceDetail.setArmedHandle (armedHandle); return true; }
+
+    // Comma/period matched by KEY CODE, not text character: getKeyCode() for these two
+    // keys is derived from the unmodified scan code (JUCE's doKeyChar on Windows), so it
+    // stays ',' / '.' whether or not Shift is held (Shift+',' types '<' as TEXT but the
+    // physical key code is unchanged) — required so the fallback's Shift-fine-mode
+    // behaves identically to the arrow keys (SLICE_FEEL_TASK.md F4 "same Shift behavior").
+    const bool fine = k.getModifiers().isShiftDown();
+    if (code == juce::KeyPress::rightKey || code == '.') { nudgeHandle (true,  fine); return true; }
+    if (code == juce::KeyPress::leftKey  || code == ',') { nudgeHandle (false, fine); return true; }
+
     return false;
+}
+
+// F4: single shared nudge-edit path — CUE via setCue(pad, s, false), END via
+// applyEndHandleDrag (both already the drag path's own edit calls, no third
+// implementation). Snap never applies to nudges (SLICE_FEEL_TASK.md F4). Increment
+// is read from the strip's own current zoom (stripSpp()), matching drag resolution
+// 1:1 per spec. No-op when the selected pad is unassigned or no source is loaded.
+void GentSamplerAudioProcessorEditor::nudgeHandle (bool right, bool fine)
+{
+    const int pad = p.selectedPad.load();
+    if (p.getCue (pad) < 0 || p.getSource() == nullptr)
+        return;
+
+    const double spp = sliceDetail.stripSpp();
+    const juce::int64 inc = fine ? juce::jmax ((juce::int64) 1, (juce::int64) juce::roundToInt (spp / 10.0))
+                                  : juce::jmax ((juce::int64) 1, (juce::int64) juce::roundToInt (spp));
+    const juce::int64 delta = right ? inc : -inc;
+
+    // Undo coalescing: a burst of nudges within 600ms of the previous nudge edit
+    // shares one undo entry (AC-F4.4); the first edit after a 600ms gap pushes a
+    // fresh undo snapshot.
+    const juce::uint32 now = juce::Time::getMillisecondCounter();
+    const bool coalesce = nudgeUndoPending && (now - lastNudgeMs) < 600;
+    if (! coalesce)
+        p.pushUndo();
+    lastNudgeMs = now;
+    nudgeUndoPending = true;
+
+    if (armedHandle == HandleDragEngine::Handle::end)
+    {
+        const int end = p.getEffectiveCueEnd (pad);
+        const int proposed = (int) ((juce::int64) end + delta);
+        const int tol = (int) (8.0 * spp);
+        applyEndHandleDrag (p, pad, proposed, tol);   // snap NEVER applies to nudges
+    }
+    else
+    {
+        const int cue = p.getCue (pad);
+        const int proposed = (int) ((juce::int64) cue + delta);
+        p.setCue (pad, proposed, false);              // snap NEVER applies to nudges
+    }
+    ++p.uiDirty;
 }
 
 bool GentSamplerAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
@@ -1256,6 +1337,18 @@ void GentSamplerAudioProcessorEditor::timerCallback()
     const int sel = p.selectedPad.load();
     if (sel != attachedPad)
         attachPad (sel);
+
+    // F4: the arrow-nudge armed handle resets to CUE whenever the selected pad changes
+    // (SLICE_FEEL_TASK.md F4 — "defaults to CUE and resets to CUE on pad-selection
+    // change"), covering pad-grid clicks / MIDI-triggered selection, not just mouse
+    // grabs on the two edit surfaces (those set armedHandlePad directly, so this is a
+    // no-op right after a same-tick grab).
+    if (sel != armedHandlePad)
+    {
+        armedHandlePad = sel;
+        armedHandle = HandleDragEngine::Handle::cue;
+        sliceDetail.setArmedHandle (armedHandle);
+    }
 
     const double srcB = p.getEffectiveSourceBpm();
 
