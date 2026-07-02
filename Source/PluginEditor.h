@@ -116,16 +116,22 @@ inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
 
 // Single shared snap-resolve step (F1 bullet 3: snap moves OUT of the drag path,
 // into the engine, for both CUE and END — applyEndHandleDrag's own snap block is
-// removed). F1 applies full-strength snap when snapEnabled ("snap semantics
-// unchanged in F1" — SLICE_FEEL_TASK.md F1 section, last bullet); F3 replaces
-// only this function's body with the 6px-capture-threshold + Alt-bypass test —
-// the accumulator/lazy-undo mechanics and this call site are untouched by F3.
-inline int resolveSnap (GentSamplerAudioProcessor& p, int proposed)
+// removed). F3: capture-threshold + Alt-bypass test (SLICE_FEEL_TASK.md F3) —
+// snap only engages when the candidate grid/transient point is within 6 screen
+// px (6 * sppNow samples) of the proposed sample, and Alt held bypasses snap
+// entirely for that event (modifiers read per event, no extra state — releasing
+// Alt mid-gesture re-engages on the very next event). nearestTransient's own
+// internal 50ms cap (PluginProcessor.cpp) is untouched, so effective transient
+// capture is the min of the two. The accumulator/lazy-undo mechanics and both
+// call sites below are otherwise untouched by F3.
+inline int resolveSnap (GentSamplerAudioProcessor& p, int proposed, double sppNow, bool altDown)
 {
-    if (! p.snapEnabled.load())
+    if (! p.snapEnabled.load() || altDown)
         return proposed;
-    return (p.gridStepSamples() > 0.0) ? p.nearestGridLine (proposed)
-                                        : p.nearestTransient (proposed);
+    const int cand = (p.gridStepSamples() > 0.0) ? p.nearestGridLine (proposed)
+                                                  : p.nearestTransient (proposed);
+    const double thresholdSamples = 6.0 * sppNow;
+    return (std::abs (cand - proposed) <= thresholdSamples) ? cand : proposed;
 }
 
 // mouseDrag per event: incremental accumulation in sample space (double), then
@@ -133,10 +139,12 @@ inline int resolveSnap (GentSamplerAudioProcessor& p, int proposed)
 // setCue, now owns snap resolution for the drag path — ground rule 2). `rate`
 // is the F2 hook (1.0 in F1; Shift => 0.10 from F2 onward). `collapseTolSamp`
 // is the surface's own ~8px-at-its-zoom tolerance for applyEndHandleDrag,
-// unchanged from the pre-F1 per-surface computation.
+// unchanged from the pre-F1 per-surface computation. `altDown` is F3's Alt-
+// bypass flag, read per event by the caller from e.mods (same pattern as F2's
+// rate) and threaded straight into resolveSnap — no new engine state.
 inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
                             int x, double samplesPerPixel, int collapseTolSamples,
-                            double rate = 1.0)
+                            double rate = 1.0, bool altDown = false)
 {
     if (! g.isActive()) return;
 
@@ -155,16 +163,16 @@ inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
 
     if (g.handle == HandleDragEngine::Handle::cue)
     {
-        p.setCue (g.pad, resolveSnap (p, proposed), false);
+        p.setCue (g.pad, resolveSnap (p, proposed, samplesPerPixel, altDown), false);
     }
     else if (g.handle == HandleDragEngine::Handle::end)
     {
         // F1 bullet 3 / AC-F1.7: snap resolved HERE (once, shared with CUE above),
         // not inside applyEndHandleDrag (that block was removed) — the resolved
-        // value is what the collapse-vs-window decision sees, same as F3's shared
-        // resolve step will do (F3 only swaps resolveSnap's body for the threshold
-        // test; this call site is unchanged from F1 to F3).
-        applyEndHandleDrag (p, g.pad, resolveSnap (p, proposed), collapseTolSamples);
+        // value is what the collapse-vs-window decision sees. F3: resolveSnap now
+        // applies the 6px-capture-threshold + Alt-bypass test; this call site's
+        // shape is unchanged from F1 to F3.
+        applyEndHandleDrag (p, g.pad, resolveSnap (p, proposed, samplesPerPixel, altDown), collapseTolSamples);
     }
     else if (g.handle == HandleDragEngine::Handle::grain)
     {
@@ -832,7 +840,10 @@ public:
                     // F2: Shift = fine mode, 0.10x rate, read per mouse event so mid-drag
                     // press/release re-anchors implicitly via the accumulator (no jump).
                     const double rate = e.mods.isShiftDown() ? 0.10 : 1.0;
-                    handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate);
+                    // F3: Alt bypasses snap for this event only, read per event (same
+                    // pattern as rate) so releasing Alt mid-drag re-engages capture.
+                    const bool altDown = e.mods.isAltDown();
+                    handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate, altDown);
                     repaint();
                 }
                 break;
@@ -1345,7 +1356,10 @@ public:
                 // F2: Shift = fine mode, 0.10x rate, read per mouse event so mid-drag
                 // press/release re-anchors implicitly via the accumulator (no jump).
                 const double rate = e.mods.isShiftDown() ? 0.10 : 1.0;
-                handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate);
+                // F3: Alt bypasses snap for this event only, read per event (same
+                // pattern as rate) so releasing Alt mid-drag re-engages capture.
+                const bool altDown = e.mods.isAltDown();
+                handleDragMove (dragEngine, p, e.x, samplesPerPixel, tol, rate, altDown);
                 break;
             }
             case DragMode::grainPos:

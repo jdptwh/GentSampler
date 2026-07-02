@@ -12,27 +12,32 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md Task F2 — Shift fine mode (0.10x rate) wired
-  at both HandleDragEngine.handleDragMove call sites (WaveformView::mouseDrag and
-  SliceDetailStrip::mouseDrag, Source/PluginEditor.h): each site now passes
-  `rate = e.mods.isShiftDown() ? 0.10 : 1.0`, read fresh per mouse event. No
-  engine-body changes — F1 had already threaded `rate` through the accumulator
-  (`accumSamples += (x-lastX)*sppNow*rate`), so this was a two-line-plus-comment
-  surgical edit at the call sites only. Mid-drag Shift press/release re-anchors
-  implicitly: because accumSamples is a running double and lastX advances every
-  event, a modifier change only changes the rate applied to the NEXT delta — nothing
-  resets lastX or accumSamples on a modifier change — so the position discontinuity
-  at the transition event is bounded by one event's worth of delta at the new vs.
-  old rate, well under the ±1-sample/±2-sample tolerances in AC-F2.2/F2.3. Snap
-  composition order unchanged from F1: rate scales the raw pixel delta inside the
-  accumulator; resolveSnap() still runs once on the fully-accumulated `proposed`
-  afterward (for both CUE and END). Build clean, pluginval strictness 5 SUCCESS.
-  F3 (snap capture threshold + Alt bypass) is next; F4-F5 not started.
-- In progress: Nothing live — F2 built+gated, holding for the F3 gate (reviewer
-  checkpoint per spec: after F3, the snap refactor).
-- Next up: SLICE_FEEL_TASK.md Task F3 — replace resolveSnap()'s full-strength body
-  with the 6-screen-px capture threshold + Alt-bypass test (shared by CUE and END,
-  same call sites).
+- Last completed: SLICE_FEEL_TASK.md Task F3 — snap capture threshold + Alt
+  bypass, in the single shared `resolveSnap` (Source/PluginEditor.h): signature
+  extended to `resolveSnap(p, proposed, sppNow, altDown)`; body now bypasses
+  snap entirely when `altDown` (or `!snapEnabled`), else computes the grid/
+  transient candidate and only accepts it when `|cand - proposed| <= 6 * sppNow`
+  samples (6 screen px at the active surface's current zoom), otherwise passes
+  `proposed` through untouched. `nearestTransient`'s existing internal 50ms cap
+  is untouched (PluginProcessor.cpp not modified), so effective transient
+  capture is the min of the two, per spec. Both call sites inside
+  `handleDragMove` (CUE → `setCue`, END → `applyEndHandleDrag`) now pass
+  `samplesPerPixel` and a new `altDown` parameter through to `resolveSnap`;
+  `handleDragMove` itself gained an `altDown` parameter threaded from both
+  surface call sites (WaveformView::mouseDrag, SliceDetailStrip::mouseDrag),
+  each reading `e.mods.isAltDown()` fresh per event — same per-event-read
+  pattern as F2's Shift rate, no new persistent state. Still exactly one
+  resolve implementation; `applyEndHandleDrag`'s body, `assignPadCue`,
+  `snapCursor`/`placeStart`, and all auto-slice paths (`applySlices`,
+  `sliceTransients`, `sliceGrid`, `sliceBeats`, `computeBlendedSlices`) are
+  byte-unchanged (PluginProcessor.cpp/.h untouched this task — git diff
+  confirms only Source/PluginEditor.h changed). Build clean, pluginval
+  strictness 5 SUCCESS. F4 (arrow-key nudge + active-handle affordance) is
+  next; F5 not started.
+- In progress: Nothing live — F3 built+gated, holding for the F3 reviewer
+  checkpoint (spec: reviewer gate after F3, the snap refactor, and again after F5).
+- Next up: SLICE_FEEL_TASK.md Task F4 — arrow/comma-period nudge in
+  PluginEditor.cpp's `keyPressed`, plus the strip's armed-handle affordance.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
