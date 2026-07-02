@@ -21,6 +21,9 @@ UI_VERIFY_CMD="${CLAUDE_UI_VERIFY_CMD:-}"             # JUCE editor — no Playw
 # GATE 2 — pluginval (second gate). Self-detecting: runs only when pluginval
 # is on PATH; otherwise skipped with a notice. Install: winget install pluginval
 # or drop pluginval.exe on PATH. Validates the freshly built VST3.
+# Installed 2026-07-02 to %LOCALAPPDATA%\Programs\pluginval — appended here so
+# hook shells that predate the user-PATH registry change still find it.
+PATH="$PATH:${LOCALAPPDATA:-}/Programs/pluginval"
 PLUGIN_ARTIFACT="build/GentSampler_artefacts/Release/VST3/GentSampler.vst3"
 PLUGINVAL_CMD="${CLAUDE_PLUGINVAL_CMD:-}"
 if [ -z "$PLUGINVAL_CMD" ] && command -v pluginval >/dev/null 2>&1; then
