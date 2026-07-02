@@ -1,0 +1,56 @@
+# Build output (generated — never hand-edited)
+build/
+out/
+cmake-build-*/
+
+# Visual Studio / MSVC
+.vs/
+*.vcxproj.user
+*.sln.docstates
+x64/
+Debug/
+Release/
+
+# Build logs
+build_log.txt
+*.log
+
+# Binary artifacts
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+*.exp
+*.obj
+*.o
+*.a
+*.vst3
+*.component
+
+# Models / media (first-run downloads, test audio)
+*.onnx
+*.ort
+*.wav
+*.mp3
+*.flac
+*.aif
+*.aiff
+
+# JUCE generated
+JuceLibraryCode/
+
+# CMake artifacts (if configured in-source by accident)
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+
+# Editor / OS noise
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Claude local settings (machine-specific)
+.claude/settings.local.json
