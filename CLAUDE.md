@@ -91,6 +91,13 @@ Follow ROUTING.md in the repo root. Summary:
 
 ## Known landmines
 Running list of past failures and their fixes, so they never recur.
+- 2026-07-02 — COPY_PLUGIN_AFTER_BUILD deleted the deployed plugin: JUCE's
+  copyDir.cmake REMOVE_RECURSEs the destination, wiping the CUDA/cuDNN DLLs
+  next to the deployed binary (restored from the artefact dir). Deploy is now
+  a custom merge-only copy_if_different post-build step (CMakeLists end) —
+  never re-enable the JUCE flag. Deploy fails (on purpose) if FL Studio has
+  GentSampler loaded: close FL and rebuild. One-time ACL grant on the
+  deployed folder via Desktop "Fix GentSampler VST3 Access.bat".
 - 2026-06 — ORT 1.22 + cuDNN 9: conv frontend cannot build htdemucs's 343,980-wide
   1-D conv; 1.21/1.22 CUDA stream regression errors at Add nodes → pinned 1.18.1.
 - 2026-06 — `CUDA_MODULE_LOADING=EAGER` regressed the conv on the 6 GB card → reverted.

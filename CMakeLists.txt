@@ -64,7 +64,9 @@ juce_add_plugin(GentSampler
     IS_SYNTH                    TRUE
     NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
-    COPY_PLUGIN_AFTER_BUILD     FALSE
+    COPY_PLUGIN_AFTER_BUILD     FALSE          # NEVER enable: JUCE's copyDir.cmake REMOVE_RECURSEs the
+                                               # destination, nuking the CUDA/cuDNN DLLs deployed next to
+                                               # the binary. Deploy is the custom merge-copy step below.
     VST3_AUTO_MANIFEST          FALSE          # <-- skip the build-time LoadLibrary step
     PRODUCT_NAME                "GentSampler")
 
@@ -116,5 +118,20 @@ add_custom_command(TARGET GentSampler_VST3 POST_BUILD
         "${ORT_NATIVE_DIR}/onnxruntime.dll"
         "${ORT_NATIVE_DIR}/onnxruntime_providers_shared.dll"
         "$<TARGET_FILE_DIR:GentSampler_VST3>"
+    VERBATIM)
+
+# ---- deploy: merge-copy the fresh VST3 binary into the system VST3 folder ----
+# NOT COPY_PLUGIN_AFTER_BUILD: JUCE's copyDir.cmake deletes the destination first
+# (REMOVE_RECURSE), which wipes the CUDA/cuDNN runtime DLLs ModelDownloader parks
+# next to the deployed binary, and recreating the folder under Common Files\VST3
+# needs elevation. This copies ONLY the binary; it never deletes anything.
+# Prereq: one-time ACL grant on the GentSampler.vst3 folder (done 2026-07-02 via
+# the Desktop "Fix GentSampler VST3 Access.bat"). If FL Studio is open with
+# GentSampler loaded, this step fails the build — deliberate: it means FL is
+# still auditioning a stale binary. Close FL (or unload the plugin) and rebuild.
+add_custom_command(TARGET GentSampler_VST3 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:GentSampler_VST3>"
+        "C:/Program Files/Common Files/VST3/GentSampler.vst3/Contents/x86_64-win"
     VERBATIM)
 
