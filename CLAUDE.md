@@ -12,16 +12,30 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Redesign Phase C, Task C2 — hero flags now carry a soft pad-source
-  hue glow, the selected pad's slice window gets the amber cue-region fill/glow
-  border, per-pad playheads got a bright-core + horizontal-bloom treatment, and the
-  B6-flagged chip/scrollbar collision is resolved (WaveformView::setBottomChromeInset,
-  wired from layoutContent()'s real chip geometry — height-relative, no 196-derived
-  literal). C1 (composite wave repaint) was already committed (d2ec10b).
-- In progress: Nothing live — C2 built+verified (build clean, pluginval strictness 5
-  SUCCESS); holding for sign-off before C3 (functional Slice Detail strip).
-- Next up: Phase C3 — Slice Detail strip (draggable CUE/END handles, same edit path
-  as the main-map handles), then C4 plumbing, then the C5 gate.
+- Last completed: Redesign Phase C, Task C3 — the Slice Detail strip is live and
+  FUNCTIONAL. Hero reclaimed its mockup-true 160px (was 196, parking C3's budget);
+  new 60px strip added below it (SliceDetailStrip, PluginEditor.h) with a left meta
+  plate (PAD n . STEM in the pad's stem hue), a centre zoomed wave (+-15% context,
+  transient ticks, dim-outside-region, granular freeze marker, live playhead), and
+  right CUE/END/LEN mono readouts. CUE drags call the exact same p.setCue(...,
+  snap=true). END-handle drags on BOTH surfaces now call one shared helper,
+  applyEndHandleDrag() (PluginEditor.h, just above WaveformView) — a post-review
+  extraction that replaced a duplicated decision tree: each surface converts its
+  own ~8px collapse affordance into sample-space tolerance at its OWN current zoom
+  (samplesPerPixel x 8) and passes that in; the helper does the collapse check,
+  SNAP branch, and min-length clamp exactly once. Open/gated slices show an OPEN
+  tag; dragging the END handle inward converts them via the existing
+  collapse/expand semantics. Pad grid reflowed back
+  toward its mockup proportions with the height C3 gave back. Fixed the stems-lanes
+  h>180 gate (dead at the new fixed 160px hero) — now gates on content only, with the
+  never-in-the-mockup top ruler dropped in stems view and the band-height floor
+  raised 56->78 so lanes/mute/solo stay legible and hittable.
+- In progress: Nothing live — C3 built+verified (build clean, pluginval strictness 5
+  SUCCESS); holding for sign-off before C4 (selection/state plumbing polish) and the
+  C5 gate.
+- Next up: Phase C4 — confirm strip follows selection/source-hue changes and repaints
+  from either edit surface with zero drift; add the strip to the editor's timer
+  sweep review; then the C5 sign-off gate (FL screenshots, functional-check list).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

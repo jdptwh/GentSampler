@@ -238,6 +238,19 @@ public:
         padStemMask[(size_t) pad].store ((std::uint8_t) (m & 0x3F));
     }
 
+    // ---- C3: per-pad granular reads/writes for the Slice Detail strip's freeze
+    // marker — same raw-atomic read idiom as pSlice's use in getEffectiveCueEnd(),
+    // and the same apvts.getParameterAsValue() write idiom the editor already uses
+    // for masterPitch/tempoMode/customBpm (see PluginEditor.cpp attachPad/ctor).
+    bool  grainOnFor (int pad) const     { return pad >= 0 && pad < 16 && pGrainOn[(size_t) pad]->load() > 0.5f; }
+    bool  grainFreezeFor (int pad) const { return pad >= 0 && pad < 16 && pGrainFreeze[(size_t) pad]->load() > 0.5f; }
+    float getGrainPosFor (int pad) const { return (pad >= 0 && pad < 16) ? pGrainPos[(size_t) pad]->load() : 0.0f; }
+    void  setGrainPosFor (int pad, float frac)
+    {
+        if (pad < 0 || pad >= 16) return;
+        apvts.getParameterAsValue (pid (pad, "grainPos")) = (double) juce::jlimit (0.0f, 1.0f, frac);
+    }
+
     // live playback feedback for the waveform view
     int  getPadPlayPos (int pad) const                     { return padPlayPos[(size_t) pad].load(); }
     std::atomic<int> lastTriggerPad { -1 };                // most recent pad hit (for view-follow)
@@ -256,6 +269,10 @@ public:
     std::atomic<bool> velToLevel  { true };                // MIDI velocity scales voice level (default on)
     std::atomic<int>  auditionPad { -1 };                  // pad to audition on the next audio block
     int nearestTransient (int sourcePos) const;
+    // C3: raw analyzer onset sample-positions (message thread only) — the Slice
+    // Detail strip's transient ticks. Same infoLock-guarded copy pattern as every
+    // other transientOnsets/transientSlices reader in this class.
+    std::vector<int> getOnsetPositions() const;
 
     // edit history (cue/end state)
     void pushUndo();                                       // call BEFORE a cue/end mutation

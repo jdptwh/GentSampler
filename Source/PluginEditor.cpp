@@ -3,11 +3,12 @@
 static const char* kRootNames[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
 
 GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAudioProcessor& proc)
-    : juce::AudioProcessorEditor (proc), p (proc), wave (proc), pads (proc)
+    : juce::AudioProcessorEditor (proc), p (proc), wave (proc), sliceDetail (proc), pads (proc)
 {
     setLookAndFeel (&lnf);
 
     addAndMakeVisible (wave);
+    addAndMakeVisible (sliceDetail);
     addAndMakeVisible (pads);
     addAndMakeVisible (loadBtn);
     addAndMakeVisible (sliceBtn);
@@ -756,6 +757,13 @@ void GentSamplerAudioProcessorEditor::paintContent (juce::Graphics& g)
         Theme::paintWell (g, b, 9.0f);
     }
 
+    // C3: slice-detail strip bezel — same recessed-well treatment (mockup .detail)
+    if (! detailRect.isEmpty())
+    {
+        auto b = detailRect.toFloat().expanded (4.0f);
+        Theme::paintWell (g, b, 8.0f);
+    }
+
     // bottom-split panels: pads (left) + inspector (right) — raised elevation
     if (! padsRect.isEmpty()) Theme::paintRaisedPanel (g, padsRect.toFloat(), 9.0f);
     if (! inspRect.isEmpty()) Theme::paintRaisedPanel (g, inspRect.toFloat(), 9.0f);
@@ -790,10 +798,10 @@ void GentSamplerAudioProcessorEditor::paintContent (juce::Graphics& g)
 void GentSamplerAudioProcessorEditor::layoutContent()
 {
     // ======================================================================
-    //  Phase B geometry — the mockup (1040x700) is the spec; regions and px
-    //  below transcribe its HTML/CSS. Hero is taller than the mockup's 160
-    //  because the slice-detail strip (Phase C) isn't built yet — its 60px
-    //  budget is credited to the hero until then.
+    //  Phase B/C geometry — the mockup (1040x700) is the spec; regions and px
+    //  below transcribe its HTML/CSS. C3 gave the hero its mockup-true 160px
+    //  (was 196 while Phase B parked the Slice Detail strip's 60px budget in
+    //  it) and added the strip itself — the pad grid gets that height back.
     // ======================================================================
     sectionLabels.clear();
     inspDividers.clear();
@@ -859,10 +867,12 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         undoBtn.setBounds(rx - 16, chipY + 3, 16, 20);
     }
 
-    full.removeFromTop (8);
+    full.removeFromTop (8);   // mockup .hero margin: 8px 12px 0
 
     // ===== HERO (waveform map + corner overlays, mockup .hero .ov) =====
-    auto hero = full.removeFromTop (196);
+    // C3: hero claims its mockup-true 160px now that the Slice Detail strip exists
+    // to take the other 60 (was 196 while Phase B parked the strip's budget here).
+    auto hero = full.removeFromTop (160);
     hero.removeFromLeft (12); hero.removeFromRight (12);
     displayRect = hero;
     wave.setBounds (displayRect);
@@ -892,6 +902,14 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         // underneath them.
         wave.setBottomChromeInset (displayRect.getBottom() - by);
     }
+
+    full.removeFromTop (6);   // mockup .detail margin: 6px 12px 0
+
+    // ===== SLICE DETAIL STRIP (mockup .detail: dmeta 118 | dwave flex | dread 150) =====
+    auto strip = full.removeFromTop (60);
+    strip.removeFromLeft (12); strip.removeFromRight (12);
+    detailRect = strip;
+    sliceDetail.setBounds (detailRect);
 
     full.removeFromTop (8);
     full.removeFromBottom (12);

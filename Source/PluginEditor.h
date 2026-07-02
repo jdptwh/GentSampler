@@ -44,6 +44,32 @@ inline juce::Colour padMapHue (int i, const GentSamplerAudioProcessor& p)
     return Theme::fullStem;
 }
 
+// C3 review fix: the END-handle drag decision (collapse-to-open vs. real window,
+// with SNAP) used to be duplicated verbatim between WaveformView::mouseDrag and
+// SliceDetailStrip::mouseDrag — one copy here, called by both, so the rule can
+// never drift between the two edit surfaces. The collapse check stays in SAMPLE
+// space (proposedEnd <= cue + tolerance), with the caller responsible for
+// converting its own on-screen ~8px affordance into sample-space tolerance at its
+// OWN current zoom (map and strip zoom independently, so 8px means a different
+// sample count on each) — this preserves the map's existing zoom-dependent
+// behaviour byte-for-byte while giving the strip the identical rule at its zoom.
+inline void applyEndHandleDrag (GentSamplerAudioProcessor& p, int pad,
+                                int proposedEndSample, int collapseToleranceSamples)
+{
+    const int cue = p.getCue (pad);
+    if (proposedEndSample <= cue + collapseToleranceSamples)
+    {
+        p.setCueEnd (pad, cue);                                   // collapse -> open/gated
+    }
+    else
+    {
+        int s = proposedEndSample;
+        if (p.snapEnabled.load())                                 // snap window end to grid
+            s = (p.gridStepSamples() > 0.0) ? p.nearestGridLine (s) : p.nearestTransient (s);
+        p.setCueEnd (pad, juce::jmax (cue + 33, s));
+    }
+}
+
 // ---------------------------------------------------------------------------
 class WaveformView : public juce::Component,
                      private juce::Timer
@@ -120,15 +146,27 @@ public:
         // vertical order (mockup): stem lanes -> cue flags -> waveform
         bool showStems = false;
         for (auto& sp : stemPeaks) if (! sp.empty()) { showStems = true; break; }
-        // C1: the top ruler is stem-lane furniture (mockup's drawComposite has no
-        // top ruler at all — only the bottom one). Reserve it only when the stem
-        // band will actually show; composite view gives that space back to the wave.
-        const bool stemsShowing = showStems && h > 180;   // same gate bandH uses below
-        const int rulerH  = (! peaks.empty() && stemsShowing) ? stemRulerH : 0;
+        // C3: hero is now a fixed 160px (down from Phase B's 196px parking spot), so
+        // the OLD h>180 gate would make the stems band permanently unreachable at the
+        // one height the hero ever renders at — the exact landmine flagged in the C3
+        // spec. Gate on content only (showStems) now that there's a single fixed hero
+        // height; h stays in the condition only as a defensive floor against a
+        // degenerate/near-zero layout, not as a real-world cutoff.
+        const bool stemsShowing = showStems && h > 60;
+        // C3: the top time-ruler was JUCE-only furniture never present in the mockup's
+        // own drawStems() (it has no top ruler in either view) — at 160px there isn't
+        // room for ruler + 6 usable lanes + flags + any wave sliver, so it's dropped
+        // here (composite view is unaffected: its own bottom ruler lives in a separate,
+        // bandH==0 branch below and is untouched).
+        const int rulerH  = 0;
         const int bandTop = rulerH + 2;
-        // stem lanes are a prominent band, roughly balanced with the waveform below
-        const int bandH   = stemsShowing   // Phase B hero is 196 tall; lanes must stay reachable
-                                ? juce::jlimit (56, 250, (int) ((h - rulerH - 70) * 0.52)) : 0;
+        // stem lanes are a prominent band. Floor raised from Phase B's 56 (9.3px/lane,
+        // too thin for the label pill + 18px solo box to be legible/hittable) to 78
+        // (13px/lane) — verified against the hero's real 160px budget: waveBottom(117)
+        // - bandTop(2) - bandH(78) - flagGap(9) - flagH(15) - gap(1) leaves ~12px of
+        // composite wave still visible beneath the lanes (see C3 report for the math).
+        const int bandH   = stemsShowing
+                                ? juce::jlimit (78, 250, (int) ((h - rulerH - 70) * 0.52)) : 0;
         const int flagH   = 15;
         const int flagY   = bandTop + bandH + (bandH > 0 ? 9 : 0);
         const int top     = flagY + flagH + 1;          // waveform / region top
@@ -681,18 +719,13 @@ public:
             case DragMode::endEdge:
                 if (dragPad >= 0)
                 {
-                    // open/window decision is PIXEL-based (zoom-independent): within ~8px of
-                    // (or left of) the start line -> open/gated; further right -> a real window.
-                    const float startX = sampleToX (p.getCue (dragPad));
-                    if ((float) e.x <= startX + 8.0f)
-                        p.setCueEnd (dragPad, p.getCue (dragPad));                 // collapse -> open
-                    else
-                    {
-                        int s = xToSample (e.x);
-                        if (p.snapEnabled.load())                                  // snap window end to grid
-                            s = (p.gridStepSamples() > 0.0) ? p.nearestGridLine (s) : p.nearestTransient (s);
-                        p.setCueEnd (dragPad, juce::jmax (p.getCue (dragPad) + 33, s));
-                    }
+                    // C3 review fix: shared decision tree (applyEndHandleDrag) — the collapse
+                    // affordance is still "~8 screen px of the start line", converted to THIS
+                    // view's own sample-space tolerance so the byte-for-byte behaviour at every
+                    // zoom level is unchanged (8px * current samples-per-pixel).
+                    const double samplesPerPixel = viewSpan / (double) juce::jmax (1, getWidth());
+                    const int tol = (int) (8.0 * samplesPerPixel);
+                    applyEndHandleDrag (p, dragPad, xToSample (e.x), tol);
                     repaint();
                 }
                 break;
@@ -918,7 +951,7 @@ private:
     int stemBandTop = 18, stemBandH = 0;   // set in paint, used for lane clicks
     int flagBarY = 0, flagBarH = 15;        // flag pennant row (set in paint), used for flag clicks
     int hoverLane = -1;                     // stem lane under the mouse (for solo reveal)
-    int stemLabW = 60, stemSoloW = 18, stemRulerH = 14;
+    int stemLabW = 60, stemSoloW = 18;   // C3 review nit: stemRulerH removed (dead — rulerH is hardcoded 0)
     int bottomChromeH = 0;                  // C2: reserved band for the .ov.bl/.ov.br chip plates
 
     DragMode drag = DragMode::none;
@@ -929,6 +962,346 @@ private:
     int panAnchorX = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WaveformView)
+};
+
+// ---------------------------------------------------------------------------
+//  SliceDetailStrip — C3: the selected pad's slice, zoomed to its region (+-15%
+//  context each side), with functionally draggable CUE/END handles. Every edit
+//  routes through the SAME processor calls the main-map WaveformView handles use
+//  (p.pushUndo() / p.setCue() / p.setCueEnd() / p.snapEnabled() / nearestGridLine()
+//  / nearestTransient()) — this component owns no separate edit/undo/snap path.
+//  Layout per mockup `.detail`: dmeta (118px, left) | dwave (flex, centre) |
+//  dread (150px, right).
+class SliceDetailStrip : public juce::Component,
+                         private juce::Timer
+{
+public:
+    explicit SliceDetailStrip (GentSamplerAudioProcessor& proc) : p (proc)
+    {
+        setOpaque (false);
+        startTimerHz (30);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const int w = getWidth(), h = getHeight();
+        const int metaW = 118, readW = 150;
+        const auto metaR = juce::Rectangle<int> (0, 0, metaW, h);
+        const auto readR = juce::Rectangle<int> (w - readW, 0, readW, h);
+        waveL = metaW; waveR = w - readW;
+        const auto waveRect = juce::Rectangle<int> (waveL, 0, juce::jmax (0, waveR - waveL), h);
+
+        const int sel = p.selectedPad.load();
+        const bool assigned = p.getCue (sel) >= 0;
+        const auto col = padMapHue (sel, p);
+
+        // ---- dmeta: SLICE DETAIL / PAD n . STEM (pad's stem hue; FULL = neutral) ----
+        {
+            g.setColour (Theme::t3);
+            g.setFont (Theme::ui (7.5f * 1.12f, true).withExtraKerningFactor (0.22f));
+            g.drawText ("SLICE DETAIL", metaR.withTrimmedLeft (12).withTrimmedTop (10).withHeight (12),
+                        juce::Justification::centredLeft);
+            g.setFont (Theme::mono (11.0f * 1.12f, true));
+            g.setColour (assigned ? col : Theme::t3);
+            const juce::String stemName = assigned ? stemNameFor (sel) : juce::String();
+            const juce::String val = assigned
+                ? (juce::String ("PAD ") + juce::String (sel + 1) + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + stemName)
+                : juce::String ("PAD ") + juce::String (sel + 1);
+            g.drawText (val, metaR.withTrimmedLeft (12).withTrimmedTop (26).withHeight (16),
+                        juce::Justification::centredLeft);
+        }
+
+        // ---- dwave: zoomed slice, or a quiet placeholder for an empty pad ----
+        if (! assigned || cachedLen <= 0)
+        {
+            g.setColour (Theme::t3);
+            g.setFont (Theme::ui (10.5f));
+            g.drawText ("no region assigned", waveRect, juce::Justification::centred);
+            cueX = endX = -1.0f;   // no handles to hit-test
+        }
+        else
+        {
+            const int cue = p.getCue (sel);
+            const int end = p.getEffectiveCueEnd (sel);
+            const bool open = p.isOpenSlice (sel);
+            const int span = juce::jmax (1, end - cue);
+            const int ctx  = (int) (span * 0.15);
+            zoomLo = juce::jmax (0, cue - ctx);
+            zoomHi = juce::jmin (cachedLen - 1, end + ctx);
+            const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
+
+            auto xOf = [&] (int s) { return (float) waveL + (float) (s - zoomLo) / (float) zoomSpan * (float) (waveR - waveL); };
+            cueX = xOf (cue);
+            endX = open ? (float) waveR - 10.0f : xOf (end);
+
+            {
+                juce::Graphics::ScopedSaveState ss (g);
+                g.reduceClipRegion (waveRect);
+                const float mid = (float) h * 0.5f;
+                const float half = (float) h * 0.42f;
+                const int nP = (int) peaks.size();
+                for (int x = waveL; x < waveR && (x - waveL) < nP; ++x)
+                {
+                    const auto pk = peaks[(size_t) (x - waveL)];
+                    const bool inSlice = (float) x >= cueX && (float) x <= endX;
+                    g.setColour (inSlice ? col.withAlpha (0.9f) : col.withAlpha (0.28f));
+                    g.drawVerticalLine (x, mid - pk.second * half, mid - pk.first * half);
+                }
+                // transient ticks (existing Analyzer onsets, zoomed to this window)
+                g.setColour (juce::Colours::white.withAlpha (0.22f));
+                for (int t : onsets)
+                {
+                    if (t < zoomLo || t > zoomHi) continue;
+                    const float tx = xOf (t);
+                    g.fillRect (tx - 0.75f, (float) h * 0.06f, 1.5f, (float) h * 0.16f);
+                }
+                // dim outside the cue/end region
+                g.setColour (juce::Colours::black.withAlpha (0.45f));
+                if (cueX > (float) waveL) g.fillRect ((float) waveL, 0.0f, cueX - (float) waveL, (float) h);
+                if (! open && endX < (float) waveR) g.fillRect (endX, 0.0f, (float) waveR - endX, (float) h);
+
+                // granular freeze/position marker (cooler accent — Theme::bass, matching
+                // the mockup's own cool-toned .dv value colour for this strip)
+                if (p.grainOnFor (sel))
+                {
+                    const float gx = xOf (juce::jlimit (cue, juce::jmax (cue, end), cue + (int) (p.getGrainPosFor (sel) * (end - cue))));
+                    const bool frozen = p.grainFreezeFor (sel);
+                    g.setColour (Theme::bass.withAlpha (frozen ? 0.95f : 0.7f));
+                    g.fillRect (gx - (frozen ? 1.5f : 1.0f), 0.0f, frozen ? 3.0f : 2.0f, (float) h);
+                    juce::Path tip;
+                    tip.addTriangle (gx - 5.0f, (float) h, gx + 5.0f, (float) h, gx, (float) h - 8.0f);
+                    g.fillPath (tip);
+                }
+
+                // live playhead (reuses the same per-pad play position the hero uses)
+                const int pp = p.getPadPlayPos (sel);
+                if (pp >= zoomLo && pp <= zoomHi)
+                {
+                    const float px = xOf (pp);
+                    g.setColour (Theme::glow.withAlpha (0.95f));
+                    g.fillRect (px - 1.2f, 0.0f, 2.4f, (float) h);
+                }
+
+                // handles: amber glow line + triangle cap (mockup dwave handle glyphs)
+                auto drawHandle = [&] (float x, bool isOpenEnd)
+                {
+                    g.setColour (Theme::glow.withAlpha (0.35f));
+                    g.fillRect (x - 3.0f, 0.0f, 6.0f, (float) h);
+                    g.setColour (Theme::accent);
+                    g.fillRect (x - 1.5f, 0.0f, 3.0f, (float) h);
+                    juce::Path cap;
+                    cap.addTriangle (x - 5.0f, 0.0f, x + 5.0f, 0.0f, x, 7.0f);
+                    g.fillPath (cap);
+                    if (isOpenEnd)
+                    {
+                        g.setColour (Theme::well.withAlpha (0.85f));
+                        auto tag = juce::Rectangle<float> (x - 24.0f, (float) h - 13.0f, 24.0f, 11.0f);
+                        g.fillRoundedRectangle (tag, 3.0f);
+                        g.setColour (Theme::accent.withAlpha (0.85f));
+                        g.setFont (Theme::mono (8.0f * 1.12f, true));
+                        g.drawText ("OPEN", tag, juce::Justification::centred);
+                    }
+                };
+                drawHandle (cueX, false);
+                drawHandle (endX, open);
+            }
+        }
+
+        // ---- dread: CUE / END / LEN mono readouts, live ----
+        {
+            auto src = p.getSource();
+            const double sr = (src != nullptr) ? src->sampleRate : 0.0;
+            auto fmtTime = [&] (int s) -> juce::String
+            {
+                if (sr <= 0.0 || s < 0) return "--";
+                const double secs = (double) s / sr;
+                const int mm = (int) (secs / 60.0);
+                return juce::String (mm) + ":" + juce::String::formatted ("%05.2f", secs - 60.0 * mm);
+            };
+            juce::String cueS = "--", endS = "--", lenS = "--";
+            if (assigned && sr > 0.0)
+            {
+                const int cue = p.getCue (sel);
+                const int end = p.getEffectiveCueEnd (sel);
+                cueS = fmtTime (cue);
+                endS = p.isOpenSlice (sel) ? juce::String ("OPEN") : fmtTime (end);
+                lenS = p.isOpenSlice (sel) ? juce::String ("OPEN") : juce::String ((end - cue) / sr, 2) + "s";
+            }
+            auto row = [&] (int y, const char* k, const juce::String& v)
+            {
+                g.setColour (Theme::t3);
+                g.setFont (Theme::ui (7.0f * 1.12f).withExtraKerningFactor (0.20f));
+                const auto kr = juce::Rectangle<int> (readR.getX(), y, 44, 14);
+                g.drawText (juce::String (k), kr, juce::Justification::centredLeft);
+                g.setColour (Theme::t1);
+                g.setFont (Theme::mono (10.0f * 1.12f));
+                g.drawText (v, readR.getRight() - 12 - 90, y, 90, 14, juce::Justification::centredRight);
+            };
+            row (h / 2 - 22, "CUE", cueS);
+            row (h / 2 - 6,  "END", endS);
+            row (h / 2 + 10, "LEN", lenS);
+        }
+    }
+
+    // ------------------------------------------------------------ interaction
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        drag = DragMode::none;
+        const int sel = p.selectedPad.load();
+        if (p.getCue (sel) < 0 || cachedLen <= 0) return;
+        if (cueX < 0.0f) return;
+
+        const float dc = std::abs (cueX - (float) e.x);
+        const float de = std::abs (endX - (float) e.x);
+        if (de <= 6.0f && de <= dc) { p.pushUndo(); drag = DragMode::endEdge; }
+        else if (dc <= 6.0f)        { p.pushUndo(); drag = DragMode::startEdge; }
+        else if (p.grainOnFor (sel) && waveR > waveL)
+        {
+            // granular position marker: same hit-test tolerance as the CUE/END handles
+            const int cue = p.getCue (sel), end = p.getEffectiveCueEnd (sel);
+            const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
+            const float gx = (float) waveL + (float) ((cue + (int) (p.getGrainPosFor (sel) * (end - cue))) - zoomLo)
+                                / (float) zoomSpan * (float) (waveR - waveL);
+            if (std::abs (gx - (float) e.x) <= 6.0f)
+                drag = DragMode::grainPos;
+        }
+    }
+
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (drag == DragMode::none || cachedLen <= 0) return;
+        const int sel = p.selectedPad.load();
+        const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
+        auto xToSample = [&] (int x)
+        {
+            const double frac = (double) (x - waveL) / (double) juce::jmax (1, waveR - waveL);
+            return juce::jlimit (0, juce::jmax (0, cachedLen - 1), zoomLo + (int) (frac * zoomSpan));
+        };
+
+        switch (drag)
+        {
+            case DragMode::startEdge:
+                // SAME call as WaveformView's startEdge drag (p.setCue with snap=true)
+                p.setCue (sel, xToSample (e.x), true);
+                break;
+            case DragMode::endEdge:
+            {
+                // C3 review fix: shared decision tree (applyEndHandleDrag) — same rule as
+                // the main map's endEdge drag, with the ~8px collapse affordance converted
+                // to THIS strip's own sample-space tolerance at its own (much tighter) zoom.
+                const double samplesPerPixel = (double) zoomSpan / (double) juce::jmax (1, waveR - waveL);
+                const int tol = (int) (8.0 * samplesPerPixel);
+                applyEndHandleDrag (p, sel, xToSample (e.x), tol);
+                break;
+            }
+            case DragMode::grainPos:
+            {
+                const int cue = p.getCue (sel), end = p.getEffectiveCueEnd (sel);
+                const int span = juce::jmax (1, end - cue);
+                const float frac = juce::jlimit (0.0f, 1.0f, (float) (xToSample (e.x) - cue) / (float) span);
+                p.setGrainPosFor (sel, frac);
+                break;
+            }
+            default: break;
+        }
+        repaint();
+        ++p.uiDirty;   // C4: nudge the hero to repaint too — single source of truth
+    }
+
+    void mouseUp (const juce::MouseEvent&) override { drag = DragMode::none; }
+
+    void mouseMove (const juce::MouseEvent& e) override
+    {
+        const bool nearHandle = cueX >= 0.0f
+            && (std::abs (cueX - (float) e.x) <= 6.0f || std::abs (endX - (float) e.x) <= 6.0f);
+        setMouseCursor (nearHandle ? juce::MouseCursor::LeftRightResizeCursor
+                                   : juce::MouseCursor::NormalCursor);
+    }
+
+private:
+    enum class DragMode { none, startEdge, endEdge, grainPos };
+
+    juce::String stemNameFor (int pad) const
+    {
+        const auto m = p.getPadStemMask (pad);
+        if (m == 0) return "FULL";
+        static const char* n[6] = { "DRM", "BASS", "VOX", "GTR", "PNO", "OTH" };
+        if ((std::uint8_t) (m & (m - 1)) == 0)
+            for (int k = 0; k < 6; ++k) if (m == (std::uint8_t) (1u << k)) return n[k];
+        return "MIX";
+    }
+
+    void timerCallback() override
+    {
+        auto s = p.getSource();
+        const int sel = p.selectedPad.load();
+        // rebuild peaks when the source, selection, zoom window, or width changes
+        juce::int64 hh = (juce::int64) sel * 97 + (juce::int64) p.getCue (sel) * 7
+                        + (juce::int64) p.getEffectiveCueEnd (sel);
+        if (s.get() != cachedSrc || getWidth() != cachedW || hh != cachedHash)
+        {
+            cachedSrc = s.get();
+            cachedW = getWidth();
+            cachedHash = hh;
+            keep = s;
+            cachedLen = s != nullptr ? s->buffer.getNumSamples() : 0;
+            onsets = p.getOnsetPositions();
+            rebuildPeaks (sel);
+        }
+        const int d = p.uiDirty.load();
+        if (d != lastDirty) { lastDirty = d; repaint(); }
+
+        bool playing = p.getPadPlayPos (sel) >= 0;
+        if (playing || wasPlaying) repaint();
+        wasPlaying = playing;
+    }
+
+    void rebuildPeaks (int sel)
+    {
+        peaks.clear();
+        if (keep == nullptr || cachedLen <= 0 || p.getCue (sel) < 0) { repaint(); return; }
+        waveL = 118; waveR = juce::jmax (waveL, getWidth() - 150);
+        const int cols = juce::jmax (0, waveR - waveL);
+        if (cols <= 0) { repaint(); return; }
+
+        const int cue = p.getCue (sel);
+        const int end = p.getEffectiveCueEnd (sel);
+        const int span = juce::jmax (1, end - cue);
+        const int ctx  = (int) (span * 0.15);
+        zoomLo = juce::jmax (0, cue - ctx);
+        zoomHi = juce::jmin (cachedLen - 1, end + ctx);
+        const int zoomSpan = juce::jmax (1, zoomHi - zoomLo);
+
+        const auto& b = keep->buffer;
+        const float* d = b.getReadPointer (0);
+        peaks.resize ((size_t) cols, { 0.0f, 0.0f });
+        const double spp = (double) zoomSpan / (double) cols;
+        const int stride = juce::jmax (1, (int) (spp / 512.0));
+        for (int x = 0; x < cols; ++x)
+        {
+            const int a  = juce::jlimit (0, cachedLen - 1, (int) (zoomLo + spp * x));
+            const int e2 = juce::jlimit (a + 1, cachedLen, (int) (zoomLo + spp * (x + 1)) + 1);
+            float lo = 0.0f, hi = 0.0f;
+            for (int i = a; i < e2; i += stride) { lo = juce::jmin (lo, d[i]); hi = juce::jmax (hi, d[i]); }
+            peaks[(size_t) x] = { lo, hi };
+        }
+        repaint();
+    }
+
+    GentSamplerAudioProcessor& p;
+    SourceSample::Ptr keep;
+    void* cachedSrc = nullptr;
+    int cachedW = 0, cachedLen = 0, lastDirty = -1;
+    juce::int64 cachedHash = std::numeric_limits<juce::int64>::min();
+    std::vector<std::pair<float, float>> peaks;
+    std::vector<int> onsets;
+    int zoomLo = 0, zoomHi = 0;
+    int waveL = 118, waveR = 0;
+    float cueX = -1.0f, endX = -1.0f;
+    DragMode drag = DragMode::none;
+    bool wasPlaying = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SliceDetailStrip)
 };
 
 // ---------------------------------------------------------------------------
@@ -1644,6 +2017,7 @@ private:
     GentSamplerAudioProcessor& p;
     ScaleContainer root;           // holds the whole UI; AffineTransform-scaled in resized()
     WaveformView wave;
+    SliceDetailStrip sliceDetail;
     PadGrid pads;
 
     juce::TextButton loadBtn { "LOAD" }, sliceBtn { "AUTO-SLICE" };
@@ -1686,6 +2060,7 @@ private:
     juce::String keyItemsBuiltFor;
     juce::TooltipWindow tooltips { this, 600 };
     juce::Rectangle<int> headerRect, toolbarRect, inspRect, displayRect, padsRect;   // layout zones (railRect/stemRect retired)
+    juce::Rectangle<int> detailRect;       // C3: Slice Detail strip bounds (mockup .detail)
     std::vector<std::pair<juce::Point<int>, juce::String>> sectionLabels;
     std::vector<int> hdrDividers;          // x positions of header group separators
     std::vector<int> inspDividers;         // y positions of inspector section separators

@@ -562,6 +562,16 @@ int GentSamplerAudioProcessor::snapCursor (int pos) const
     return best;
 }
 
+std::vector<int> GentSamplerAudioProcessor::getOnsetPositions() const
+{
+    std::vector<std::pair<int, float>> on;
+    { const juce::SpinLock::ScopedLockType sl (infoLock); on = transientOnsets; }
+    std::vector<int> out;
+    out.reserve (on.size());
+    for (auto& o : on) out.push_back (o.first);
+    return out;
+}
+
 std::vector<int> GentSamplerAudioProcessor::computeBlendedSlices() const
 {
     auto src = getSource();
