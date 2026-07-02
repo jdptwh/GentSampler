@@ -27,7 +27,9 @@ PATH="$PATH:${LOCALAPPDATA:-}/Programs/pluginval"
 PLUGIN_ARTIFACT="build/GentSampler_artefacts/Release/VST3/GentSampler.vst3"
 PLUGINVAL_CMD="${CLAUDE_PLUGINVAL_CMD:-}"
 if [ -z "$PLUGINVAL_CMD" ] && command -v pluginval >/dev/null 2>&1; then
-  PLUGINVAL_CMD="pluginval --strictness-level 5 --skip-gui-tests --validate \"$PLUGIN_ARTIFACT\""
+  # timeout: pluginval has stalled indefinitely once (static memory, ~0 CPU);
+  # 10 min is ~3x a healthy strictness-5 run on this plugin.
+  PLUGINVAL_CMD="timeout 600 pluginval --strictness-level 5 --skip-gui-tests --validate \"$PLUGIN_ARTIFACT\""
 fi
 # -----------------------------------------------------------------------------
 
@@ -54,6 +56,10 @@ run_gate () {
     exit 2   # exit 2 = block the stop, feed stderr back to the agent
   fi
 }
+
+# A finished/killed pluginval can linger and hold the .vst3 open, failing the
+# next link with LNK1104 — clear any strays before building.
+taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
 
 run_gate "build" "$VERIFY_CMD"
 
