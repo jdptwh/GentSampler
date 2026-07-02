@@ -12,40 +12,20 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md Task F5 (last task) — grain-marker
-  consistency. `SliceDetailStrip`'s granular position marker
-  (`DragMode::grainPos`) now arms and drives through the same
-  `HandleDragEngine` F1 built (no third drag implementation): `mouseDown` calls
-  `handleDragBegin(dragEngine, p, sel, Handle::grain, e.x)`, seeding
-  `anchorSample` from the marker's CURRENT absolute sample position
-  (`cue + frac*(end-cue)`) so grabbing it off-centre in its 6px zone never
-  jumps (AC-F5.1); `mouseDrag`'s `grainPos` case calls `handleDragMove` with
-  the strip's own spp and Shift = 0.10x fine rate (AC-F5.2), same as CUE/END.
-  `handleDragMove`'s `Handle::grain` branch clamps the accumulated proposed
-  sample to `[cue, effectiveEnd]`, converts to a fraction, and applies via
-  `p.setGrainPosFor(pad, frac)` — no `resolveSnap` call (grain never had snap
-  and never should, per spec) and no `applyEndHandleDrag` collapse logic
-  (no OPEN-slice concept for a marker). Undo: verified the OLD grainPos path
-  never called `pushUndo()` (grain params are an APVTS value, not part of
-  `CueSnap`'s cue[]/end[] snapshot — see the 2026-07-02 partial-undo-scope
-  landmine below); added a one-line guard in the shared `handleDragMove` so
-  the existing unconditional `pushUndo()` on first effective movement is
-  skipped specifically for `Handle::grain`, matching old behavior exactly
-  (a grain-only undo entry would have been a no-op push, wasting a slot).
-  Zoom freeze: verified the old grainPos path never touched
-  `gestureZoomFrozen` (grain drags can't move cue/end, so the strip's zoom
-  window has nothing to freeze) — left untouched, not set for grain gestures.
-  No `onHandleGrabbed` fire and no arrow-nudge path for grain (armed-handle
-  state and `nudgeHandle()` only ever branch cue/end). Build clean, pluginval
-  strictness 5 SUCCESS; only Source/PluginEditor.h touched (no processor or
-  .cpp changes needed for F5). SLICE_FEEL_TASK.md is now feature-complete
-  pending reviewer full-diff gate and Joe's FL hands-on feel pass (final
-  arbiter per spec, can bounce even with all machine gates green).
-- In progress: Nothing live — F5 built+gated, holding for reviewer + Joe's
-  FL feel pass on the whole SLICE_FEEL_TASK.md arc (F1-F5).
-- Next up: Reviewer full-diff gate on SLICE_FEEL_TASK.md, then Joe's FL feel
-  pass (no-jump grab, Shift fine ratio, Alt bypass, snap capture at 6px,
-  arrow/fallback nudge, grain marker feel). No further coded work queued.
+- Last completed: SLICE_FEEL_TASK.md — COMPLETE and SIGNED OFF (Joe's FL feel
+  pass, 2026-07-02). All five tasks committed (6dfb340 F1 engine, 36ac81b F2
+  Shift fine, dc00502 F3 6px snap capture + Alt, 29bd9f5 F4 arrow/comma-period
+  nudge + armed affordance, 31a6520 F5 grain marker + armed-handle race fix).
+  One HandleDragEngine (PluginEditor.h ~61-185) drives every CUE/END/grain
+  gesture on both surfaces plus the nudge path — final reviewer explicitly
+  CONFIRMED the single-edit-path invariant; PluginProcessor byte-unchanged
+  across the whole arc. Full spec + per-task ACs in SLICE_FEEL_TASK.md.
+- In progress: Nothing live.
+- Next up: Redesign Phase C6 — polish from Joe's flags on the C5 gate
+  deliverables (candidates logged: strip transient-tick 'barcode' density on
+  long slices, cue-region border amber warmth, per-column wave gradient
+  'breathing'). Joe has not flagged C6 items yet. BACKLOG.md holds the
+  extend-undo spec candidate.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
