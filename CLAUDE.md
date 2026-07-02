@@ -12,30 +12,33 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Redesign Phase C, Task C3 — the Slice Detail strip is live and
-  FUNCTIONAL. Hero reclaimed its mockup-true 160px (was 196, parking C3's budget);
-  new 60px strip added below it (SliceDetailStrip, PluginEditor.h) with a left meta
-  plate (PAD n . STEM in the pad's stem hue), a centre zoomed wave (+-15% context,
-  transient ticks, dim-outside-region, granular freeze marker, live playhead), and
-  right CUE/END/LEN mono readouts. CUE drags call the exact same p.setCue(...,
-  snap=true). END-handle drags on BOTH surfaces now call one shared helper,
-  applyEndHandleDrag() (PluginEditor.h, just above WaveformView) — a post-review
-  extraction that replaced a duplicated decision tree: each surface converts its
-  own ~8px collapse affordance into sample-space tolerance at its OWN current zoom
-  (samplesPerPixel x 8) and passes that in; the helper does the collapse check,
-  SNAP branch, and min-length clamp exactly once. Open/gated slices show an OPEN
-  tag; dragging the END handle inward converts them via the existing
-  collapse/expand semantics. Pad grid reflowed back
-  toward its mockup proportions with the height C3 gave back. Fixed the stems-lanes
-  h>180 gate (dead at the new fixed 160px hero) — now gates on content only, with the
-  never-in-the-mockup top ruler dropped in stems view and the band-height floor
-  raised 56->78 so lanes/mute/solo stay legible and hittable.
-- In progress: Nothing live — C3 built+verified (build clean, pluginval strictness 5
-  SUCCESS); holding for sign-off before C4 (selection/state plumbing polish) and the
-  C5 gate.
-- Next up: Phase C4 — confirm strip follows selection/source-hue changes and repaints
-  from either edit surface with zero drift; add the strip to the editor's timer
-  sweep review; then the C5 sign-off gate (FL screenshots, functional-check list).
+- Last completed: Redesign Phase C, Task C4 — selection/state-plumbing audit closed
+  two real gaps: (1) WaveformView's 30Hz timer never watched p.selectedPad on its
+  own, so a pad-grid click on an ALREADY-assigned pad (no uiDirty bump on that path)
+  could leave the map's cue-region highlight/bold line/bold flag stale until
+  playback happened to start it repainting — now watched directly (lastSel), same
+  pattern SliceDetailStrip already used for its own hash; (2) the strip's granular
+  freeze/position marker reads grainOnFor/getGrainPosFor/grainFreezeFor straight off
+  APVTS-backed knobs that never bumped uiDirty, so turning GRAIN/FREEZE on or
+  scrubbing the inspector's POS knob while the strip was visible didn't move the
+  marker — now watched via a cheap folded hash (lastGrainHash), repaint-only (no
+  peak rebuild). Everything else in the audit matrix (source/stem-mask hue, map<->
+  strip slice-edit sync either direction, undo/redo, load/clear file-identity via
+  cachedSrc pointer + new-SourceSample-per-load, stem-separation completion) was
+  already correctly wired through the existing uiDirty/hash mechanisms — no changes
+  needed there. (Caveat, pre-existing: undo/redo RESTORES cue/end only — CueSnap
+  doesn't cover padStemMask or grain params; both surfaces sync fine to what it
+  restores. On the C5 report as a known limitation.) Timer sweep of all 4 juce::Timer components (WaveformView/
+  SliceDetailStrip/PadGrid at 30Hz, editor-level at 15Hz) found no stale-Theme-token
+  caching, no stale post-C3-geometry bounds, and consistent (unchanged) hidden/
+  minimized behavior — none stop their timer, matching pre-existing convention.
+  Build clean, pluginval strictness 5 SUCCESS.
+- In progress: Nothing live — C4 built+verified; holding for the C5 sign-off gate.
+- Next up: Phase C5 — GATE. Deliver FL screenshot at 1040x700, hero/strip
+  side-by-sides vs mockup, a GRAIN-on shot with the freeze marker, an open-slice
+  shot, plus the written functional-check list (strip-drag audition, snap, undo,
+  open-slice conversion, no main-map regressions, granular marker drives
+  grainPosition). Stop for Joe; C6 is polish from his flags, then commit.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

@@ -847,6 +847,17 @@ private:
         const int d = p.uiDirty.load();
         if (d != lastDirty) { lastDirty = d; repaint(); }
 
+        // C4: the map's selected-pad cue region / bold line / bold flag depend on
+        // p.selectedPad, but selection changes (pad-grid click on an ALREADY-assigned
+        // pad, or a MIDI-triggered selection with follow off) don't always bump
+        // uiDirty or lastTriggerCount — watch it directly here, same pattern
+        // SliceDetailStrip already uses for its own selection-dependent hash, so the
+        // map never lags the strip by more than one 30Hz tick.
+        {
+            const int sel = p.selectedPad.load();
+            if (sel != lastSel) { lastSel = sel; repaint(); }
+        }
+
         // refresh stem ribbons when separation finishes / stems change
         {
             auto ss = p.getStems();
@@ -943,6 +954,7 @@ private:
     SourceSample::Ptr keep;
     void* cachedSrc = nullptr;
     int cachedW = 0, cachedLen = 0, lastDirty = -1;
+    int lastSel = -1;   // C4: watched independently so bare selection changes repaint
     double viewStart = 0.0, viewSpan = 1.0;
     std::vector<std::pair<float, float>> peaks;
     std::array<std::vector<std::pair<float, float>>, 6> stemPeaks;
@@ -1251,6 +1263,19 @@ private:
         const int d = p.uiDirty.load();
         if (d != lastDirty) { lastDirty = d; repaint(); }
 
+        // C4: the granular freeze/position marker reads p.grainOnFor/getGrainPosFor/
+        // grainFreezeFor directly in paint(), but none of those (APVTS knob/toggle,
+        // driven straight off the inspector's attachments) bump uiDirty — watch a
+        // cheap folded hash here (repaint only, no rebuildPeaks: the marker overlay
+        // doesn't need new peak data) so the marker tracks the knob live instead of
+        // waiting on an unrelated dirty bump.
+        {
+            const juce::int64 gh = (p.grainOnFor (sel) ? 1 : 0)
+                                  + (p.grainFreezeFor (sel) ? 2 : 0)
+                                  + (juce::int64) (p.getGrainPosFor (sel) * 100000.0f) * 4;
+            if (gh != lastGrainHash) { lastGrainHash = gh; repaint(); }
+        }
+
         bool playing = p.getPadPlayPos (sel) >= 0;
         if (playing || wasPlaying) repaint();
         wasPlaying = playing;
@@ -1293,6 +1318,7 @@ private:
     void* cachedSrc = nullptr;
     int cachedW = 0, cachedLen = 0, lastDirty = -1;
     juce::int64 cachedHash = std::numeric_limits<juce::int64>::min();
+    juce::int64 lastGrainHash = std::numeric_limits<juce::int64>::min();   // C4: grain marker watch
     std::vector<std::pair<float, float>> peaks;
     std::vector<int> onsets;
     int zoomLo = 0, zoomHi = 0;
