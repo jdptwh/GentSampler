@@ -17,6 +17,7 @@
 
 #include <JuceHeader.h>
 #include "Analysis.h"
+#include "EngineMath.h"
 #include "StemSeparator.h"
 #include "Transcriber.h"
 #include <array>
@@ -132,7 +133,7 @@ public:
     int  getEffectiveCueEnd (int pad) const;               // explicit end, else next cue / sample end
     // cueEnds sentinels: -1 = auto (next cue / sample end), kOpenSlice = open/gated
     // ("collapsed" window: play from start, gate/release decides the cut, ignore boundaries)
-    static constexpr int kOpenSlice = -2;
+    static constexpr int kOpenSlice = gent::kOpenSlice;
     bool isOpenSlice (int pad) const
     { return pad >= 0 && pad < 16 && cues[(size_t) pad].load() >= 0
              && cueEnds[(size_t) pad].load() == kOpenSlice; }
@@ -232,10 +233,8 @@ public:
     void setPadStemBit (int pad, int stem, bool on)
     {
         if (pad < 0 || pad >= 16 || stem < 0 || stem >= 6) return;
-        std::uint8_t m = padStemMask[(size_t) pad].load();
-        if (on) m = (std::uint8_t) (m | (1u << stem));
-        else    m = (std::uint8_t) (m & ~(1u << stem));
-        padStemMask[(size_t) pad].store ((std::uint8_t) (m & 0x3F));
+        const std::uint8_t m = padStemMask[(size_t) pad].load();
+        padStemMask[(size_t) pad].store (gent::stemMaskWithBit (m, stem, on));
     }
 
     // ---- C3: per-pad granular reads/writes for the Slice Detail strip's freeze

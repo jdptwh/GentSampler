@@ -22,14 +22,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   mid-flight and was killed, and per the stop-loss the hero keeps its original
   static gradient. Recovery verified by measurement: hero wave lum 48.6,
   amber-dominant, vs 51.0 pre-C6 healthy reference. P3 benched in BACKLOG.md.
-- In progress: Nothing live. PHASE C CLOSED 2026-07-02: C1-C5 + C6 (P1+P2)
-  accepted by Joe; P3 breathing benched (BACKLOG.md).
-- Next up: unit test target (TEST_TARGET_TASK.md) — T1 scaffold DONE 2026-07-02
-  (doctest vendored, GentSamplerTests target + CTest wired, gate.sh GATE 2
-  "tests" between build and pluginval, 4 placeholder suite files). T2-T5
-  (EngineMath.h extraction + real slice/snap/trigger/stem-mask tests) next,
-  then T6 reviewer gate. Then Phase D (COMPOSITE<->STEMS lanes). BACKLOG.md
-  holds extend-undo + the P3 breathing retry.
+- In progress: Nothing live. TEST_TARGET_TASK.md COMPLETE 2026-07-03:
+  Source/EngineMath.h (pure gent:: functions, no JUCE) + mechanical delegation
+  in PluginProcessor.h/.cpp and PluginEditor.h; four real suites (slice-window,
+  snap, trigger, stem-mask) incl. both property tests — 23 cases /
+  73,927 assertions, ctest 0.04s. T6 reviewer: PASS, behavior-identity
+  confirmed constant-by-constant vs pre-refactor code; two test-nit fixes
+  applied post-review (tautological CHECK replaced with a real effectiveCueEnd
+  round-trip invariant; dead unsigned>=0 check removed). NOTE: build/ is now a
+  JUNCTION to D:\GentSamplerBuild (C: was 100% full; LNK1180) — all paths
+  unchanged, bits live on D:.
+- Next up: Phase D (COMPOSITE<->STEMS lanes). BACKLOG.md holds extend-undo +
+  the P3 breathing retry.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

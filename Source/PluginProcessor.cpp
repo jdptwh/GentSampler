@@ -297,18 +297,9 @@ int GentSamplerAudioProcessor::nearestTransient (int sourcePos) const
         const juce::SpinLock::ScopedLockType sl (infoLock);
         ts = transientSlices;
     }
-    if (ts.empty())
-        return sourcePos;
     auto src = getSource();
     const double sr = src != nullptr ? src->sampleRate : 44100.0;
-    const int maxDist = (int) (sr * 0.05);                 // snap within 50 ms
-    int best = sourcePos, bestD = maxDist + 1;
-    for (int t : ts)
-    {
-        const int d = std::abs (t - sourcePos);
-        if (d < bestD) { bestD = d; best = t; }
-    }
-    return bestD <= maxDist ? best : sourcePos;
+    return gent::nearestTransientIn (ts, sourcePos, sr);
 }
 
 GentSamplerAudioProcessor::CueSnap GentSamplerAudioProcessor::snapshot() const
@@ -404,22 +395,16 @@ void GentSamplerAudioProcessor::setCue (int pad, int samplePos, bool snap)
     if (snap && snapEnabled.load())
         samplePos = (gridStepSamples() > 0.0) ? nearestGridLine (samplePos)
                                               : nearestTransient (samplePos);
-    cues[(size_t) pad] = juce::jmax (0, samplePos);
-    const int e = cueEnds[(size_t) pad].load();
-    if (e >= 0 && e <= samplePos + 32)                    // start pushed past end: end goes auto
-        cueEnds[(size_t) pad] = -1;
+    const auto r = gent::applyCueEdit (samplePos, cueEnds[(size_t) pad].load());
+    cues[(size_t) pad] = r.cue;
+    cueEnds[(size_t) pad] = r.end;                        // unchanged unless start pushed past end
 }
 
 void GentSamplerAudioProcessor::setCueEnd (int pad, int samplePos)
 {
     if (pad < 0 || pad >= 16)
         return;
-    if (samplePos < 0)
-        cueEnds[(size_t) pad] = -1;                                   // auto (right-click reset)
-    else if (samplePos <= cues[(size_t) pad].load() + 32)
-        cueEnds[(size_t) pad] = kOpenSlice;                           // collapsed -> OPEN / gated slice
-    else
-        cueEnds[(size_t) pad] = samplePos;                           // real window end
+    cueEnds[(size_t) pad] = gent::resolveCueEndEdit (samplePos, cues[(size_t) pad].load());
 }
 
 int GentSamplerAudioProcessor::getEffectiveCueEnd (int pad) const
@@ -430,27 +415,12 @@ int GentSamplerAudioProcessor::getEffectiveCueEnd (int pad) const
         return juce::jmax (0, len - 1);
 
     const int cueSrc = cues[(size_t) pad].load();
-    if (cueSrc < 0)
-        return -1;                            // unassigned
     const int e = cueEnds[(size_t) pad].load();
-    if (e == kOpenSlice)
-        return len - 1;                       // open/gated: region runs to the sample end
-    if (e > cueSrc)
-        return juce::jmin (e, len - 1);
-
-    if (pSlice[(size_t) pad]->load() > 0.5f)
-    {
-        int nextSrc = std::numeric_limits<int>::max();
-        for (int i = 0; i < 16; ++i)
-        {
-            const int cc = cues[(size_t) i].load();
-            if (cc >= 0 && cc > cueSrc && cc < nextSrc)
-                nextSrc = cc;
-        }
-        if (nextSrc != std::numeric_limits<int>::max())
-            return juce::jmin (nextSrc, len - 1);
-    }
-    return len - 1;
+    const bool sliceMode = pSlice[(size_t) pad]->load() > 0.5f;
+    std::array<int, 16> allCues {};
+    for (int i = 0; i < 16; ++i)
+        allCues[(size_t) i] = cues[(size_t) i].load();
+    return gent::effectiveCueEnd (cueSrc, e, len, sliceMode, allCues);
 }
 
 void GentSamplerAudioProcessor::applySlices (const std::vector<int>& s, int sourceLen)
@@ -541,25 +511,14 @@ int GentSamplerAudioProcessor::snapCursor (int pos) const
 {
     if (! snapEnabled.load()) return pos;
     const double step = gridStepSamples();
-    int best = pos;
-    long long bestDist = std::numeric_limits<long long>::max();
-    auto consider = [&] (int cand)
-    {
-        if (cand < 0) return;
-        long long d = (long long) cand - (long long) pos;
-        if (d < 0) d = -d;
-        if (d < bestDist) { bestDist = d; best = cand; }
-    };
-    if (step > 0.0) consider (nearestGridLine (pos));           // beat grid (always quantizes)
-    for (int i = 0; i < 16; ++i) consider (cues[(size_t) i].load());   // placed slices
-    if (step <= 0.0)
-    {
-        consider (nearestTransient (pos));                      // no grid -> transients
-        auto src = getSource();
-        const double sr = src != nullptr ? src->sampleRate : 44100.0;
-        if (bestDist > (long long) (0.05 * sr)) return pos;     // nothing close: stay free
-    }
-    return best;
+    const bool hasGrid = step > 0.0;
+    const int gridCand = hasGrid ? nearestGridLine (pos) : 0;   // unused unless hasGrid
+    std::array<int, 16> allCues {};
+    for (int i = 0; i < 16; ++i) allCues[(size_t) i] = cues[(size_t) i].load();
+    const int transientCand = hasGrid ? 0 : nearestTransient (pos);   // unused unless !hasGrid
+    auto src = getSource();
+    const double sr = src != nullptr ? src->sampleRate : 44100.0;
+    return gent::selectSnapCursor (pos, hasGrid, gridCand, allCues, transientCand, sr);
 }
 
 std::vector<int> GentSamplerAudioProcessor::getOnsetPositions() const
@@ -1481,15 +1440,14 @@ void GentSamplerAudioProcessor::startVoice (int pad, float vel, int extraSemis, 
     const int mode = (int) pMode[(size_t) pad]->load();   // 0 gate, 1 one-shot, 2 latch
 
     // LATCH: a press while the pad is already sounding switches it OFF
-    if (! kbMode && mode == 2)
     {
+        bool padSounding = false;
         for (auto& w : voices)
+            if (w.active && w.pad == pad && w.state != 2) { padSounding = true; break; }
+        if (gent::latchPressTurnsOff (mode, kbMode, padSounding))
         {
-            if (w.active && w.pad == pad && w.state != 2)
-            {
-                releaseVoices (pad, -1, false, false);
-                return;
-            }
+            releaseVoices (pad, -1, false, false);
+            return;
         }
     }
 
@@ -1505,8 +1463,8 @@ void GentSamplerAudioProcessor::startVoice (int pad, float vel, int extraSemis, 
         {
             const float quickDec = 1.0f / juce::jmax (1.0f, 0.004f * (float) getSampleRate());
             for (auto& w : voices)
-                if (w.active && w.state != 2 && w.pad >= 0 && w.pad != pad
-                    && (int) pChoke[(size_t) w.pad]->load() == myChoke)
+                if (gent::chokeSilences (myChoke, pad, w.active, w.state, w.pad,
+                                         w.pad >= 0 ? (int) pChoke[(size_t) w.pad]->load() : -1))
                 {
                     w.state  = 2;
                     w.relDec = quickDec;
@@ -1606,7 +1564,7 @@ void GentSamplerAudioProcessor::startVoice (int pad, float vel, int extraSemis, 
         v->panL = juce::MathConstants<float>::sqrt2 * std::cos (th);
         v->panR = juce::MathConstants<float>::sqrt2 * std::sin (th);
     }
-    v->gate      = kbMode || mode == 0;                   // gate mode releases on key-up
+    v->gate      = gent::voiceGateFlag (mode, kbMode);    // gate mode releases on key-up
     v->crush     = crush;
     v->crushQ    = std::pow (2.0f, (16.0f - crush * 8.0f) - 1.0f);   // hoisted out of the per-sample loop
     v->holdN     = 1 + (int) (crush * 5.0f);
@@ -1637,10 +1595,8 @@ void GentSamplerAudioProcessor::releaseVoices (int pad, int note, bool quick, bo
     bool releasedAny = false;
     for (auto& v : voices)
     {
-        if (! v.active || v.pad != pad)            continue;
-        if (note >= 0 && v.note != note)           continue;
-        if (onlyGate && ! v.gate)                  continue;
-        if (v.state == 2 && ! quick)               continue;
+        if (! gent::releaseApplies (v.active, v.pad, v.note, v.gate, v.state, pad, note, quick, onlyGate))
+            continue;
         v.state = 2;
         v.relDec = quick ? quickDec : v.padRelDec;
         releasedAny = true;
@@ -2421,20 +2377,9 @@ void GentSamplerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         float vStemGain[6];
         const std::uint8_t pmask = padStemMask[(size_t) juce::jlimit (0, 15, v.pad)].load();
         const bool padFiltered = (pmask != 0);
-        // Bleed: on a FILTERED pad, the UNSELECTED stems come back in at low gain
-        // (bleed*0.5) instead of hard 0 — organic background. bleed=0 => bit-identical
-        // to pure isolation; FULL pads (mask 0) are unaffected. Global mute/solo still wins.
-        const float bleedGain = padFiltered
-            ? juce::jlimit (0.0f, 1.0f, pBleed[(size_t) juce::jlimit (0, 15, v.pad)]->load()) * 0.5f
-            : 0.0f;
+        const float bleedParam = pBleed[(size_t) juce::jlimit (0, 15, v.pad)]->load();
         for (int k = 0; k < 6; ++k)
-        {
-            float gk;
-            if (! padFiltered)               gk = 1.0f;          // FULL: every stem full
-            else if (((pmask >> k) & 1) != 0) gk = 1.0f;          // selected stem
-            else                              gk = bleedGain;     // unselected stem bled in
-            vStemGain[k] = globalAudible[k] ? gk : 0.0f;
-        }
+            vStemGain[k] = gent::stemGainFor (pmask, k, bleedParam, globalAudible[k]);
         const bool wantStems = (stemFilterActive || padFiltered);
         // keep mixing stems while a gain is still ramping back to "full", so an
         // un-mute fades in cleanly before we drop back to the cheap master path.

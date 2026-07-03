@@ -22,11 +22,8 @@ inline juce::Colour stemColour (int k) { return Theme::stem (k); }
 // a pad set to a single stem takes that stem's colour; FULL or multi keeps its default hue
 inline juce::Colour padSourceColour (int i, const GentSamplerAudioProcessor& p)
 {
-    const std::uint8_t m = p.getPadStemMask (i);
-    if (m != 0 && (std::uint8_t) (m & (m - 1)) == 0)
-        for (int k = 0; k < 6; ++k)
-            if (m == (std::uint8_t) (1u << k)) return stemColour (k);
-    return padColour (i);
+    const int k = gent::singleStemIndex (p.getPadStemMask (i));
+    return k >= 0 ? stemColour (k) : padColour (i);
 }
 
 // C2: the hero-map visuals (flags/slice-line glow, playheads) show what each pad
@@ -37,11 +34,8 @@ inline juce::Colour padSourceColour (int i, const GentSamplerAudioProcessor& p)
 // the map, matching the mockup's stem-hue legend exactly.
 inline juce::Colour padMapHue (int i, const GentSamplerAudioProcessor& p)
 {
-    const std::uint8_t m = p.getPadStemMask (i);
-    if (m != 0 && (std::uint8_t) (m & (m - 1)) == 0)
-        for (int k = 0; k < 6; ++k)
-            if (m == (std::uint8_t) (1u << k)) return stemColour (k);
-    return Theme::fullStem;
+    const int k = gent::singleStemIndex (p.getPadStemMask (i));
+    return k >= 0 ? stemColour (k) : Theme::fullStem;
 }
 
 // C3 review fix: the END-handle drag decision (collapse-to-open vs. real window,
@@ -62,10 +56,7 @@ inline void applyEndHandleDrag (GentSamplerAudioProcessor& p, int pad,
                                 int proposedEndSample, int collapseToleranceSamples)
 {
     const int cue = p.getCue (pad);
-    if (proposedEndSample <= cue + collapseToleranceSamples)
-        p.setCueEnd (pad, cue);                                   // collapse -> open/gated
-    else
-        p.setCueEnd (pad, juce::jmax (cue + 33, proposedEndSample));
+    p.setCueEnd (pad, gent::resolveEndDragTarget (cue, proposedEndSample, collapseToleranceSamples));
 }
 
 // ---------------------------------------------------------------------------
@@ -137,12 +128,16 @@ inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
 // call sites below are otherwise untouched by F3.
 inline int resolveSnap (GentSamplerAudioProcessor& p, int proposed, double sppNow, bool altDown)
 {
+    // reviewer-inspection note (T3.2, TEST_TARGET_TASK.md): the two lines below —
+    // the snap-disabled and Alt-bypass early-outs — are covered by reviewer
+    // inspection, not unit test (they need a live GentSamplerAudioProcessor to
+    // construct, which the logic-only test binary deliberately can't do). See
+    // PluginEditor.h:140-141 in the spec's line numbering.
     if (! p.snapEnabled.load() || altDown)
         return proposed;
     const int cand = (p.gridStepSamples() > 0.0) ? p.nearestGridLine (proposed)
                                                   : p.nearestTransient (proposed);
-    const double thresholdSamples = 6.0 * sppNow;
-    return (std::abs (cand - proposed) <= thresholdSamples) ? cand : proposed;
+    return gent::applySnapThreshold (proposed, cand, sppNow);
 }
 
 // mouseDrag per event: incremental accumulation in sample space (double), then
