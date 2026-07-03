@@ -319,6 +319,27 @@ inline int resolveHeroView (int requested, bool stemsAvailable)
 }
 
 // ---------------------------------------------------------------------------
+//  D5 — STEMS-placeholder CTA affordance ("SEPARATE STEMS to fill the map")
+//  See docs/STEM_VIEW_MODEL.md SS6 matrix rows 2-4/6. `doStemJob()` runs on a
+//  single serial worker thread (PluginProcessor.cpp's `wait(250)` loop); a
+//  second `requestStemSeparation()` call while a job is already running (rows
+//  3/4: `downloadingModels`/`separating` true) does not crash or interleave --
+//  it silently sets `wantStems` again and gets picked up on the loop's NEXT
+//  iteration, queuing a full duplicate re-run right after the current job
+//  finishes. That queued-duplicate-job outcome is what this predicate exists
+//  to prevent at the UI layer, matching the existing guard the plain
+//  `sepStemsBtn` button already has (`sepStemsBtn.setEnabled(!busy)`,
+//  PluginEditor.cpp ~1593) -- the wave's own placeholder CTA had no equivalent
+//  guard before D5 (a real gap: it could double-fire where the button
+//  couldn't). Pure OR of the two lifecycle busy-flags; `hasStems` is not part
+//  of the decision (a job can be legitimately re-run against an already-
+//  separated source, e.g. changing quality, whenever it is NOT already busy).
+inline bool ctaEnabledFor (bool separating, bool downloadingModels)
+{
+    return ! (separating || downloadingModels);
+}
+
+// ---------------------------------------------------------------------------
 //  D3 — stem lane geometry
 //  See docs/STEM_VIEW_MODEL.md SS8/SS9. Extracted from the duplicated inline
 //  formula in mouseDown (PluginEditor.h ~861-863, pre-D3 line 732) and its

@@ -467,24 +467,65 @@ public:
 
             if (! stemsReady)
             {
-                // DECISION-3 placeholder CTA: chip-styled hint, empty-state
-                // conventions (PluginEditor.h:260-299 precedent) -- overlay chip
-                // kind 3 (opaque, reads over wave content per chrome conventions).
-                // R2 fix: this chip is a real click target -- capture its rect
-                // into ctaRect (hit-tested in mouseDown/mouseMove) and paint hover
-                // feedback consistent with the chip painter's own hover language.
-                const juce::String hint = "SEPARATE STEMS to fill the map";
+                // D5 / docs/STEM_VIEW_MODEL.md SS6 matrix rows 2-4/6: the placeholder
+                // must not contradict stemStatusLbl -- it reads the SAME lifecycle
+                // predicates/narration the label already reads (PluginEditor.cpp
+                // ~1590-1607), never a second derivation. Row 2 (idle, truly never
+                // separated -- getStemStatus() is empty): the DECISION-3 CTA hint.
+                // Row 6 (failed -- getStemStatus() holds doStemJob's error text,
+                // e.g. "model download failed: ..."/"init failed: ...", set right
+                // before `separating`/`downloadingModels` both go back to false):
+                // show that error text instead of the generic hint, but the click-
+                // target STAYS LIVE (retry is exactly what a failed, now-idle state
+                // should allow -- same as sepStemsBtn, which is only ever disabled
+                // by `busy`, not by a prior failure). Rows 3/4 (a job is ALREADY
+                // running, gent::ctaEnabledFor(separating, downloadingModels) ==
+                // false): status narration ("Downloading models NN%" / "Separating
+                // NN%"), and the click-target goes INERT -- clicking SEPARATE STEMS
+                // mid-job must not double-fire a second separation queued behind
+                // the one already running (doStemJob() runs on the single serial
+                // worker thread; wantStems.exchange(false) is polled once per outer
+                // wait(250) loop, so a second requestStemSeparation() call while
+                // `separating`/`downloadingModels` is true is silently QUEUED and
+                // re-runs the whole job again right after the current one finishes
+                // -- exactly the double-fire this guards against). sepStemsBtn
+                // already guards the same way via `sepStemsBtn.setEnabled (! busy)`
+                // (PluginEditor.cpp:1593); this matches that existing affordance
+                // rather than inventing a new one -- a disabled-look chip (dimmed
+                // text, no hover/click) is sufficient, since the processor has
+                // nothing else to add here (no re-entry lock to surface, just
+                // "don't queue a second job").
+                const bool ctaEnabled = gent::ctaEnabledFor (p.isSeparating(), p.isDownloadingModels());
+                const bool busy = ! ctaEnabled;
+                const juce::String status = p.getStemStatus();
+                const juce::String hint = status.isNotEmpty() ? status
+                                                                : juce::String ("SEPARATE STEMS to fill the map");
                 g.setFont (Theme::ui (10.5f * 1.12f, true).withExtraKerningFactor (0.12f));
                 const float hintW = juce::jmin ((float) w - 24.0f,
                                                  g.getCurrentFont().getStringWidthFloat (hint) + 28.0f);
                 auto hintR = juce::Rectangle<float> (((float) w - hintW) * 0.5f,
                                                      (float) waveBottom * 0.5f - 12.0f, hintW, 24.0f);
-                ctaRect = hintR;
-                // ctaHoverLast is kept current by mouseMove's own dirty-watch
-                // (single source of truth for hover state -- avoids a second,
-                // possibly-inconsistent hover detector here in paint()).
-                Theme::paintChip (g, hintR, false, ctaHoverLast, false, 3);
-                g.setColour (Theme::t2);
+                // R2 fix retained: only a LIVE (non-busy) hint arms ctaRect as a
+                // real click target -- while busy, ctaRect stays cleared from the
+                // top-of-paint reset (this frame paints no clickable CTA), so
+                // mouseDown/mouseMove's ctaRect.isEmpty() guards fall through with
+                // no hit-test, matching the inert affordance described above.
+                if (! busy)
+                {
+                    ctaRect = hintR;
+                    // ctaHoverLast is kept current by mouseMove's own dirty-watch
+                    // (single source of truth for hover state -- avoids a second,
+                    // possibly-inconsistent hover detector here in paint()).
+                    Theme::paintChip (g, hintR, false, ctaHoverLast, false, 3);
+                    g.setColour (Theme::t2);
+                }
+                else
+                {
+                    // inert/disabled-look chip: same chip painter, hover forced off,
+                    // dimmed text -- no ctaRect armed, so it cannot be clicked.
+                    Theme::paintChip (g, hintR, false, false, false, 3);
+                    g.setColour (Theme::t3);
+                }
                 g.drawText (hint, Theme::chipFace (hintR), juce::Justification::centred);
             }
             else

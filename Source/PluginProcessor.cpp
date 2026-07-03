@@ -253,6 +253,27 @@ bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
         if (runAnalysis) { detectedKey.clear(); transientSlices.clear(); }
     }
 
+    // D5 / docs/STEM_VIEW_MODEL.md DECISION-6: a genuinely NEW direct user load
+    // (drag-drop PluginEditor.cpp:1290, file-browser PluginEditor.cpp:328 -- both
+    // call loadFile(f) with the default runAnalysis=true) must drop the OLD
+    // file's stemSet so hasStems() correctly reports false for the new source
+    // (otherwise the STEMS view would keep showing yesterday's song's stems
+    // under today's song's flags -- SS1's finding, DECISION-6's gap). The
+    // applyStateTree restore path calls loadFile(f, false) and must NOT clear --
+    // it unconditionally restores padStemMask from the "src"+i keys immediately
+    // after (cpp ~2178), which depends on today's stemSet-survives-a-load
+    // behavior; runAnalysis is exactly the existing boolean that separates the
+    // two cases (true only at the two direct-load call sites, false only at the
+    // sole restore call site, cpp ~2171 -- confirmed by grep, no fourth caller).
+    // Same stemLock discipline as the separation-completion write (cpp ~1099-
+    // 1101): mute/solo (stemMuted/stemSoloed) and padStemMask are NOT touched --
+    // they carry forward per DECISION-6 Option 2, not reset to defaults.
+    if (runAnalysis)
+    {
+        const juce::SpinLock::ScopedLockType sl (stemLock);
+        stemSet = nullptr;
+    }
+
     for (int i = 0; i < 16; ++i)
     {
         cues[(size_t) i] = (int) ((juce::int64) len * i / 16);

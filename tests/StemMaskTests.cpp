@@ -590,3 +590,180 @@ TEST_CASE ("D4.6 composition: laneIndexAt x laneZoneAt reproduces per-lane mute/
         CHECK (gent::laneZoneAt (waveX, w, labW, soloW) == gent::LaneZone::wave);
     }
 }
+
+// ---------------------------------------------------------------------------
+// D5 — async lifecycle x view, the FULL docs/STEM_VIEW_MODEL.md SS6 matrix,
+// as scripted predicate sequences over the pure functions (resolveHeroView /
+// sanitizeHeroView / the new gent::ctaEnabledFor). Per REDESIGN_TASK_D.md's
+// D5 ctest scope ("every row of the matrix is a named TEST_CASE asserting
+// the effective view + seg-enabled flag pair") and the D1 addendum (Joe
+// ruling 2026-07-03): the PAINT-BRANCH selector is the sanitized REQUEST,
+// not resolveHeroView -- requesting STEMS always enters the STEMS branch
+// (placeholder-or-real-lanes is a CONTENT question inside that branch, not a
+// branch-visibility gate). The seg itself is ALWAYS enabled in every row
+// (DECISION-3: "seg enabled always") -- what varies row to row is (a) the
+// effective/resolved view fed to resolveHeroView, and (b) whether the STEMS
+// branch, once entered, shows real lanes vs a placeholder, and (c) whether
+// that placeholder's CTA click-target is enabled (gent::ctaEnabledFor).
+//
+// Row numbering matches docs/STEM_VIEW_MODEL.md SS6's table exactly.
+// ---------------------------------------------------------------------------
+
+// Row 1 — no source loaded. hasStems()==false regardless of any lifecycle
+// flag; both requests resolve the SAME way (COMPOSITE effective) since a
+// missing source is handled by WaveformView::paint's own early return
+// (PluginEditor.h ~280-312) BEFORE the heroReq branch is ever reached --
+// modeled here as "no source" being indistinguishable from "no stems" at
+// the resolveHeroView layer (both are stemsAvailable==false), the doc's own
+// framing ("Rows 1, 2, 3, 4, and 6 all share stemsAvailable == false at the
+// resolveHeroView layer").
+TEST_CASE ("D5.1 matrix row 1 (no source loaded): both requests resolve to COMPOSITE, "
+           "CTA enabled (no job running)")
+{
+    const bool hasStems = false, separating = false, downloading = false;
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (0), hasStems) == 0);
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 0);
+    CHECK (gent::ctaEnabledFor (separating, downloading) == true);
+}
+
+// Row 2 — source loaded, never separated. COMPOSITE request paints the full
+// composite wave (untouched by any of this); STEMS request enters the STEMS
+// branch (addendum: request selects the branch) and resolves its CONTENT to
+// the placeholder (resolveHeroView(1,false)==0). CTA is enabled -- no job is
+// running, so the placeholder's click-target is live (row 2's whole point is
+// "click SEPARATE STEMS to fill the map").
+TEST_CASE ("D5.2 matrix row 2 (loaded, never separated): STEMS request enters STEMS branch, "
+           "content resolves to placeholder, CTA enabled")
+{
+    const bool hasStems = false, separating = false, downloading = false;
+    const int reqComposite = gent::sanitizeHeroView (0);
+    const int reqStems     = gent::sanitizeHeroView (1);
+    CHECK (reqComposite == 0);   // COMPOSITE request -> composite branch, unaffected
+    CHECK (reqStems == 1);       // STEMS request -> STEMS branch is entered (addendum)
+    CHECK (gent::resolveHeroView (reqStems, hasStems) == 0);   // content: placeholder, not real lanes
+    CHECK (gent::ctaEnabledFor (separating, downloading) == true);
+}
+
+// Row 3 — downloading models (first run). hasStems() still false (background
+// job hasn't produced stems yet); STEMS request still enters the branch and
+// still resolves to the placeholder CONTENT slot, but the CTA must now be
+// INERT (a job is already running) -- this is the row the D5 gap-check in
+// REDESIGN_TASK_D.md specifically calls out ("during downloading/separating,
+// should the CTA chip still read SEPARATE STEMS?").
+TEST_CASE ("D5.3 matrix row 3 (downloading models): STEMS branch entered, placeholder content, "
+           "CTA INERT (job already running)")
+{
+    const bool hasStems = false, separating = true, downloading = true;
+    CHECK (gent::sanitizeHeroView (1) == 1);
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 0);
+    CHECK (gent::ctaEnabledFor (separating, downloading) == false);
+}
+
+// Row 4 — separating N% (downloading has already finished, model init/
+// inference is running). Same shape as row 3 minus the downloading flag.
+TEST_CASE ("D5.4 matrix row 4 (separating N%): STEMS branch entered, placeholder content, "
+           "CTA INERT (job already running)")
+{
+    const bool hasStems = false, separating = true, downloading = false;
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 0);
+    CHECK (gent::ctaEnabledFor (separating, downloading) == false);
+}
+
+// Row 5 — stems ready. hasStems()==true, no job running; STEMS request now
+// resolves to REAL lanes (resolveHeroView==1); CTA predicate is irrelevant in
+// this row (no placeholder is painted at all once stemsReady==true) but is
+// asserted enabled anyway since neither busy flag is set, for completeness
+// against the predicate's own contract (it does not know about hasStems).
+TEST_CASE ("D5.5 matrix row 5 (stems ready): STEMS request resolves to REAL lanes, "
+           "COMPOSITE request unaffected, no job running")
+{
+    const bool hasStems = true, separating = false, downloading = false;
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 1);
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (0), hasStems) == 0);   // COMPOSITE request still wins
+    CHECK (gent::ctaEnabledFor (separating, downloading) == true);
+}
+
+// Row 6 — separation failed. Both busy flags are false again (doStemJob's
+// error paths reset `separating`/`downloadingModels` before returning,
+// PluginProcessor.cpp's setStatus(...)+return blocks) and hasStems() is
+// false (no stemSet was ever published). STEMS branch still enters and
+// resolves to the placeholder CONTENT slot (same as row 2); CTA is enabled
+// again so the user can retry -- a prior failure does not lock out a retry,
+// same convention as sepStemsBtn (only ever disabled by busy, never by a
+// past failure).
+TEST_CASE ("D5.6 matrix row 6 (separation failed): STEMS branch entered, placeholder content, "
+           "CTA re-enabled for retry (not busy)")
+{
+    const bool hasStems = false, separating = false, downloading = false;
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 0);
+    CHECK (gent::ctaEnabledFor (separating, downloading) == true);
+}
+
+// Row 7 — stems present from restore (kit/session reload with hasStems()==
+// true at load time). Sticky-request rule applies exactly as row 5: if the
+// restored request was STEMS, it resolves to real lanes immediately with no
+// further user action; if the restored request was COMPOSITE, stems being
+// ready changes nothing (composite request always wins, matching D2.2's own
+// "(COMPOSITE, stems available) -> COMPOSITE (request wins)" case).
+TEST_CASE ("D5.7 matrix row 7 (stems present from restore): sticky request resolves immediately "
+           "against the restored hasStems()==true state, no further user action needed")
+{
+    const bool hasStems = true;   // restored StemSet is non-null at load time
+    // restored request == STEMS (persisted heroView==1, e.g. via applyStateTree)
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (1), hasStems) == 1);
+    // restored request == COMPOSITE -- stays composite despite stems being ready
+    CHECK (gent::resolveHeroView (gent::sanitizeHeroView (0), hasStems) == 0);
+}
+
+// -- DECISION-6 kill-case, as a resolveHeroView sequence ---------------------
+// Standalone relaunch: persisted request == STEMS, but the restored source is
+// missing/empty (silent-source landmine) so hasStems()==false at restore
+// time -- must not crash, must render the row-1/row-2 empty/placeholder
+// state, request stays sticky, and STEMS engages BY ITSELF the moment
+// separation completes for the (new) current source -- no second user click
+// required. This is the exact sequence REDESIGN_TASK_D.md's D5 AC names as
+// the kill-case demo, expressed here as a pure resolveHeroView trace (the
+// same shape as D2.3's transition-sequence test, extended to explicitly name
+// the "missing source on relaunch" scenario rather than "new file loaded").
+TEST_CASE ("D5.8 DECISION-6 kill-case: persisted STEMS + missing/empty restored source "
+           "-> composite/placeholder renders, request sticky, STEMS engages after separation completes")
+{
+    const int restoredRequest = gent::sanitizeHeroView (1);   // persisted heroView==1 survives restore
+    CHECK (restoredRequest == 1);
+
+    // immediately after restore: source is missing/empty, so DECISION-6's
+    // loadFile-side clear (or the restore path's own pre-existing state) means
+    // hasStems()==false -- no crash, effective view falls back to composite/
+    // placeholder-content, but the STICKY REQUEST itself is untouched.
+    CHECK (gent::resolveHeroView (restoredRequest, /*hasStems*/ false) == 0);
+
+    // the request never changes across this window (no code path writes
+    // heroView except an explicit user click or a fresh restore) --
+    // resolveHeroView is re-evaluated against the SAME stored request.
+    const int requestAfterFailedRestore = restoredRequest;
+    CHECK (requestAfterFailedRestore == 1);
+
+    // once the user loads a real file and separation completes for it,
+    // hasStems() flips true against the SAME sticky request -- STEMS engages
+    // automatically, no further click needed (SS5/SS6's "no auto-view-flip on
+    // separation completion" note: this isn't a special-cased flip, it's the
+    // natural consequence of stemsAvailable changing under a constant
+    // requested value).
+    CHECK (gent::resolveHeroView (requestAfterFailedRestore, /*hasStems*/ true) == 1);
+}
+
+// ---------------------------------------------------------------------------
+// D5 — gent::ctaEnabledFor (STEMS-placeholder CTA click-target affordance)
+// See docs/STEM_VIEW_MODEL.md SS6 rows 2-4/6 and the D5 gap-check in
+// REDESIGN_TASK_D.md. Pure OR of the two lifecycle busy-flags read on the
+// message thread (WaveformView::paint, same predicates stemStatusLbl already
+// reads at PluginEditor.cpp ~1590-1607) -- exhaustive over all 4 boolean
+// combinations since the domain is tiny.
+// ---------------------------------------------------------------------------
+TEST_CASE ("D5.9 ctaEnabledFor: exhaustive over all 4 (separating, downloadingModels) combinations")
+{
+    CHECK (gent::ctaEnabledFor (false, false) == true);    // idle (row 2 / row 6) -> enabled
+    CHECK (gent::ctaEnabledFor (true,  false) == false);   // separating (row 4) -> inert
+    CHECK (gent::ctaEnabledFor (false, true)  == false);   // downloading (row 3) -> inert
+    CHECK (gent::ctaEnabledFor (true,  true)  == false);   // both set (transient overlap) -> inert
+}
