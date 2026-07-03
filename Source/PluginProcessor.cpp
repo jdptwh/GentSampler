@@ -340,28 +340,106 @@ GentSamplerAudioProcessor::CueSnap GentSamplerAudioProcessor::snapshot() const
     {
         s.cue[(size_t) i] = cues[(size_t) i].load();
         s.end[(size_t) i] = cueEnds[(size_t) i].load();
+        s.mask[(size_t) i] = padStemMask[(size_t) i].load();
+        // 0.3: 7 grain params per pad, cheapest correct message-thread read —
+        // the cached raw-atomic pGrain* pointers (same idiom as grainOnFor/
+        // getGrainPosFor above), not a fresh apvts parameter lookup.
+        auto& g = s.grain[(size_t) i];
+        g[0] = pGrainOn[(size_t) i]->load();
+        g[1] = pGrainSize[(size_t) i]->load();
+        g[2] = pGrainDens[(size_t) i]->load();
+        g[3] = pGrainPos[(size_t) i]->load();
+        g[4] = pGrainFreeze[(size_t) i]->load();
+        g[5] = pGrainSpray[(size_t) i]->load();
+        g[6] = pGrainPitch[(size_t) i]->load();
     }
     return s;
 }
 
 void GentSamplerAudioProcessor::applySnap (const CueSnap& s)
 {
+    // AMENDMENT 0.3-A: guard against re-entrant pushUndo() while restoring
+    // grainOn/grainFreeze below (see restoringSnap's declaration comment) —
+    // scoped for the duration of this call only, message thread only. RAII
+    // (R0 nit): exception-safe even though nothing on this path throws today.
+    const juce::ScopedValueSetter<bool> svs (restoringSnap, true, false);
     for (int i = 0; i < 16; ++i)
     {
         cues[(size_t) i] = s.cue[(size_t) i];
         cueEnds[(size_t) i] = s.end[(size_t) i];
+
+        // write-if-changed: skip pads whose mask already matches, so a single
+        // undo/redo doesn't fire 16 needless atomic stores.
+        if (padStemMask[(size_t) i].load() != s.mask[(size_t) i])
+            padStemMask[(size_t) i].store (s.mask[(size_t) i]);
+
+        // 0.3 / D-0.3c: restore all 7 grain params via the existing message-
+        // thread apvts.getParameterAsValue() idiom (h:259 precedent), write-
+        // if-changed to avoid a storm of listener notifications (16 pads * 7
+        // params = 112 potential writes per undo step). No beginChangeGesture/
+        // endChangeGesture bracketing (decided, D-0.3c): undo is a plain UI
+        // write like any other, not a host-automation gesture. Consequence,
+        // accepted: if the host is actively automating a grain param, its next
+        // automation pass will overwrite what undo just wrote here — identical
+        // to how any other UI write behaves under host automation in every
+        // DAW; undo does not fight it.
+        const auto& g = s.grain[(size_t) i];
+        static const char* const kGrainSuffix[7] =
+            { "grainOn", "grainSize", "grainDens", "grainPos", "grainFreeze", "grainSpray", "grainPitch" };
+        std::atomic<float>* const kGrainPtr[7] =
+        {
+            pGrainOn[(size_t) i], pGrainSize[(size_t) i], pGrainDens[(size_t) i], pGrainPos[(size_t) i],
+            pGrainFreeze[(size_t) i], pGrainSpray[(size_t) i], pGrainPitch[(size_t) i]
+        };
+        for (int k = 0; k < 7; ++k)
+            if (kGrainPtr[k]->load() != g[(size_t) k])
+                apvts.getParameterAsValue (pid (i, kGrainSuffix[k])) = (double) g[(size_t) k];
     }
     ++uiDirty;
 }
 
+// AMENDMENT 0.3-A: history[i] holds "the state after i tracked edits" (i.e.
+// history[0] is the baseline before any edit; history[k] is the live state
+// right after the k-th edit). undoPos indexes the slot the CURRENT live state
+// belongs to. Between a pushUndo() call and its edit's mutation, the top slot
+// is momentarily a stale copy of the previous slot — that's fine, because the
+// *next* pushUndo() or undo() call always corrects ("fixes up") the slot at
+// the OLD undoPos with a fresh snapshot() before moving on, capturing the true
+// post-edit state right before it would otherwise be lost. The pre-amendment
+// bug: the empty-history seed pushed TWO entries but every later edit only
+// ever pushed ONE new entry with no fix-up of the previous slot, so the
+// previous edit's true result was never recorded anywhere — undo() then
+// landed one slot early, silently skipping the most recent edit.
+//
+// Slot diagram for edit A -> edit B -> undo -> undo -> redo -> redo
+// (S0 = initial, SA = state after edit A, SB = state after edit B):
+//
+//   pushUndo() [before A]:  history=[S0, S0]              undoPos=1   (seed + placeholder, live=S0)
+//   edit A mutates:         history=[S0, S0]              undoPos=1   (live=SA, slot 1 stale)
+//   pushUndo() [before B]:  fix-up slot1 -> SA
+//                           history=[S0, SA]  then push    undoPos=2
+//                           history=[S0, SA, SA]                       (live=SA, slot 2 stale)
+//   edit B mutates:         history=[S0, SA, SA]           undoPos=2   (live=SB, slot 2 stale)
+//   undo() #1:              fix-up slot2 -> SB
+//                           history=[S0, SA, SB]            undoPos=1   apply history[1]=SA   (live=SA)  correct: reverted ONLY edit B
+//   undo() #2:              fix-up slot1 -> SA (no-op, already SA)
+//                           history=[S0, SA, SB]            undoPos=0   apply history[0]=S0   (live=S0)  correct: reverted edit A too
+//   redo() #1:              undoPos=1   apply history[1]=SA (live=SA)  correct: re-applies edit A
+//   redo() #2:              undoPos=2   apply history[2]=SB (live=SB)  correct: re-applies edit B
 void GentSamplerAudioProcessor::pushUndo()
 {
-    // drop any redo branch, record current state as the baseline to return to
+    // drop any redo branch
     if (undoPos < (int) history.size() - 1)
         history.erase (history.begin() + undoPos + 1, history.end());
     if (history.empty())
-        history.push_back (snapshot());           // seed with pre-edit state
-    history.push_back (snapshot());
+        history.push_back (snapshot());            // idx0 = baseline, before the very first edit
+    else
+        history[(size_t) undoPos] = snapshot();     // fix up the current top: true state after the PREVIOUS edit
+    history.push_back (snapshot());                 // new top = placeholder for "after this edit"; corrected lazily
+    // (R0 note: an armed-but-abandoned gesture — push with no following edit —
+    // leaves a duplicate slot, costing one extra undo click. Not a bug: no
+    // state is lost/skipped, and the next pushUndo's fix-up self-heals it.)
+                                                      // by the next pushUndo()/undo() call, exactly like the line above
     if (history.size() > 64)
         history.erase (history.begin());
     undoPos = (int) history.size() - 1;
@@ -370,7 +448,9 @@ void GentSamplerAudioProcessor::pushUndo()
 void GentSamplerAudioProcessor::undo()
 {
     if (undoPos <= 0) return;
-    // capture the live state into the top slot so redo can return to it
+    // fix up the current top slot with the TRUE live state (unchanged by
+    // AMENDMENT 0.3-A — this line was already correct; pushUndo() was the
+    // only bug) so redo can return to it, then step back exactly one edit.
     history[(size_t) undoPos] = snapshot();
     --undoPos;
     applySnap (history[(size_t) undoPos]);

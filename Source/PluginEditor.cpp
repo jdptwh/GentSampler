@@ -226,12 +226,28 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     initRotary (padGrainSpray, gyL, "SPRAY");
     initRotary (padGrainPitch, gtL, "G.PITCH");
     padGrainSize.setTextValueSuffix (" ms");
+    // 0.3 / D-0.3b: one pushUndo per drag GESTURE, not per value change.
+    // Slider::onDragStart fires once at mouseDown, before any value is changed
+    // (Slider::Pimpl::sendDragStart precedes the drag's first value commit),
+    // so this is always the PRE-mutate state regardless of SliderAttachment
+    // listener order (unlike the ToggleButton case above).
+    padGrainSize.onDragStart   = [this] { p.pushUndo(); };
+    padGrainDens.onDragStart   = [this] { p.pushUndo(); };
+    padGrainPos.onDragStart    = [this] { p.pushUndo(); };
+    padGrainSpray.onDragStart  = [this] { p.pushUndo(); };
+    padGrainPitch.onDragStart  = [this] { p.pushUndo(); };
     addAndMakeVisible (grainBtn);
     grainBtn.setTooltip ("Granular mode for this pad - turn the slice into an evolving texture. "
                          "Hold or latch for a sustained pad; combine with FREEZE for a drone.");
     addAndMakeVisible (freezeBtn);
     freezeBtn.setTooltip ("Freeze the grain position at POS (scrub it) for a stable drone, instead of "
                           "following the playhead.");
+    // 0.3: registered once, here, BEFORE attachPad() ever runs — see GrainTogglePush
+    // comment (PluginEditor.h) for why this must be a Listener, not onClick.
+    grainOnPush.proc = &p;
+    grainFreezePush.proc = &p;
+    grainBtn.addListener (&grainOnPush);
+    freezeBtn.addListener (&grainFreezePush);
 
     addAndMakeVisible (ftypeBox);
     ftypeBox.addItem ("Off", 1);
@@ -446,6 +462,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
             b.onClick = [this, i]
             {
                 const int pad = p.selectedPad.load();
+                p.pushUndo();   // 0.3: SOURCE chip click = one undo gesture (mask now in CueSnap)
                 if (i == 0) p.setPadFull (pad);
                 else        p.setPadStemBit (pad, i - 1, ! p.isPadStemOn (pad, i - 1));
                 ++p.uiDirty;

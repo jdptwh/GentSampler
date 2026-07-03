@@ -161,15 +161,15 @@ inline void handleDragMove (HandleDragEngine& g, GentSamplerAudioProcessor& p,
     if (proposed == g.anchorSample && ! g.undoPushed)
         return;                                    // no effective movement yet: no edit, no undo
 
-    // F5: the grain marker is excluded from pushUndo. Grain position is an APVTS
-    // parameter (written via setGrainPosFor), not part of CueSnap (PluginProcessor.cpp
-    // snapshot() only captures cues[]/cueEnds[]) — verified against the pre-F5 grainPos
-    // drag path (SliceDetailStrip::mouseDrag's old DragMode::grainPos case), which never
-    // called pushUndo() at all. Matching that exactly here: a grain-only pushUndo would
-    // record a CueSnap entry that Ctrl+Z "restores" with zero visible effect (grain isn't
-    // in the snapshot), spending an undo slot for nothing. See CLAUDE.md's 2026-07-02
-    // landmine on partial undo scope.
-    if (! g.undoPushed && g.handle != HandleDragEngine::Handle::grain)
+    // 0.3: the F5 grain-marker exclusion below is REMOVED. Its rationale was
+    // that grain position lived only in APVTS, outside CueSnap, so a grain-only
+    // pushUndo would record an entry Ctrl+Z "restores" with zero visible effect.
+    // That rationale dissolves now that CueSnap carries all 7 grain params
+    // (PluginProcessor.h CueSnap::grain, snapshot()/applySnap() in
+    // PluginProcessor.cpp) — a marker drag's first effective movement is now a
+    // real, undoable gesture like CUE/END, using the exact same lazy
+    // first-effective-movement guard (`undoPushed`) as those two handles.
+    if (! g.undoPushed)
     {
         p.pushUndo();
         g.undoPushed = true;
@@ -2730,6 +2730,32 @@ private:
     juce::ToggleButton kbBtn { "KEYBOARD" }, sliceStop { "STOP AT NEXT CUE" }, followBtn { "FOLLOW" };
     juce::ToggleButton snapBtn { "SNAP" }, loopBtn { "LOOP" }, revBtn { "REVERSE" };
     juce::ToggleButton grainBtn { "GRAIN" }, freezeBtn { "FREEZE" };   // per-pad granular
+    // 0.3: grain on/freeze push undo BEFORE the toggle mutates its APVTS param.
+    // Button::sendClickMessage calls Button::Listener::buttonClicked (which is
+    // what ButtonAttachment uses to commit the new value) BEFORE it invokes
+    // onClick — so a plain onClick lambda would snapshot the ALREADY-CHANGED
+    // value. This tiny Listener is added once in the constructor, before any
+    // ButtonAttachment exists (those are (re)constructed per pad switch in
+    // attachPad() and always addListener() at the end of the list), so it is
+    // guaranteed to run first on every click for the lifetime of the editor.
+    // AMENDMENT 0.3-A: applySnap() restores grainOn/grainFreeze via
+    // apvts.getParameterAsValue(), which synchronously drives this button's
+    // ButtonAttachment -> Button::setToggleState(..., sendNotificationSync)
+    // -> sendClickMessage() -> every registered Button::Listener, including
+    // THIS one — so an undo()/redo() restoring grainOn would otherwise
+    // re-trigger pushUndo() from inside undo()/redo() itself, corrupting the
+    // history stack. isRestoringSnap() is true only for applySnap()'s own
+    // duration (message thread only), so a genuine user click is unaffected.
+    struct GrainTogglePush : juce::Button::Listener
+    {
+        GentSamplerAudioProcessor* proc = nullptr;
+        void buttonClicked (juce::Button*) override
+        {
+            if (proc != nullptr && ! proc->isRestoringSnap())
+                proc->pushUndo();
+        }
+    };
+    GrainTogglePush grainOnPush, grainFreezePush;
     juce::TextButton   transcribeBtn { "TRANSCRIBE" };                 // per-pad audio-to-MIDI
     juce::ToggleButton transcribeQuantBtn { "QUANTIZE" };              // snap notes to the grid
     juce::Label        transcribeLbl;                                  // status / note count

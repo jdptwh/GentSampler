@@ -17,12 +17,15 @@ clean, passes pluginval, and runs stable inside FL Studio.
   RATIFIED + 2 addenda). NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
   (C: was 100% full) — all paths unchanged, bits live on D:.
 - In progress: PHASE 3 (PHASE3_SPEC.md, executing Downloads/PHASE3_TASK.md).
-  Part 0 bench cleanup: 0.1 DONE (Standalone gets ORT core DLLs — BULK task);
-  0.2 DONE (pluginval gate retries once — run_gate_retry, fault-injection
-  verified). Next: 0.3 extend-undo (mask+grain into CueSnap, R0 review),
-  0.4 optional breathing retry, then P1 feature cache → P2 classifier →
-  HARD JOE GATE (his 2-3 real samples) before P3 KIT / P4 SLICE dropdown.
-- Next up: Phase 3 per the spec's task order above.
+  Part 0 bench cleanup: 0.1 DONE, 0.2 DONE, 0.3 DONE — CueSnap now covers
+  cue/end + padStemMask + all 7 grain params (write-if-changed, message-
+  thread APVTS writes); AMENDMENT 0.3-A also fixed a pre-existing undo/redo
+  slot-arithmetic bug (chained tracked edits used to skip a step on undo) —
+  see the rewritten landmine below. Build/ctest(54)/pluginval green.
+  Next: 0.4 optional breathing retry (or skip), then P1 feature cache →
+  P2 classifier → HARD JOE GATE (his 2-3 real samples) before P3 KIT /
+  P4 SLICE dropdown.
+- Next up: 0.4 (optional) then Phase 3 Part 1 per PHASE3_SPEC.md.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
@@ -86,11 +89,33 @@ Running list of past failures and their fixes, so they never recur.
   artifacts (e.g. GentSampler_Pad12.wav) can restore as a silent EMPTY source
   — the wave renders blank and looks like a paint bug. Check the filename
   label in the hero before diagnosing render bugs.
-- 2026-07-02 — Undo scope is PARTIAL: CueSnap (PluginProcessor.cpp ~325) snapshots
-  cue/end windows ONLY — stem-source (padStemMask) and grain param changes are NOT
-  undoable; Ctrl+Z after those reverts just the slice windows. Both surfaces sync
-  correctly to whatever undo restores. Backlog: extend undo coverage (BACKLOG.md).
-  Don't "fix" this casually — undo granularity needs a spec.
+- 2026-07-03 — Undo scope (rewritten, was "PARTIAL" 2026-07-02, now extended
+  by Phase 3 task 0.3): CueSnap (PluginProcessor.cpp, CueSnap/snapshot/
+  applySnap) now covers cue/end + padStemMask + all 7 per-pad grain params
+  (grainOn/Size/Dens/Pos/Freeze/Spray/Pitch). Still NOT covered: per-pad
+  pitch/gain/pan/choke/play-mode/speed and any global param. Host automation
+  actively driving a grain param will overwrite what undo just wrote on its
+  next pass (accepted, D-0.3c) — undo does not fight automation, same as any
+  UI write. Grain restore goes through apvts.getParameterAsValue() (message
+  thread only, write-if-changed).
+- 2026-07-03 — AMENDMENT 0.3-A, two undo-stack bugs found+fixed inside 0.3
+  (both pre-existing, not caused by the 0.3 diff, first exposed by 0.3's own
+  chained-edit tests): (1) pushUndo()'s "seed on empty history" pushed two
+  entries but every later call pushed only one with no fix-up of the previous
+  slot, so undo() silently skipped the most-recent-but-one edit on any 2+-
+  edit chain (repro'd with plain SOURCE-chip clicks, no grain code involved)
+  — fixed by having pushUndo() fix up history[undoPos] with a fresh snapshot
+  before pushing the new placeholder (undo()/redo() were already correct;
+  see the slot-diagram comment above pushUndo() in PluginProcessor.cpp).
+  (2) Restoring grainOn/grainFreeze via applySnap() synchronously re-fires
+  every Button::Listener on that toggle (JUCE's ButtonAttachment ->
+  setToggleState(..., sendNotificationSync) -> sendClickMessage()), which
+  re-triggered the editor's own undo-push listener FROM INSIDE undo()/redo()
+  — fixed with a restoringSnap guard (GentSamplerAudioProcessor::
+  isRestoringSnap()) that the editor's GrainTogglePush checks before pushing.
+  Verified: edit-A/edit-B/undo/undo/redo/redo round-trips correctly for both
+  SOURCE-chip and grain-knob chains; chained SMART-slice-then-SMART-slice
+  undo lands on the first slicing's result, not two back.
 - 2026-07-02 — COPY_PLUGIN_AFTER_BUILD deleted the deployed plugin: JUCE's
   copyDir.cmake REMOVE_RECURSEs the destination, wiping the CUDA/cuDNN DLLs
   next to the deployed binary (restored from the artefact dir). Deploy is now

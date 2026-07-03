@@ -282,12 +282,22 @@ public:
     // other transientOnsets/transientSlices reader in this class.
     std::vector<int> getOnsetPositions() const;
 
-    // edit history (cue/end state)
-    void pushUndo();                                       // call BEFORE a cue/end mutation
+    // edit history (cue/end + stem-source + grain state, 0.3). Message thread
+    // only: undo()/redo() now also write APVTS grain params via
+    // getParameterAsValue (see applySnap), which is a message-thread-only API;
+    // their only callers are the editor's undo/redo buttons and the Ctrl+Z /
+    // Ctrl+Shift+Z / Ctrl+Y keyPressed handler (verified — grep PluginEditor.cpp
+    // for ".undo()"/".redo()"; all four sites are JUCE component callbacks,
+    // which JUCE guarantees run on the message thread).
+    void pushUndo();                                       // call BEFORE a cue/end/source/grain mutation
     void undo();
     void redo();
     bool canUndo() const                                   { return undoPos > 0; }
     bool canRedo() const                                   { return undoPos < (int) history.size() - 1; }
+    // AMENDMENT 0.3-A: true only for applySnap()'s own duration — see
+    // restoringSnap's declaration comment (below, near CueSnap/history) for
+    // why the editor's GrainTogglePush listener must check this.
+    bool isRestoringSnap() const                           { return restoringSnap; }
     std::atomic<int> clearedFlash { -1 };                  // pad index to flash 'cleared', -1 none
     std::atomic<juce::int64> clearedFlashTime { 0 };
 
@@ -385,12 +395,31 @@ private:
     double prevPos = 0.0;
     float  prevStemSg[6] = { 1, 1, 1, 1, 1, 1 };   // preview stem-gain smoothing (audio thread)
 
-    // undo history of cue/end snapshots
-    struct CueSnap { std::array<int,16> cue; std::array<int,16> end; };
+    // undo history of cue/end + stem-source + grain snapshots (0.3: grew from
+    // cue/end-only to also cover padStemMask and all 7 per-pad grain params —
+    // see CLAUDE.md's rewritten undo-scope landmine). grain[pad] order matches
+    // pGrain* declaration order below: on, size, dens, pos, freeze, spray, pitch.
+    struct CueSnap
+    {
+        std::array<int,16> cue, end;
+        std::array<std::uint8_t,16> mask;
+        std::array<std::array<float,7>,16> grain;
+    };
     std::vector<CueSnap> history;
     int undoPos = -1;
     CueSnap snapshot() const;
     void applySnap (const CueSnap&);
+    // AMENDMENT 0.3-A fix-up: applySnap() restores grainOn/grainFreeze via
+    // apvts.getParameterAsValue(), which synchronously drives the pad's
+    // ButtonAttachment -> Button::setToggleState(..., sendNotificationSync)
+    // -> sendClickMessage() -> EVERY registered Button::Listener, including
+    // the editor's GrainTogglePush undo-push hook (PluginEditor.h). Without
+    // this guard, undo()/redo() restoring grainOn would re-trigger a NEW
+    // pushUndo() from inside undo()/redo() itself, corrupting the history
+    // stack. Message-thread only (applySnap's only callers are undo()/redo(),
+    // both message-thread-only per the comment above). Public accessor
+    // (isRestoringSnap()) lives up near canUndo()/canRedo().
+    bool restoringSnap = false;   // set true for the duration of applySnap() only
     std::atomic<double> detectedBpm { 0.0 };
     std::atomic<double> bpmOverride { 0.0 };
     juce::String detectedKey, fileName, filePath;   // guarded by infoLock
