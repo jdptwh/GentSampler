@@ -506,7 +506,6 @@ public:
                 auto region = juce::Rectangle<float> (ca, (float) top, cb - ca, (float) (waveBottom - top));
                 g.setColour (Theme::accent.withAlpha (0.10f));
                 g.fillRect (region);
-                Theme::featherGlow (g, region, 0.0f, Theme::glow.withAlpha (0.35f), 5.0f, 3);
                 g.setColour (Theme::glow.withAlpha (0.65f));
                 g.drawRect (region.reduced (1.0f), 2.0f);
             }
@@ -1270,12 +1269,23 @@ public:
                     g.setColour (inSlice ? col.withAlpha (0.9f) : col.withAlpha (0.28f));
                     g.drawVerticalLine (x, mid - pk.second * half, mid - pk.first * half);
                 }
-                // transient ticks (existing Analyzer onsets, zoomed to this window)
-                g.setColour (juce::Colours::white.withAlpha (0.22f));
+                // transient ticks (existing Analyzer onsets, zoomed to this window) — P1:
+                // density-capped so a long slice's hundreds of onsets don't solid-band.
+                // Pre-count visible onsets, fade alpha by average spacing, then thin the
+                // draw pass to a 6px minimum stride (onsets are pre-sorted in timerCallback).
+                int nVis = 0;
+                for (int t : onsets)
+                    if (t >= zoomLo && t <= zoomHi) ++nVis;
+                const float avgSpacing = (float) (waveR - waveL) / (float) juce::jmax (1, nVis);
+                const float tickAlpha = juce::jmap (juce::jlimit (6.0f, 24.0f, avgSpacing), 6.0f, 24.0f, 0.10f, 0.22f);
+                g.setColour (juce::Colours::white.withAlpha (tickAlpha));
+                float lastDrawnX = -1.0e9f;
                 for (int t : onsets)
                 {
                     if (t < zoomLo || t > zoomHi) continue;
                     const float tx = xOf (t);
+                    if (tx - lastDrawnX < 6.0f) continue;
+                    lastDrawnX = tx;
                     g.fillRect (tx - 0.75f, (float) h * 0.06f, 1.5f, (float) h * 0.16f);
                 }
                 // dim outside the cue/end region
@@ -1516,6 +1526,7 @@ private:
             keep = s;
             cachedLen = s != nullptr ? s->buffer.getNumSamples() : 0;
             onsets = p.getOnsetPositions();
+            std::sort (onsets.begin(), onsets.end());   // P1: guarantee time order for the tick-density pass
             rebuildPeaks (sel);
         }
         const int d = p.uiDirty.load();

@@ -12,20 +12,20 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: SLICE_FEEL_TASK.md — COMPLETE and SIGNED OFF (Joe's FL feel
-  pass, 2026-07-02). All five tasks committed (6dfb340 F1 engine, 36ac81b F2
-  Shift fine, dc00502 F3 6px snap capture + Alt, 29bd9f5 F4 arrow/comma-period
-  nudge + armed affordance, 31a6520 F5 grain marker + armed-handle race fix).
-  One HandleDragEngine (PluginEditor.h ~61-185) drives every CUE/END/grain
-  gesture on both surfaces plus the nudge path — final reviewer explicitly
-  CONFIRMED the single-edit-path invariant; PluginProcessor byte-unchanged
-  across the whole arc. Full spec + per-task ACs in SLICE_FEEL_TASK.md.
+- Last completed: Redesign Phase C6 — SHIPPED AS P1+P2 ONLY (2026-07-02):
+  P1 transient-tick density cap on SliceDetailStrip (pre-count + spacing alpha
+  fade + 6px min-stride skip, onsets sorted once in timerCallback) and P2
+  cue-region featherGlow pallor removal (one-line deletion; fill/border match
+  mockup tokens 1:1). P3 (per-column wave-gradient "breathing" via cached
+  waveRamp blit) was REVERTED: the blit rendered the hero wave at ~half alpha
+  (pixel-measured lum 51->27, de-ambered), one fix attempt left debug litter
+  mid-flight and was killed, and per the stop-loss the hero keeps its original
+  static gradient. Recovery verified by measurement: hero wave lum 48.6,
+  amber-dominant, vs 51.0 pre-C6 healthy reference. P3 benched in BACKLOG.md.
 - In progress: Nothing live.
-- Next up: Redesign Phase C6 — polish from Joe's flags on the C5 gate
-  deliverables (candidates logged: strip transient-tick 'barcode' density on
-  long slices, cue-region border amber warmth, per-column wave gradient
-  'breathing'). Joe has not flagged C6 items yet. BACKLOG.md holds the
-  extend-undo spec candidate.
+- Next up: Joe's eyeball on the shipped P1+P2 (captures on Desktop). Then
+  Phase D (COMPOSITE<->STEMS lanes) is the next roadmap chapter. BACKLOG.md
+  holds extend-undo + the P3 breathing retry.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
