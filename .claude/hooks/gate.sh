@@ -6,15 +6,17 @@
 #
 # Gates, run in order. Each is skipped if its command is empty.
 #   GATE 1  build     — Release build of the plugin        (VERIFY_CMD)
-#   GATE 2  pluginval — VST3 validation, auto-skipped if pluginval not on PATH
-#   GATE 3  lint      — none configured                    (LINT_CMD)
-#   GATE 4  ui        — n/a (JUCE editor, not a web UI)    (UI_VERIFY_CMD)
+#   GATE 2  tests     — ctest unit tests (logic-only)      (TEST_CMD)
+#   GATE 3  pluginval — VST3 validation, auto-skipped if pluginval not on PATH
+#   GATE 4  lint      — none configured                    (LINT_CMD)
+#   GATE 5  ui        — n/a (JUCE editor, not a web UI)    (UI_VERIFY_CMD)
 # Keep these in sync with the "Verification command" section of CLAUDE.md.
 
 set -uo pipefail
 
 # ---- EDIT PER PROJECT (or export as env vars) ------------------------------
 VERIFY_CMD="${CLAUDE_VERIFY_CMD:-cmake --build build --config Release --parallel}"
+TEST_CMD="${CLAUDE_TEST_CMD:-ctest --test-dir build -C Release --output-on-failure --no-tests=error}"
 LINT_CMD="${CLAUDE_LINT_CMD:-}"                       # no linter configured for this repo
 UI_VERIFY_CMD="${CLAUDE_UI_VERIFY_CMD:-}"             # JUCE editor — no Playwright equivalent
 
@@ -62,6 +64,8 @@ run_gate () {
 taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
 
 run_gate "build" "$VERIFY_CMD"
+
+run_gate "tests" "$TEST_CMD"
 
 if [ -n "$PLUGINVAL_CMD" ]; then
   run_gate "pluginval" "$PLUGINVAL_CMD"

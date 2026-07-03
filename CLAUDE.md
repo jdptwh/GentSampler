@@ -24,20 +24,24 @@ clean, passes pluginval, and runs stable inside FL Studio.
   amber-dominant, vs 51.0 pre-C6 healthy reference. P3 benched in BACKLOG.md.
 - In progress: Nothing live. PHASE C CLOSED 2026-07-02: C1-C5 + C6 (P1+P2)
   accepted by Joe; P3 breathing benched (BACKLOG.md).
-- Next up: unit test target spec (planner, in flight) — CTest + Catch2/doctest
-  over engine-core logic (slice window math, snap capture, trigger modes,
-  stem-source switching), wired into gate.sh. Then Phase D (COMPOSITE<->STEMS
-  lanes). BACKLOG.md holds extend-undo + the P3 breathing retry.
+- Next up: unit test target (TEST_TARGET_TASK.md) — T1 scaffold DONE 2026-07-02
+  (doctest vendored, GentSamplerTests target + CTest wired, gate.sh GATE 2
+  "tests" between build and pluginval, 4 placeholder suite files). T2-T5
+  (EngineMath.h extraction + real slice/snap/trigger/stem-mask tests) next,
+  then T6 reviewer gate. Then Phase D (COMPOSITE<->STEMS lanes). BACKLOG.md
+  holds extend-undo + the P3 breathing retry.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
 - Language/stack: C++17, JUCE 8.0.4 (FetchContent), CMake ≥3.22,
   MSVC (VS 2022 Build Tools), x64, Windows. MSVC `/utf-8` enforced.
 - Style: Formatter: clang-format (config in .clang-format at repo root). Match existing code style in Source/.
-- Tests: none — the build is the machine gate; pluginval is the second gate
-  when installed. The reviewer agent is the only check on logic until tests exist.
+- Tests: ctest unit tests (tests/, doctest, logic-only — pure functions in
+  Source/EngineMath.h). Run: `ctest --test-dir build -C Release --output-on-failure`.
+  gate.sh runs them as GATE 2, after build, before pluginval.
 - Verification command: `cmake --build build --config Release --parallel`
-  (gate.sh auto-configures with `cmake -S . -B build -G "Visual Studio 17 2022" -A x64` if build/ is missing, then runs pluginval at strictness 5 if it's on PATH)
+  (gate.sh auto-configures with `cmake -S . -B build -G "Visual Studio 17 2022" -A x64` if build/ is missing,
+  then `ctest --test-dir build -C Release --output-on-failure`, then runs pluginval at strictness 5 if it's on PATH)
 
 ## Architecture (short)
 - Plugin targets: VST3 + Standalone, `IS_SYNTH`, MIDI in, 16 optional per-pad

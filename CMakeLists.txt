@@ -135,3 +135,19 @@ add_custom_command(TARGET GentSampler_VST3 POST_BUILD
         "C:/Program Files/Common Files/VST3/GentSampler.vst3/Contents/x86_64-win"
     VERBATIM)
 
+# ---- unit tests (logic-only; no JUCE link; see TEST_TARGET_TASK.md) ----
+option(GENT_BUILD_TESTS "Build EngineMath unit tests" ON)
+if(GENT_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/vendor/doctest.h")
+    enable_testing()
+    add_executable(GentSamplerTests
+        tests/TestMain.cpp
+        tests/SliceWindowTests.cpp
+        tests/SnapTests.cpp
+        tests/TriggerTests.cpp
+        tests/StemMaskTests.cpp)
+    target_include_directories(GentSamplerTests PRIVATE Source tests/vendor)
+    target_compile_features(GentSamplerTests PRIVATE cxx_std_17)
+    target_compile_options(GentSamplerTests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+    add_test(NAME EngineMath COMMAND GentSamplerTests)
+    set_tests_properties(EngineMath PROPERTIES TIMEOUT 60)
+endif()
