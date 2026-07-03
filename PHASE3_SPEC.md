@@ -379,3 +379,26 @@ Plus per-part manual verifies in each AC block, and the Part-2 gate checklist (J
 | Sample | Stems? | Joe verdict | Notes |
 |---|---|---|---|
 | | | | |
+
+---
+
+## AMENDMENT 0.3-A (2026-07-03, gate authority — planner)
+
+During AC-0.3 verification the implementer found a PRE-EXISTING off-by-one
+in the shared undo stack (PluginProcessor.cpp pushUndo/undo, ~396-416):
+with two consecutive tracked edits, one undo() lands one history slot too
+early and skips the intermediate state (repro'd with plain SOURCE-chip
+clicks, no 0.3 code involved). Never surfaced before because chained
+tracked edits were rare pre-0.3.
+
+RULING: fix it inside 0.3. PHASE3_TASK.md's binding goal for 0.3 is "undo
+stops lying" — state-skipping is the lie. Scope of the amendment:
+- Correct the slot arithmetic so each undo() reverts exactly ONE tracked
+  edit (apply the snapshot taken before the most recent edit), and redo()
+  re-applies exactly one. Smallest correct fix; no redesign of the
+  64-deep vector model.
+- Redo symmetry is part of the AC: edit A → edit B → undo → state after A
+  → undo → initial → redo → after A → redo → after B.
+- R0 verifies the arithmetic against a hand-drawn slot diagram and checks
+  every existing caller path (slice actions, clear, the new 0.3 pushes).
+- AC-0.3.2/.3 stand as originally written (two gestures = two steps).
