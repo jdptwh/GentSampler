@@ -345,4 +345,51 @@ inline int laneIndexAt (int y, int bandTop, int bandH)
     return std::clamp ((int) (((double) y - (double) bandTop) / laneH), 0, 5);
 }
 
+// ---------------------------------------------------------------------------
+//  D4 — lane zone (mute / solo / wave) x-classification
+//  See docs/STEM_VIEW_MODEL.md SS8 and REDESIGN_TASK_D.md's D4 ctest scope:
+//  "extract gent::laneZoneAt (int x, int w, int labW, int soloW) -> {mute,
+//  solo, wave} classification extracted from the [dormant] constants".
+//
+//  Extracted VERBATIM (same constants, same if-order) from the dormant band
+//  hit-test in PluginEditor.h::mouseDown (pre-D4 lines 704-710):
+//
+//      if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
+//      {
+//          const int lane = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
+//          if (e.x >= w - stemSoloW - 6)
+//              p.setStemSoloed (lane, ! p.isStemSoloed (lane));
+//          else if (e.x <= 4 + stemLabW + 6)
+//              p.setStemMuted (lane, ! p.isStemMuted (lane));
+//          ...
+//      }
+//
+//  Boundary constants (verified against the cited lines above, unchanged by
+//  this extraction):
+//    - SOLO zone:  x >= w - soloW - 6   (dormant line 707: `e.x >= w - stemSoloW - 6`)
+//    - MUTE zone:  x <= 4 + labW + 6    (dormant line 709: `e.x <= 4 + stemLabW + 6`)
+//    - everything else: wave (the dormant code's implicit "neither if/else-if
+//      matched" fallthrough, which still `return`s at the OLD whole-band level
+//      -- D4's job is to make that a real "does nothing, falls through" case
+//      instead of an unconditional return).
+//
+//  PRECEDENCE (degenerate small w, where the two zones overlap): the dormant
+//  code is an `if / else if` with SOLO tested FIRST -- so when both conditions
+//  are true simultaneously (possible whenever w is small enough that
+//  `w - soloW - 6 <= 4 + labW + 6`), SOLO WINS. This function preserves that
+//  exact precedence: the SOLO test is evaluated before the MUTE test, matching
+//  the dormant `if (solo) ... else if (mute) ...` order line-for-line.
+// ---------------------------------------------------------------------------
+
+enum class LaneZone { mute, solo, wave };
+
+inline LaneZone laneZoneAt (int x, int w, int labW, int soloW)
+{
+    if (x >= w - soloW - 6)
+        return LaneZone::solo;
+    if (x <= 4 + labW + 6)
+        return LaneZone::mute;
+    return LaneZone::wave;
+}
+
 } // namespace gent

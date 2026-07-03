@@ -694,23 +694,55 @@ public:
         const int w = getWidth(), h = getHeight();
         const int sb = 11;
 
-        // stem lane band: solo box (right) or label pill (left) toggles
-        // D3: DORMANT -- stemBandH is zeroed by the retired composite band (D3
-        // scope) and the real STEMS-view rewire is D4's job (interaction rewiring
-        // is explicitly NOT D3's). This code path never fires today (stemBandH<=0
-        // always fails the guard below) but must keep compiling; the lane-index
-        // formula itself is now the shared gent::laneIndexAt extraction (D3 ctest
-        // scope) so D4 reuses the exact same math instead of a third inline copy.
-        if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
+        // D4: STEMS-view lane mute/solo x-zones. Live ONLY when the painted
+        // view is STEMS (heroReq==1, per paint()'s own branch selector --
+        // gent::sanitizeHeroView(p.heroView.load()), same predicate) AND real
+        // lanes are showing (stemsReady == gent::resolveHeroView(...)==1; the
+        // placeholder/CTA path above already claimed its own click via ctaRect
+        // and returned, so reaching here with heroReq==1 && !stemsReady means
+        // the click landed outside the CTA chip -- no lane geometry exists to
+        // test in that state, so it falls through same as COMPOSITE).
+        //
+        // Hit-test priority (docs/STEM_VIEW_MODEL.md SS8, point 1-2):
+        //   1. lane plate (mute) / solo-box zones claim clicks ONLY within
+        //      their own x-range, at that lane's y -- gent::laneZoneAt is the
+        //      SAME x-classification the dormant band code used (D4 ctest:
+        //      exact boundary constants extracted verbatim), composed with
+        //      gent::laneIndexAt for the y->lane mapping (D3 extraction).
+        //   2. everything else (including clicks inside a lane's y-range but
+        //      outside its mute/solo x-zones -- the wave-column middle of a
+        //      lane) FALLS THROUGH unchanged to scrollbar / pan / flag-select
+        //      / handle-drag / placeStart below -- the exact fix for the
+        //      whole-band-early-return landmine (REDESIGN_TASK_D.md landmine
+        //      flag 3): today's `return` for ANY in-band y is now a narrower
+        //      return that only fires for the two real hit zones.
+        // The dormant whole-band block (pre-D4: `if (stemBandH > 0 && e.y >=
+        // stemBandTop && e.y < stemBandTop + stemBandH) { ...unconditional
+        // return... }`) is deleted -- its replacement is this block, gated on
+        // heroReq/stemsReady + laneIndexAt/laneZoneAt instead of stemBandH.
+        const int heroReq = gent::sanitizeHeroView (p.heroView.load());
+        const int waveBottom = h - sb - bottomChromeH;
+        const bool stemsReady = heroReq == 1 && gent::resolveHeroView (heroReq, p.hasStems()) == 1;
+        if (stemsReady && e.y >= 0 && e.y < waveBottom)
         {
-            const int lane = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
-            if (e.x >= w - stemSoloW - 6)
+            const int lane = gent::laneIndexAt (e.y, 0, waveBottom);
+            const auto zone = gent::laneZoneAt (e.x, w, stemLabW, stemSoloW);
+            if (zone == gent::LaneZone::solo)
+            {
                 p.setStemSoloed (lane, ! p.isStemSoloed (lane));
-            else if (e.x <= 4 + stemLabW + 6)
+                ++p.uiDirty;
+                repaint();
+                return;
+            }
+            if (zone == gent::LaneZone::mute)
+            {
                 p.setStemMuted (lane, ! p.isStemMuted (lane));
-            ++p.uiDirty;
-            repaint();
-            return;
+                ++p.uiDirty;
+                repaint();
+                return;
+            }
+            // zone == wave: falls through to the shared paths below (scrollbar,
+            // pan, flag-select, handle drags, placeStart) -- no early return.
         }
 
         if (e.y >= h - sb - bottomChromeH)                   // scrollbar (shifted above the chip band)
@@ -734,7 +766,20 @@ public:
         // flag pennants: click one to SELECT its pad (then its window/handles are
         // editable). Tested before the edge hit-tests (which are x-only) so a flag
         // click selects rather than grabbing the start edge underneath it.
-        if (e.y >= flagBarY && e.y < flagBarY + flagBarH)
+        //
+        // D4 fix (STEM_VIEW_MODEL.md SS8, "FIX THE D3-FLAGGED STALE GEOMETRY"):
+        // in STEMS view, paint() calls paintFlagsCuePlayheads(..., flagY=0, ...)
+        // (full-height pennants painted from the lane area's own top, per D3),
+        // NOT the composite's flagBarY/flagBarH row. Testing against composite's
+        // flagBarY/flagBarH here in STEMS view would hit-test against the WRONG
+        // geometry (flagBarY collapses to 2 whenever a band isn't showing, per
+        // D3's bandH==0 comment above -- coincidentally close to STEMS' own 0,
+        // but flagBarH's 15 is the right SIZE regardless; only the origin
+        // differs). Use the STEMS-correct pennant-row zone [0, flagH) --
+        // consistent with composite's own "pennant-row-only" convention, just
+        // anchored at the STEMS branch's flagY=0 instead of composite's flagY=2.
+        const int flagHitY = (heroReq == 1) ? 0 : flagBarY;   // STEMS: flagY=0; COMPOSITE: unchanged
+        if (e.y >= flagHitY && e.y < flagHitY + flagBarH)
         {
             for (int i = 15; i >= 0; --i)   // top-most flag (highest index, drawn last) wins the click
             {
@@ -926,13 +971,21 @@ public:
         const bool edge = hitEndHandle (e.x) >= 0 || hitStartEdge (e.x) >= 0;
         setMouseCursor (edge ? juce::MouseCursor::LeftRightResizeCursor
                              : juce::MouseCursor::NormalCursor);
-        // D3: DORMANT for the same reason as mouseDown's band test above --
-        // stemBandH is zeroed in the retired composite band; D4 rewires this to
-        // the real STEMS-view full-lane geometry. gent::laneIndexAt is the same
-        // shared extraction mouseDown now uses.
+        // D4: rewired to the real STEMS-view full-lane geometry (the dormant
+        // stemBandH/stemBandTop band test is deleted -- stemBandH is always 0
+        // now that the composite band paint is retired, D3). hoverLane feeds
+        // paint()'s hover-reveal S-box (D3 paint, "hoverLane == s || soloed"),
+        // so it must track the SAME (0, waveBottom) lane geometry mouseDown's
+        // laneZoneAt/laneIndexAt block above uses, gated the same way (STEMS
+        // painted view + real lanes showing -- no hover reveal makes sense
+        // over the placeholder, which has no per-lane wave data to reveal).
+        const int heroReqHover = gent::sanitizeHeroView (p.heroView.load());
+        const bool stemsReadyHover = heroReqHover == 1
+                                    && gent::resolveHeroView (heroReqHover, p.hasStems()) == 1;
+        const int waveBottomHover = getHeight() - 11 - bottomChromeH;
         int hl = -1;
-        if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
-            hl = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
+        if (stemsReadyHover && e.y >= 0 && e.y < waveBottomHover)
+            hl = gent::laneIndexAt (e.y, 0, waveBottomHover);
         if (hl != hoverLane) { hoverLane = hl; repaint(); }
     }
 
@@ -1346,8 +1399,13 @@ private:
     std::array<std::vector<std::pair<float, float>>, 6> stemPeaks;
     StemSet::Ptr keepStems;
     int lastStemGen = -2;
-    int stemBandTop = 18, stemBandH = 0;   // set in paint, used for lane clicks
+    int stemBandTop = 18, stemBandH = 0;   // D4: set by the composite paint branch (bandH==0 layout);
+                                            // no longer read by any hit-test -- STEMS-view lane hit-tests
+                                            // (mouseDown/mouseMove) now compute their own (0, waveBottom)
+                                            // geometry locally instead of consuming these fields.
     int flagBarY = 0, flagBarH = 15;        // flag pennant row (set in paint), used for flag clicks
+                                            // (COMPOSITE uses flagBarY directly; STEMS uses flagBarH only,
+                                            // with its own y-origin of 0 -- see mouseDown's flagHitY)
     int hoverLane = -1;                     // stem lane under the mouse (for solo reveal)
     int stemLabW = 60, stemSoloW = 18;   // C3 review nit: stemRulerH removed (dead — rulerH is hardcoded 0)
     int bottomChromeH = 0;                  // C2: reserved band for the .ov.bl/.ov.br chip plates

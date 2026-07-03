@@ -426,3 +426,167 @@ TEST_CASE ("D3.3 laneIndexAt: tiling property -- every in-band y maps to exactly
             CHECK (gent::laneIndexAt (y, bandTop, bandH) == referenceLaneIndexAt (y, bandTop, bandH));
     }
 }
+
+// ---------------------------------------------------------------------------
+// D4 — gent::laneZoneAt (lane x-classification: mute / solo / wave)
+// See docs/STEM_VIEW_MODEL.md SS8 and REDESIGN_TASK_D.md's D4 ctest scope:
+// "extract gent::laneZoneAt (int x, int w, int labW, int soloW) -> {mute,
+// solo, wave} classification extracted from the [dormant] constants; tests:
+// exact boundary pixels both sides of both zones, degenerate small w."
+//
+// Extracted verbatim from the dormant band hit-test, PluginEditor.h::mouseDown
+// (pre-D4 lines 704-710, cited/verified during D4 authorship):
+//   if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
+//   {
+//       const int lane = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
+//       if (e.x >= w - stemSoloW - 6)
+//           p.setStemSoloed (lane, ! p.isStemSoloed (lane));
+//       else if (e.x <= 4 + stemLabW + 6)
+//           p.setStemMuted (lane, ! p.isStemMuted (lane));
+//       ...
+//   }
+// Boundary constants: SOLO zone x >= w - soloW - 6 (line 707); MUTE zone
+// x <= 4 + labW + 6 (line 709); if-order is SOLO first, so on overlap SOLO
+// wins -- these tests pin exactly that behavior.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// Reference re-implementation of the dormant if/else-if chain, independent of
+// gent::laneZoneAt, so these tests exercise agreement between two separately
+// -written expressions.
+gent::LaneZone referenceLaneZoneAt (int x, int w, int labW, int soloW)
+{
+    if (x >= w - soloW - 6)
+        return gent::LaneZone::solo;
+    if (x <= 4 + labW + 6)
+        return gent::LaneZone::mute;
+    return gent::LaneZone::wave;
+}
+}
+
+TEST_CASE ("D4.1 laneZoneAt: mute-zone boundary pixels both sides, typical geometry (w=1016, labW=60, soloW=18)")
+{
+    const int w = 1016, labW = 60, soloW = 18;
+    const int muteEdge = 4 + labW + 6;   // == 70
+
+    CHECK (gent::laneZoneAt (muteEdge, w, labW, soloW) == gent::LaneZone::mute);       // on the boundary: mute
+    CHECK (gent::laneZoneAt (muteEdge - 1, w, labW, soloW) == gent::LaneZone::mute);   // one px inside: still mute
+    CHECK (gent::laneZoneAt (muteEdge + 1, w, labW, soloW) == gent::LaneZone::wave);   // one px past: wave
+    CHECK (gent::laneZoneAt (0, w, labW, soloW) == gent::LaneZone::mute);              // x=0: mute
+}
+
+TEST_CASE ("D4.2 laneZoneAt: solo-zone boundary pixels both sides, typical geometry (w=1016, labW=60, soloW=18)")
+{
+    const int w = 1016, labW = 60, soloW = 18;
+    const int soloEdge = w - soloW - 6;   // == 992
+
+    CHECK (gent::laneZoneAt (soloEdge, w, labW, soloW) == gent::LaneZone::solo);       // on the boundary: solo
+    CHECK (gent::laneZoneAt (soloEdge + 1, w, labW, soloW) == gent::LaneZone::solo);   // one px further right: still solo
+    CHECK (gent::laneZoneAt (soloEdge - 1, w, labW, soloW) == gent::LaneZone::wave);   // one px before: wave
+    CHECK (gent::laneZoneAt (w - 1, w, labW, soloW) == gent::LaneZone::solo);          // rightmost px: solo
+    CHECK (gent::laneZoneAt (w, w, labW, soloW) == gent::LaneZone::solo);              // exactly at w: solo (>= holds)
+}
+
+TEST_CASE ("D4.3 laneZoneAt: middle of the lane (typical geometry) classifies as wave")
+{
+    const int w = 1016, labW = 60, soloW = 18;
+    CHECK (gent::laneZoneAt (500, w, labW, soloW) == gent::LaneZone::wave);
+    CHECK (gent::laneZoneAt (71, w, labW, soloW) == gent::LaneZone::wave);    // just past mute edge
+    CHECK (gent::laneZoneAt (991, w, labW, soloW) == gent::LaneZone::wave);   // just before solo edge
+}
+
+TEST_CASE ("D4.4 laneZoneAt: degenerate small w -- zones overlap, SOLO wins (matches dormant if/else-if order)")
+{
+    // w small enough that the solo boundary (w - soloW - 6) falls AT or BEFORE
+    // the mute boundary (4 + labW + 6) -- every x classifies as either solo or
+    // mute, never wave, and wherever both conditions would be true, solo must
+    // win because the dormant code tests solo FIRST (if / else if).
+    const int labW = 60, soloW = 18;
+    const int muteEdge = 4 + labW + 6;   // 70
+
+    // pick w so soloEdge (w - soloW - 6) == muteEdge exactly -> total overlap
+    const int wExactOverlap = muteEdge + soloW + 6;   // == 94
+    CHECK (wExactOverlap - soloW - 6 == muteEdge);    // sanity: soloEdge == muteEdge here
+
+    for (int x = 0; x <= wExactOverlap; ++x)
+    {
+        const auto zone = gent::laneZoneAt (x, wExactOverlap, labW, soloW);
+        // every x in [0, w] must be mute or solo, never wave, in total overlap
+        CHECK (zone != gent::LaneZone::wave);
+        // at the exact shared boundary pixel (muteEdge == soloEdge), solo wins
+        if (x == muteEdge)
+            CHECK (zone == gent::LaneZone::solo);
+    }
+
+    // even smaller w (soloEdge strictly less than muteEdge -- solo zone
+    // consumes the whole mute zone too): solo wins everywhere it's true,
+    // and since soloEdge <= muteEdge here, that's the entire non-negative
+    // x range up to w.
+    const int wSmaller = 40;   // soloEdge = 40-18-6 = 16; muteEdge = 70 (>= any x in [0,40])
+    for (int x = 0; x <= wSmaller; ++x)
+    {
+        const auto zone = gent::laneZoneAt (x, wSmaller, labW, soloW);
+        // for wSmaller, muteEdge (70) >= every x in range, so the mute test
+        // would ALSO be true for every x -- solo tested first must still win
+        // wherever the solo test is true (x >= 16); below that, mute wins
+        // (matching the dormant if/else-if: solo checked first, mute is the
+        // else-if fallback).
+        const int soloEdgeSmaller = wSmaller - soloW - 6;   // 16
+        if (x >= soloEdgeSmaller)
+            CHECK (zone == gent::LaneZone::solo);
+        else
+            CHECK (zone == gent::LaneZone::mute);
+    }
+}
+
+TEST_CASE ("D4.5 laneZoneAt: agreement with independent reference re-implementation, dense sweep incl. degenerate w")
+{
+    const int labW = 60, soloW = 18;
+    const int ws[6] = { 1016, 500, 200, 94, 40, 10 };
+    for (int w : ws)
+        for (int x = -20; x <= w + 20; ++x)
+            CHECK (gent::laneZoneAt (x, w, labW, soloW) == referenceLaneZoneAt (x, w, labW, soloW));
+}
+
+// ---------------------------------------------------------------------------
+// D4.6 — composition: laneIndexAt x laneZoneAt over a scripted click grid
+// reproducing today's toggle targets for the same relative geometry (D4's own
+// ctest scope: "Composition test: laneIndexAt x laneZoneAt over a scripted
+// click grid reproduces today's toggle targets for the same relative
+// geometry (behavior-identical claim for the zones that survive)").
+//
+// Models a STEMS-view click at (x, y) against the full-lane geometry D4 wires
+// in mouseDown: lane = laneIndexAt(y, 0, waveBottom); zone = laneZoneAt(x, w,
+// labW, soloW). Scripts one click per lane at the mute plate and one at the
+// solo box, verifying each lands on the EXPECTED lane index with the EXPECTED
+// zone -- i.e. clicking lane k's plate toggles lane k's mute (not some other
+// lane), and same for solo, across the full 6-lane run.
+// ---------------------------------------------------------------------------
+TEST_CASE ("D4.6 composition: laneIndexAt x laneZoneAt reproduces per-lane mute/solo toggle targets")
+{
+    const int w = 1016, labW = 60, soloW = 18;
+    const int waveBottom = 160;   // typical hero wave-area height (1040x700 layout)
+    const double laneH = (double) waveBottom / 6.0;
+
+    for (int lane = 0; lane < 6; ++lane)
+    {
+        const int rowMidY = (int) (laneH * lane + laneH * 0.5);   // click at the lane's vertical center
+
+        // click at the mute plate's horizontal center
+        const int muteX = labW / 2;
+        CHECK (gent::laneIndexAt (rowMidY, 0, waveBottom) == lane);
+        CHECK (gent::laneZoneAt (muteX, w, labW, soloW) == gent::LaneZone::mute);
+
+        // click at the solo box's horizontal center (near the lane's right edge)
+        const int soloX = w - soloW / 2;
+        CHECK (gent::laneIndexAt (rowMidY, 0, waveBottom) == lane);
+        CHECK (gent::laneZoneAt (soloX, w, labW, soloW) == gent::LaneZone::solo);
+
+        // click in the middle of the lane's wave column: same lane, wave zone
+        // (falls through to the shared hit-test paths, not a toggle)
+        const int waveX = w / 2;
+        CHECK (gent::laneIndexAt (rowMidY, 0, waveBottom) == lane);
+        CHECK (gent::laneZoneAt (waveX, w, labW, soloW) == gent::LaneZone::wave);
+    }
+}

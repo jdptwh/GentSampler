@@ -12,41 +12,42 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Phase D3 (2026-07-03): real port of the mockup's drawStems()
-  into WaveformView::paint's STEMS branch — 6 lanes at laneH=waveBottom/6,
-  alternating lane beds, 1px separators, real per-stem colour columns from
-  stemPeaks (alpha .8/.12 muted) starting right of the label plate, label
-  plates carrying DECISION-4's mute-toggle appearance (filled/tinted unmuted,
-  outlined/struck-through muted) and hover-revealed solo boxes — PAINT ONLY,
-  their click zones are D4's job. Flags/cue-region/playheads now render
-  full-height through the lanes via a shared `paintFlagsCuePlayheads()`
-  (extracted byte-identical from the old inline block so composite and STEMS
-  call the exact same code, no second edit path). COMPOSITE branch: the
-  always-on lanes band is retired entirely (paint block deleted, `bandH`
-  jlimit/78-floor and `h>60` gate removed as paint logic, composite reverts to
-  the pre-existing bandH==0 full-height layout byte-for-byte — verified via
-  diff that the wave column loop and bottom ruler are unchanged). `stemBandTop/
-  H`/`flagBarY/H` members kept (zeroed by the retired band) so the DORMANT
-  band hit-test in mouseDown/mouseMove keeps compiling untouched; its
-  duplicated inline lane-index formula is now `gent::laneIndexAt` in
-  EngineMath.h (new ctest: boundary/out-of-band/tiling cases). KNOWN ACCEPTED
-  WINDOW (by design, per REDESIGN_TASK_D.md sequencing): mute/solo are
-  PAINTED in the full STEMS lanes but NOT YET CLICKABLE there, and the old
-  band's click zones are gone from composite — mute/solo are temporarily
-  unreachable by mouse until D4 rewires the hit-tests. Full gate green (build
-  + 39 ctest cases/53,568 assertions + pluginval strictness 5). Prior: D2c
-  (heroView state/persistence/seg + STEMS placeholder), D1 doc ratified +
-  addendum, D2a/D2b (resolveHeroView/sanitizeHeroView, 13 tests);
-  TEST_TARGET_TASK.md (Source/EngineMath.h extraction) and Phase C6 (P1+P2
-  shipped, P3 benched) both complete 2026-07-02/03. NOTE: build/ is a
-  JUNCTION to D:\GentSamplerBuild (C: was 100% full) — all paths unchanged,
-  bits live on D:.
-- In progress: Nothing live.
-- Next up: Phase D4 — the interaction rewire: replace the whole-band
-  early-return hit-test with D1 §8's map (lane mute/solo x-zones claim only
-  their own zones at their lane's y; everything else falls through to the
-  shared flag-select/handle-drag/scroll/pan paths), extract `gent::laneZoneAt`,
-  then D5 (async lifecycle matrix) per REDESIGN_TASK_D.md.
+- Last completed: Phase D4 (2026-07-03) — the interaction rewire (blast-radius
+  task). The dormant whole-band early-return hit-test in
+  `WaveformView::mouseDown`/`mouseMove` (the pre-D4 `if (stemBandH > 0 &&
+  e.y...) { ...unconditional return... }` blocks) is DELETED. Replaced with
+  D1 §8's map: in STEMS view (painted view == `gent::sanitizeHeroView
+  (heroView)==1` AND real lanes showing), a lane mute/solo x-zone test over
+  the full `(0, waveBottom)` lane geometry claims a click ONLY within its own
+  x-range (`gent::laneZoneAt` — new pure extraction, mute/solo boundary
+  constants lifted verbatim from the dormant code, solo tested before mute to
+  match its if/else-if precedence) at that lane's y (`gent::laneIndexAt`,
+  from D3); everything else (including the wave-column middle of a lane)
+  falls through unchanged to scrollbar/pan/flag-select/handle-drag/placeStart
+  — same single edit path, zero duplicated drag/undo/snap logic. Flag-select
+  hit-test now uses STEMS-correct pennant-row geometry (`[0, flagBarH)`,
+  matching D3's `paintFlagsCuePlayheads(..., flagY=0, ...)` call) instead of
+  composite's stale `flagBarY/flagBarH` row when in STEMS view; composite
+  path unchanged. Hover (`hoverLane`) rewired to the same full-lane geometry,
+  gated the same way; 30Hz timer untouched (hover is mouseMove-only state,
+  no stomp). COMPOSITE view: zero lane hit-tests fire (`stemsReady` requires
+  `heroReq==1`, always false in composite) — no dead zones where the old band
+  was. New pure fn `gent::laneZoneAt(x,w,labW,soloW)` in EngineMath.h +
+  6 new doctest cases in StemMaskTests.cpp (D4.1-D4.6: boundary pixels both
+  zones, degenerate-small-w precedence, reference-impl sweep, laneIndexAt x
+  laneZoneAt composition over a scripted click grid) — riding the existing
+  ctest target, no CMakeLists change. Full gate green (build + 45 ctest
+  cases/55,860 assertions + pluginval strictness 5). Prior: D3 (STEMS lanes
+  paint + composite band retirement), D2c (heroView state/persistence/seg +
+  STEMS placeholder), D1 doc ratified + addendum, D2a/D2b
+  (resolveHeroView/sanitizeHeroView); TEST_TARGET_TASK.md and Phase C6 both
+  complete 2026-07-02/03. NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
+  (C: was 100% full) — all paths unchanged, bits live on D:.
+- In progress: Nothing live — holding for R3 reviewer pass (D3-D5 full diff,
+  per REDESIGN_TASK_D.md's reviewer placement map) before D5 starts.
+- Next up: R3 reviewer pass, then Phase D5 (async lifecycle + degraded
+  states matrix) per REDESIGN_TASK_D.md, then D6 (captures, FL validation,
+  commit).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
