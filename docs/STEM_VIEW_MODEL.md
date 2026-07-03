@@ -767,6 +767,14 @@ SEPARATE STEMS call-to-action.** Consequences, now normative:
   a source is loaded; row 1 (no source at all) keeps the existing empty-state
   chip prompt in both requests).
 
+## Addendum 2 — Joe rulings at the D6 gate (2026-07-03)
+
+- **FL validation: PASSED** ("fl looking solid") — Phase D accepted.
+- **stemStatus staleness (D5-flagged, R3-confirmed): FIX AUTHORIZED** — the
+  narration string now clears on a genuinely new direct load, in a second
+  `runAnalysis`-gated block inside `loadFile` (same DECISION-6 boundary,
+  `infoLock` per `setStatus`'s own discipline). Restore path unaffected.
+
 ## Decision index (for Joe's convenience)
 
 | # | Topic | Recommended default |

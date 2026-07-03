@@ -43,18 +43,20 @@ clean, passes pluginval, and runs stable inside FL Studio.
   (resolveHeroView/sanitizeHeroView); TEST_TARGET_TASK.md and Phase C6 both
   complete 2026-07-02/03. NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
   (C: was 100% full) — all paths unchanged, bits live on D:.
-- In progress: Phase D at the D6 GATE (2026-07-03). D5 committed (lifecycle
-  matrix + DECISION-6 stemSet clear, 54 ctest cases); R3 PASS (single-edit-
-  path CONFIRMED, fence CLEAN); D6 captures delivered to Desktop
-  (sbsD_stems/sbsD_composite/D6_placeholder/D6_midsep/floor shots) — all
-  functional observations confirmed live during capture (mute/solo/flag-
-  select/CTA-inert/no dead zones). Seg "COMPOS…" truncation found in
-  captures and FIXED (text-sized segments via HeroViewSeg::preferredWidth).
-  HOLDING for Joe: (a) FL validation of the phase, (b) ruling on stemStatus
-  staleness (stale narration text survives new-file load — one-line fix in
-  the DECISION-6 block awaits authorization, or backlog).
-- Next up: Joe's FL pass closes Phase D; then BACKLOG items (standalone ORT
-  DLLs, extend-undo, P3 breathing retry).
+- Last completed: PHASE D COMPLETE — Joe FL-validated and signed off
+  2026-07-03 ("fl looking solid"). The full face now matches the mockup:
+  COMPOSITE⇄STEMS seg (text-sized segments), full-hero six-lane stem map,
+  lane mute/solo in their x-zones with everything else on the shared edit
+  path, lifecycle matrix incl. DECISION-6 stemSet clear + Joe-authorized
+  stemStatus clear (both runAnalysis-gated in loadFile). 54 ctest cases.
+  Full arc: docs/STEM_VIEW_MODEL.md (RATIFIED + 2 addenda) → D2 (first
+  Haiku BULK task, test-first) → D3 lanes → D4 interaction → D5 lifecycle →
+  D6 captures (Desktop: sbsD_*/D6_*).
+- In progress: Nothing live.
+- Next up: BACKLOG items — standalone ORT DLLs (CMake one-liner, now
+  unfenced), extend-undo spec, P3 breathing retry. Note: pluginval in
+  gate.sh has failed transiently twice right after full builds (SUCCESS on
+  immediate rerun both times) — consider a retry-once in gate.sh.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

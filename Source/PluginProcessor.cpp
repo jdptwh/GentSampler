@@ -273,6 +273,16 @@ bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
         const juce::SpinLock::ScopedLockType sl (stemLock);
         stemSet = nullptr;
     }
+    if (runAnalysis)
+    {
+        // Joe-authorized extension of DECISION-6 (2026-07-03, post-R3): the
+        // narration string must not survive a genuinely new load either — a
+        // fresh file's STEMS placeholder was showing the PREVIOUS file's
+        // stale "separation failed"/progress text. Same runAnalysis boundary,
+        // stemStatus's own lock (infoLock, matching setStatus's discipline).
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        stemStatus.clear();
+    }
 
     for (int i = 0; i < 16; ++i)
     {
