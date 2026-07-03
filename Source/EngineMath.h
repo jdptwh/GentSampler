@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <vector>
@@ -502,8 +503,164 @@ struct SliceAggregates
 inline SliceAggregates aggregateSliceFeatures (const std::vector<FrameFeatures>& frames,
                                                double frameRate, int startFrame, int endFrame)
 {
-    (void) frames; (void) frameRate; (void) startFrame; (void) endFrame;
-    return SliceAggregates {};
+    SliceAggregates result {};
+
+    // Clamp startFrame/endFrame into valid range [0, frames.size()]
+    const int sz = (int) frames.size();
+    startFrame = std::clamp (startFrame, 0, sz);
+    endFrame = std::clamp (endFrame, 0, sz);
+
+    // Degenerate case: empty frames, startFrame >= endFrame, or clamped to nothing
+    if (frames.empty() || startFrame >= endFrame)
+        return result;  // already zeroed, durationSec = 0
+
+    const int sliceFrameCount = endFrame - startFrame;
+
+    // durationSec = (endFrame - startFrame) / frameRate
+    result.durationSec = (float) (sliceFrameCount / frameRate);
+
+    // Attack window: attackCount = clamp(ceil(kAttackWindowSec * frameRate), 1, sliceFrameCount)
+    const int attackCount = std::clamp (
+        (int) std::ceil (kAttackWindowSec * frameRate),
+        1,
+        sliceFrameCount
+    );
+
+    // --- bandRatio, centroidHz, zcr aggregation (attack window only) ---
+    float bandSum[4] = {0.f, 0.f, 0.f, 0.f};
+    float centroidEnergyWeightedSum = 0.f;
+    float centroidEnergySum = 0.f;
+    float zcrSum = 0.f;
+
+    for (int i = 0; i < attackCount; ++i)
+    {
+        const FrameFeatures& frame = frames[startFrame + i];
+        const float totalEnergy = frame.band[0] + frame.band[1] + frame.band[2] + frame.band[3];
+
+        bandSum[0] += frame.band[0];
+        bandSum[1] += frame.band[1];
+        bandSum[2] += frame.band[2];
+        bandSum[3] += frame.band[3];
+
+        centroidEnergyWeightedSum += frame.centroidHz * totalEnergy;
+        centroidEnergySum += totalEnergy;
+        zcrSum += frame.zcr;
+    }
+
+    // Normalize bandRatio to sum to 1.0
+    const float attackTotalEnergy = bandSum[0] + bandSum[1] + bandSum[2] + bandSum[3];
+    if (attackTotalEnergy > 0.f)
+    {
+        result.bandRatio[0] = bandSum[0] / attackTotalEnergy;
+        result.bandRatio[1] = bandSum[1] / attackTotalEnergy;
+        result.bandRatio[2] = bandSum[2] / attackTotalEnergy;
+        result.bandRatio[3] = bandSum[3] / attackTotalEnergy;
+    }
+    else
+    {
+        // All-zero attack window -> equal 0.25 each
+        result.bandRatio[0] = result.bandRatio[1] = result.bandRatio[2] = result.bandRatio[3] = 0.25f;
+    }
+
+    // Energy-weighted centroid mean
+    if (centroidEnergySum > 0.f)
+        result.centroidHz = (float) (centroidEnergyWeightedSum / centroidEnergySum);
+    else
+        result.centroidHz = 0.f;
+
+    // Mean ZCR
+    result.zcr = zcrSum / (float) attackCount;
+
+    // --- decaySec aggregation (whole slice) ---
+    // Find peak-total-energy frame index
+    int peakFrameIdx = 0;
+    float peakTotalEnergy = 0.f;
+    for (int i = 0; i < sliceFrameCount; ++i)
+    {
+        const FrameFeatures& frame = frames[startFrame + i];
+        const float totalEnergy = frame.band[0] + frame.band[1] + frame.band[2] + frame.band[3];
+        if (totalEnergy > peakTotalEnergy)
+        {
+            peakTotalEnergy = totalEnergy;
+            peakFrameIdx = i;
+        }
+    }
+
+    // Find first LATER frame where energy <= peak * 0.01
+    const float decayThreshold = peakTotalEnergy * 0.01f;
+    int decayFrameIdx = -1;
+    for (int i = peakFrameIdx + 1; i < sliceFrameCount; ++i)
+    {
+        const FrameFeatures& frame = frames[startFrame + i];
+        const float totalEnergy = frame.band[0] + frame.band[1] + frame.band[2] + frame.band[3];
+        if (totalEnergy <= decayThreshold)
+        {
+            decayFrameIdx = i;
+            break;
+        }
+    }
+
+    if (decayFrameIdx >= 0)
+        result.decaySec = (float) ((decayFrameIdx - peakFrameIdx) / frameRate);
+    else
+        result.decaySec = (float) ((sliceFrameCount - peakFrameIdx) / frameRate);
+
+    // --- chromaFlatness aggregation (whole slice) ---
+    float sliceSummedChroma[12] = {0.f};
+    for (int i = 0; i < sliceFrameCount; ++i)
+    {
+        const FrameFeatures& frame = frames[startFrame + i];
+        for (int j = 0; j < 12; ++j)
+            sliceSummedChroma[j] += frame.chroma[j];
+    }
+
+    // Compute geometric mean / arithmetic mean
+    float arithmeticMean = 0.f;
+    bool allZero = true;
+    for (int j = 0; j < 12; ++j)
+    {
+        arithmeticMean += sliceSummedChroma[j];
+        if (sliceSummedChroma[j] > 0.f)
+            allZero = false;
+    }
+    arithmeticMean /= 12.f;
+
+    if (allZero || arithmeticMean <= 0.f)
+    {
+        // Empty or all-zero summed chroma -> 1.0
+        result.chromaFlatness = 1.f;
+    }
+    else
+    {
+        // Geometric mean in the LOG domain (gate fix, post-BULK): the raw
+        // 12-way product overflows float for production-scale chroma sums
+        // (hundreds of frames x real magnitudes -> product > 1e38 -> inf),
+        // breaking the (0,1] contract. exp(mean(log)) is overflow-immune.
+        bool hasZero = false;
+        double logSum = 0.0;
+        for (int j = 0; j < 12; ++j)
+        {
+            if (sliceSummedChroma[j] <= 0.f)
+            {
+                hasZero = true;
+                break;
+            }
+            logSum += std::log ((double) sliceSummedChroma[j]);
+        }
+
+        if (hasZero)
+        {
+            // Any zero bin means geometric mean = 0 -> maximally tonal/peaked
+            result.chromaFlatness = 0.0f;
+        }
+        else
+        {
+            const double geometricMean = std::exp (logSum / 12.0);
+            result.chromaFlatness = (float) (geometricMean / (double) arithmeticMean);
+        }
+    }
+
+    return result;
 }
 
 } // namespace gent

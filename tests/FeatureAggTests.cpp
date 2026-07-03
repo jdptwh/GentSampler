@@ -94,8 +94,7 @@ gent::FrameFeatures zeroFrame()
 // P1.1 — band ratios sum to 1 (+-1e-4) for random non-silent frames;
 // equal-split (0.25 each) on silence.
 // ---------------------------------------------------------------------------
-TEST_CASE ("P1.1 aggregateSliceFeatures: bandRatio sums to 1 for random non-silent frames"
-           * doctest::skip())
+TEST_CASE ("P1.1 aggregateSliceFeatures: bandRatio sums to 1 for random non-silent frames")
 {
     XorShift32 rng (0xC0FFEEu);
     const double frameRate = 100.0;   // 10 ms/frame
@@ -129,8 +128,7 @@ TEST_CASE ("P1.1 aggregateSliceFeatures: bandRatio sums to 1 for random non-sile
     }
 }
 
-TEST_CASE ("P1.1 aggregateSliceFeatures: silence -> equal-split bandRatio (0.25 each)"
-           * doctest::skip())
+TEST_CASE ("P1.1 aggregateSliceFeatures: silence -> equal-split bandRatio (0.25 each)")
 {
     const double frameRate = 100.0;
     std::vector<gent::FrameFeatures> frames;
@@ -151,7 +149,7 @@ TEST_CASE ("P1.1 aggregateSliceFeatures: silence -> equal-split bandRatio (0.25 
 // the boundary math explicit and avoiding any rounding ambiguity.
 // ---------------------------------------------------------------------------
 TEST_CASE ("P1.2 aggregateSliceFeatures: frames after kAttackWindowSec excluded from "
-           "bandRatio/centroid/zcr" * doctest::skip())
+           "bandRatio/centroid/zcr")
 {
     const double frameRate = 100.0;   // 10 ms/frame
     // kAttackWindowSec (0.12s) * frameRate (100) == 12.0 frames exactly --
@@ -199,8 +197,7 @@ TEST_CASE ("P1.2 aggregateSliceFeatures: frames after kAttackWindowSec excluded 
 // mid-slice decay computed to frame precision. frameRate = 100 (10ms/frame)
 // for exact, easily hand-verified expected decaySec values.
 // ---------------------------------------------------------------------------
-TEST_CASE ("P1.3 aggregateSliceFeatures: instant decay (peak at frame 0, next frame <= -20dB)"
-           * doctest::skip())
+TEST_CASE ("P1.3 aggregateSliceFeatures: instant decay (peak at frame 0, next frame <= -20dB)")
 {
     const double frameRate = 100.0;
     std::vector<gent::FrameFeatures> frames;
@@ -230,7 +227,7 @@ TEST_CASE ("P1.3 aggregateSliceFeatures: instant decay (peak at frame 0, next fr
 }
 
 TEST_CASE ("P1.3 aggregateSliceFeatures: no decay -> decaySec is the remaining span "
-           "from the peak frame to the slice end" * doctest::skip())
+           "from the peak frame to the slice end")
 {
     const double frameRate = 100.0;
     const int nFrames = 5;   // frames 0..4, endFrame=5
@@ -253,8 +250,7 @@ TEST_CASE ("P1.3 aggregateSliceFeatures: no decay -> decaySec is the remaining s
     CHECK (agg.decaySec == doctest::Approx (0.05f).epsilon (1e-4));
 }
 
-TEST_CASE ("P1.3 aggregateSliceFeatures: mid-slice decay computed to frame precision"
-           * doctest::skip())
+TEST_CASE ("P1.3 aggregateSliceFeatures: mid-slice decay computed to frame precision")
 {
     const double frameRate = 100.0;
     // 6 frames (0..5, endFrame=6). Peak at frame 2 (energy 100); frame 3 stays
@@ -300,8 +296,7 @@ TEST_CASE ("P1.3 aggregateSliceFeatures: mid-slice decay computed to frame preci
 // bin nonzero forces the geometric mean to 0), so the assertion remains
 // correct and meaningful against the real implementation as well.
 // ---------------------------------------------------------------------------
-TEST_CASE ("P1.4 aggregateSliceFeatures: single-bin chroma -> flatness < 0.35"
-           * doctest::skip())
+TEST_CASE ("P1.4 aggregateSliceFeatures: single-bin chroma -> flatness < 0.35")
 {
     const double frameRate = 100.0;
     gent::FrameFeatures f = zeroFrame();
@@ -313,8 +308,7 @@ TEST_CASE ("P1.4 aggregateSliceFeatures: single-bin chroma -> flatness < 0.35"
     CHECK (agg.chromaFlatness < 0.35f);
 }
 
-TEST_CASE ("P1.4 aggregateSliceFeatures: uniform chroma -> flatness ~= 1.0"
-           * doctest::skip())
+TEST_CASE ("P1.4 aggregateSliceFeatures: uniform chroma -> flatness ~= 1.0")
 {
     const double frameRate = 100.0;
     gent::FrameFeatures f = zeroFrame();
@@ -326,6 +320,34 @@ TEST_CASE ("P1.4 aggregateSliceFeatures: uniform chroma -> flatness ~= 1.0"
     CHECK (agg.chromaFlatness == doctest::Approx (1.0f).epsilon (1e-3));
 }
 
+TEST_CASE ("P1.4 aggregateSliceFeatures: production-scale chroma sums stay in (0,1] (no product overflow)")
+{
+    // Gate-added case: the 12-way raw product of slice-summed bins overflows
+    // float for realistic magnitudes (e.g. 600 frames x ~200 per bin ->
+    // sums ~1.2e5 -> product ~1e61 -> inf). The log-domain geometric mean
+    // must keep flatness finite and in (0,1]; uniform bins must still ~= 1.
+    const double frameRate = 86.13;               // real analysis frame rate
+    gent::FrameFeatures f = zeroFrame();
+    f.band[0] = 1.0f;
+    for (float& c : f.chroma) c = 200.0f;         // large uniform per-frame chroma
+    std::vector<gent::FrameFeatures> frames (600, f);
+
+    const auto agg = gent::aggregateSliceFeatures (frames, frameRate, 0, (int) frames.size());
+    CHECK (std::isfinite (agg.chromaFlatness));
+    CHECK (agg.chromaFlatness > 0.0f);
+    CHECK (agg.chromaFlatness <= 1.0f + 1e-4f);
+    CHECK (agg.chromaFlatness == doctest::Approx (1.0f).epsilon (1e-3));
+
+    // Non-uniform large sums: still finite, strictly below 1.
+    for (size_t i = 0; i < frames.size(); ++i)
+        for (int j = 0; j < 12; ++j)
+            frames[i].chroma[j] = (j == 0 ? 900.0f : 40.0f);
+    const auto agg2 = gent::aggregateSliceFeatures (frames, frameRate, 0, (int) frames.size());
+    CHECK (std::isfinite (agg2.chromaFlatness));
+    CHECK (agg2.chromaFlatness > 0.0f);
+    CHECK (agg2.chromaFlatness < 1.0f);
+}
+
 // ---------------------------------------------------------------------------
 // P1.5 — degenerate ranges -> zeroed struct; determinism.
 //
@@ -335,8 +357,7 @@ TEST_CASE ("P1.4 aggregateSliceFeatures: uniform chroma -> flatness ~= 1.0"
 // what the stub always returns; and a constant function is trivially
 // deterministic. These are legitimate passes, not gaps in the test.
 // ---------------------------------------------------------------------------
-TEST_CASE ("P1.5 aggregateSliceFeatures: empty frames vector -> zeroed struct"
-           * doctest::skip())
+TEST_CASE ("P1.5 aggregateSliceFeatures: empty frames vector -> zeroed struct")
 {
     std::vector<gent::FrameFeatures> frames;   // empty
     const auto agg = gent::aggregateSliceFeatures (frames, 100.0, 0, 0);
@@ -352,8 +373,7 @@ TEST_CASE ("P1.5 aggregateSliceFeatures: empty frames vector -> zeroed struct"
     CHECK (agg.chromaFlatness == doctest::Approx (0.0f));
 }
 
-TEST_CASE ("P1.5 aggregateSliceFeatures: startFrame >= endFrame -> zeroed struct"
-           * doctest::skip())
+TEST_CASE ("P1.5 aggregateSliceFeatures: startFrame >= endFrame -> zeroed struct")
 {
     std::vector<gent::FrameFeatures> frames;
     for (int i = 0; i < 10; ++i)
@@ -377,8 +397,7 @@ TEST_CASE ("P1.5 aggregateSliceFeatures: startFrame >= endFrame -> zeroed struct
     }
 }
 
-TEST_CASE ("P1.5 aggregateSliceFeatures: determinism -- same input twice -> identical output"
-           * doctest::skip())
+TEST_CASE ("P1.5 aggregateSliceFeatures: determinism -- same input twice -> identical output")
 {
     XorShift32 rng (0x1234ABCDu);
     std::vector<gent::FrameFeatures> frames;
