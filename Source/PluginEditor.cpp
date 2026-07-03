@@ -83,6 +83,23 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         }
     }
 
+    // D2: hero COMPOSITE<->STEMS seg (mockup #viewSeg). Click writes the sticky
+    // REQUEST only (docs/STEM_VIEW_MODEL.md SS3: "read on the message thread
+    // only", presentation-only -- no processBlock interaction); `active` is
+    // refreshed from the sanitized request every repaint (per the D1 addendum,
+    // paint-branch selector == seg display == sanitized heroView).
+    {
+        static const char* vl[2] = { "Composite", "Stems" };
+        for (int i = 0; i < 2; ++i)
+        {
+            auto& sgpad = viewSeg[(size_t) i];
+            sgpad.pos   = (i == 0) ? 0 : 2;
+            sgpad.label = vl[i];
+            addAndMakeVisible (sgpad);
+            sgpad.onClick = [this, i] { p.heroView.store (i); wave.repaint(); };
+        }
+    }
+
     titleLbl.setText ("GentSampler", juce::dontSendNotification);
     titleLbl.setFont (juce::Font (24.0f, juce::Font::bold));
     titleLbl.setColour (juce::Label::textColourId, juce::Colour (0xfff1ebdd));
@@ -404,6 +421,10 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     sepStemsBtn.setTooltip ("Split the loaded sample into 6 stems (drums, bass, vocals, "
                             "guitar, piano, other). Runs on CPU; takes a bit.");
     sepStemsBtn.onClick = [this] { p.requestStemSeparation(); };
+    // D2 R2-fix: the STEMS-placeholder CTA fires the SAME callback (direct
+    // std::function copy, same precedent as wave.onRequestLoad = loadBtn.onClick
+    // just above) -- no duplicated call to p.requestStemSeparation() elsewhere.
+    wave.onRequestStemSeparation = sepStemsBtn.onClick;
 
     addAndMakeVisible (stemStatusLbl);
     stemStatusLbl.setJustificationType (juce::Justification::centredLeft);
@@ -899,8 +920,16 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         sepStemsBtn.setBounds   (in.getX(), in.getY(), 122, 24);
         stemStatusLbl.setBounds (in.getX() + 128, in.getY(), 190, 24);
         fileLbl.setBounds       (in.getX() + 322, in.getY() + 4, 250, 16);
-        // top-right: HQ quality caret-chip
+        // top-right: COMPOSITE/STEMS seg, then the HQ quality caret-chip (mockup
+        // order HTML 247-253: seg first, then .chip.caret; .ov flex gap 6px, CSS 90-102)
         qualityBox.setBounds (in.getRight() - 58, in.getY(), 58, 24);
+        {
+            const int segW = 116, segH = 24, segGap = 6;
+            auto segR = juce::Rectangle<int> (qualityBox.getX() - segGap - segW, in.getY(), segW, segH);
+            const int cw = segW / 2;
+            viewSeg[0].setBounds (segR.removeFromLeft (cw));
+            viewSeg[1].setBounds (segR);
+        }
         // bottom-left: PREVIEW / SNAP / FOLLOW / SLICE
         int bx = in.getX();
         const int by = in.getBottom() - 24;
@@ -1475,6 +1504,14 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         const int mode = playMode.getSelectedItemIndex();
         for (int i = 0; i < 3; ++i)
             trigSeg[(size_t) i].setActive (mode == i);
+    }
+
+    // D2: hero view seg mirrors the sanitized sticky request (D1 addendum:
+    // displayed == requested == painted; no effective-view split anymore).
+    {
+        const int hv = gent::sanitizeHeroView (p.heroView.load());
+        viewSeg[0].setActive (hv == 0);
+        viewSeg[1].setActive (hv == 1);
     }
 
     // PAD SOURCE tags reflect the selected pad's mask

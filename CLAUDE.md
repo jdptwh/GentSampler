@@ -12,30 +12,34 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Redesign Phase C6 — SHIPPED AS P1+P2 ONLY (2026-07-02):
-  P1 transient-tick density cap on SliceDetailStrip (pre-count + spacing alpha
-  fade + 6px min-stride skip, onsets sorted once in timerCallback) and P2
-  cue-region featherGlow pallor removal (one-line deletion; fill/border match
-  mockup tokens 1:1). P3 (per-column wave-gradient "breathing" via cached
-  waveRamp blit) was REVERTED: the blit rendered the hero wave at ~half alpha
-  (pixel-measured lum 51->27, de-ambered), one fix attempt left debug litter
-  mid-flight and was killed, and per the stop-loss the hero keeps its original
-  static gradient. Recovery verified by measurement: hero wave lum 48.6,
-  amber-dominant, vs 51.0 pre-C6 healthy reference. P3 benched in BACKLOG.md.
-- In progress: Nothing live. TEST_TARGET_TASK.md COMPLETE 2026-07-03:
-  Source/EngineMath.h (pure gent:: functions, no JUCE) + mechanical delegation
-  in PluginProcessor.h/.cpp and PluginEditor.h; four real suites (slice-window,
-  snap, trigger, stem-mask) incl. both property tests — 23 cases /
-  73,927 assertions, ctest 0.04s. T6 reviewer: PASS, behavior-identity
-  confirmed constant-by-constant vs pre-refactor code; two test-nit fixes
-  applied post-review (tautological CHECK replaced with a real effectiveCueEnd
-  round-trip invariant; dead unsigned>=0 check removed). NOTE: build/ is now a
-  JUNCTION to D:\GentSamplerBuild (C: was 100% full; LNK1180) — all paths
-  unchanged, bits live on D:.
-- Next up: Phase D (COMPOSITE<->STEMS lanes). D1 doc AUTHORED 2026-07-03:
-  docs/STEM_VIEW_MODEL.md, all nine required sections + 6 numbered DECISIONs
-  with recommended defaults; awaiting R1 reviewer PASS + Joe sign-off before
-  any D2 code starts. BACKLOG.md holds extend-undo + the P3 breathing retry.
+- Last completed: Phase D2c (2026-07-03): `heroView` sticky-request atomic on
+  the processor (editorW/editorH precedent) + three-spot persistence (key
+  "heroView", saveKit/getStateInformation write, applyStateTree reads through
+  gent::sanitizeHeroView) + the COMPOSITE<->STEMS seg control (HeroViewSeg,
+  TrigPad-pattern, in the hero's .ov.tr left of qualityBox) + WaveformView's
+  top-level paint branch. Per Joe's D1 addendum (docs/STEM_VIEW_MODEL.md,
+  "Joe ruling 2026-07-03"): the paint-branch selector is the SANITIZED
+  REQUEST, not resolveHeroView — requesting STEMS always shows the STEMS
+  branch (six lane plates + labels, real-lane scaffold when hasStems() else
+  the DECISION-3 "SEPARATE STEMS to fill the map" placeholder); the seg's
+  active pill now equals the request (no request-vs-effective split). Row 1
+  (no source loaded) keeps the unchanged empty-state prompt regardless of
+  request. R2 fix (same day): the placeholder's CTA is now a FUNCTIONAL click
+  target, not just painted text — its rect (ctaRect) is captured only on the
+  frames it's actually drawn and unconditionally invalidated at the top of
+  every paint() call, hit-tested first in mouseDown (fires the same callback
+  sepStemsBtn.onClick uses, via a direct std::function copy — no duplicated
+  logic), with hover cursor/chip-tint feedback in mouseMove. Full gate green
+  (build + 36 ctest cases/49,835 assertions + pluginval strictness 5). Prior:
+  D1 doc ratified, D2a/D2b landed
+  resolveHeroView/sanitizeHeroView (13 tests); TEST_TARGET_TASK.md
+  (Source/EngineMath.h extraction) and Phase C6 (P1+P2 shipped, P3 benched)
+  both complete 2026-07-02/03. NOTE: build/ is a JUNCTION to
+  D:\GentSamplerBuild (C: was 100% full) — all paths unchanged, bits live on D:.
+- In progress: Nothing live.
+- Next up: Phase D3 — port drawStems() into WaveformView::paint's STEMS
+  branch for real, retire the always-on composite-adjacent lanes band, then
+  D4 (hit-test rewire) and D5 (async lifecycle matrix) per REDESIGN_TASK_D.md.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

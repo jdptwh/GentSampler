@@ -2124,6 +2124,7 @@ bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
     extra.setProperty ("slP", sliceSnap.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
+    extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request
     for (int k = 0; k < 6; ++k)   // stem mute/solo are plain atomics -> persist them by hand
     {
         extra.setProperty ("smute" + juce::String (k), stemMuted[(size_t) k].load(), nullptr);
@@ -2187,6 +2188,11 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     setSliceSnap        ((int) extra.getProperty ("slP", (int) sliceSnap.load()));
     snapEnabled = (bool) extra.getProperty ("snap", snapEnabled.load());
     velToLevel  = (bool) extra.getProperty ("vel2l", true);
+    // D2: restore hero view sticky request through the sanitizer (garbage-stored-int
+    // defense, docs/STEM_VIEW_MODEL.md SS4); old kits/projects without the key default
+    // to 0 (COMPOSITE) via getProperty's fallback, same pattern as the smute/ssolo
+    // "default audible for older presets" restore just below.
+    heroView = gent::sanitizeHeroView ((int) extra.getProperty ("heroView", 0));
     for (int k = 0; k < 6; ++k)   // restore stem mute/solo (default audible for older presets)
     {
         stemMuted[(size_t) k]  = (bool) extra.getProperty ("smute" + juce::String (k), false);
@@ -2753,6 +2759,7 @@ void GentSamplerAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
     extra.setProperty ("slP", sliceSnap.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
+    extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request
     for (int k = 0; k < 6; ++k)   // stem mute/solo are plain atomics -> persist them by hand
     {
         extra.setProperty ("smute" + juce::String (k), stemMuted[(size_t) k].load(), nullptr);

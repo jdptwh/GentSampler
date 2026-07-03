@@ -248,6 +248,14 @@ public:
 
     std::function<void()> onRequestLoad;                   // called when the empty map is clicked
 
+    // D2 R2-fix: the STEMS-placeholder "SEPARATE STEMS to fill the map" CTA must
+    // actually click (R2 SEV-2 finding — a painted-only chip is the B6 dead-chip
+    // failure class). The editor wires this to the SAME callback sepStemsBtn's
+    // onClick uses (direct std::function copy, same precedent as onRequestLoad
+    // above / loadBtn.onClick — no logic duplicated, no re-derivation of the
+    // processor call).
+    std::function<void()> onRequestStemSeparation;
+
     // ------------------------------------------------------------------ paint
     void paint (juce::Graphics& g) override
     {
@@ -257,6 +265,11 @@ public:
         // C2: pull the interactive/scrollbar band up above the reserved corner-chip
         // plates (mockup .ov.bl/.ov.br) so nothing important renders under them.
         const int waveBottom = h - sb - bottomChromeH;
+        // R2 fix: invalidate the CTA hit-rect unconditionally at the top of every
+        // paint. It is only re-armed inside the STEMS-placeholder block below, so
+        // no stale rect from a prior frame/state can survive into COMPOSITE view,
+        // the stems-ready STEMS view, or the no-source empty state.
+        ctaRect = {};
         {   // recessed-well inner top shadow (mockup .hero inset)
             juce::ColourGradient sh (juce::Colours::black.withAlpha (0.5f), 0.0f, 0.0f,
                                      juce::Colours::transparentBlack, 0.0f, 10.0f, false);
@@ -295,6 +308,111 @@ public:
             g.drawText (juce::String (juce::CharPointer_UTF8 ("click anywhere or drop a sample  \xc2\xb7  wav / mp3 / aiff / flac / ogg")),
                         juce::Rectangle<float> (0.0f, cy + chipH + 12.0f, (float) w, 14.0f),
                         juce::Justification::centred);
+            return;
+        }
+
+        // ---------------------------------------------------------------
+        // D2: hero COMPOSITE<->STEMS top-level paint branch.
+        //
+        // Branch selector: the SANITIZED STICKY REQUEST (gent::sanitizeHeroView),
+        // not gent::resolveHeroView -- per the D1 addendum ("Joe ruling
+        // 2026-07-03, DECISION-2/3 interplay"): requesting STEMS always enters
+        // the STEMS branch (a placeholder is always available, so the branch is
+        // never suppressed by stem availability; row 1 above -- no source loaded
+        // at all -- is the sole exception and is handled by the early return
+        // just above, unchanged, regardless of request).
+        //
+        // Inside the STEMS branch, gent::resolveHeroView(request, hasStems())
+        // answers the CONTENT question exactly per docs/STEM_VIEW_MODEL.md SS6's
+        // R1 clarification and the addendum: 1 (stems available) -> real lane
+        // territory (D3 paints the actual per-stem columns; D2c scaffolds the
+        // same six plates + labels here as a placeholder-level stand-in, since
+        // real lane data painting is explicitly D3's job, not D2c's); 0 (no
+        // stems yet / downloading / separating / failed) -> the DECISION-3
+        // placeholder: six empty lane plates + stem-name labels + a centered
+        // "SEPARATE STEMS to fill the map" CTA that is a REAL click target (R2
+        // fix): its painted rect is captured into ctaRect below and hit-tested
+        // in mouseDown/mouseMove, invoking the same callback sepStemsBtn's
+        // onClick uses (onRequestStemSeparation, wired in PluginEditor.cpp as a
+        // direct std::function copy of sepStemsBtn.onClick -- no logic
+        // duplicated).
+        //
+        // COMPOSITE branch (request == 0): today's paint, unchanged, falls
+        // through below -- including the still-live always-on lanes band (D3
+        // retires it; D2c must not touch it, per REDESIGN_TASK_D.md D2 scope).
+        const int heroReq = gent::sanitizeHeroView (p.heroView.load());
+        if (heroReq == 1)
+        {
+            const bool stemsReady = gent::resolveHeroView (heroReq, p.hasStems()) == 1;
+            static const char* slab[6] = { "DRUMS", "BASS", "VOX", "GTR", "PNO", "OTHER" };
+            const float laneH = (float) waveBottom / 6.0f;
+            for (int s = 0; s < 6; ++s)
+            {
+                const auto col = Theme::stem (s);
+                const float ly = laneH * (float) s;
+                if (s % 2 != 0)   // odd lanes get a faint alternating bed (mockup drawStems li%2)
+                {
+                    g.setColour (juce::Colours::white.withAlpha (0.015f));
+                    g.fillRect (0.0f, ly, (float) w, laneH);
+                }
+                g.setColour (juce::Colours::black.withAlpha (0.45f));
+                g.fillRect (0.0f, ly + laneH - 1.0f, (float) w, 1.0f);   // lane separator
+
+                // label plate (opaque, left) -- stem-hued bold mono label
+                const float plateW = juce::jmin (58.0f, (float) w * 0.2f);
+                auto plate = juce::Rectangle<float> (0.0f, ly, plateW, laneH);
+                g.setColour (juce::Colour (0xff0A0D10).withAlpha (0.85f));
+                g.fillRect (plate);
+                g.setColour (col);
+                g.setFont (Theme::mono (9.5f * 1.12f, true));
+                g.drawText (slab[s], plate.reduced (6.0f, 0.0f), juce::Justification::centredLeft);
+
+                if (stemsReady)
+                {
+                    // D3 paints real per-stem columns here; D2c leaves a quiet
+                    // placeholder tint across the lane body so the ready state
+                    // reads visibly different from the pre-separation placeholder.
+                    g.setColour (col.withAlpha (0.10f));
+                    g.fillRect (plateW, ly, (float) w - plateW, laneH - 1.0f);
+                }
+            }
+
+            if (! stemsReady)
+            {
+                // DECISION-3 placeholder CTA: chip-styled hint, empty-state
+                // conventions (PluginEditor.h:260-299 precedent) -- overlay chip
+                // kind 3 (opaque, reads over wave content per chrome conventions).
+                // R2 fix: this chip is a real click target -- capture its rect
+                // into ctaRect (hit-tested in mouseDown/mouseMove) and paint hover
+                // feedback consistent with the chip painter's own hover language.
+                const juce::String hint = "SEPARATE STEMS to fill the map";
+                g.setFont (Theme::ui (10.5f * 1.12f, true).withExtraKerningFactor (0.12f));
+                const float hintW = juce::jmin ((float) w - 24.0f,
+                                                 g.getCurrentFont().getStringWidthFloat (hint) + 28.0f);
+                auto hintR = juce::Rectangle<float> (((float) w - hintW) * 0.5f,
+                                                     (float) waveBottom * 0.5f - 12.0f, hintW, 24.0f);
+                ctaRect = hintR;
+                // ctaHoverLast is kept current by mouseMove's own dirty-watch
+                // (single source of truth for hover state -- avoids a second,
+                // possibly-inconsistent hover detector here in paint()).
+                Theme::paintChip (g, hintR, false, ctaHoverLast, false, 3);
+                g.setColour (Theme::t2);
+                g.drawText (hint, Theme::chipFace (hintR), juce::Justification::centred);
+            }
+            // (stemsReady case: ctaRect stays cleared from the top-of-paint reset above --
+            // no CTA is painted this frame, so no rect should be armed.)
+
+            // scrollbar strip stays live in STEMS view too (shared chrome, unchanged geometry)
+            g.setColour (juce::Colour (0xff090a0b));
+            g.fillRect (0, waveBottom, w, sb);
+            if (cachedLen > 0)
+            {
+                const float thS = (float) (viewStart / (double) cachedLen) * (float) w;
+                const float thE = (float) ((viewStart + viewSpan) / (double) cachedLen) * (float) w;
+                g.setColour (juce::Colour (0xff9a9da1).withAlpha (0.7f));
+                g.fillRoundedRectangle (thS, (float) waveBottom + 2.0f,
+                                        juce::jmax (8.0f, thE - thS), (float) sb - 4.0f, 3.0f);
+            }
             return;
         }
 
@@ -723,6 +841,19 @@ public:
         drag = DragMode::none;
         dragPad = -1;
         if (cachedLen <= 0) { if (onRequestLoad) onRequestLoad(); return; }
+
+        // D2 R2-fix: the STEMS-placeholder "SEPARATE STEMS" CTA, BEFORE any other
+        // hit-test. Guarded on ctaRect being non-empty, which paint() guarantees
+        // is true ONLY on the frames where the placeholder is actually the
+        // painted content (STEMS requested, stems not yet ready, a source is
+        // loaded) -- see paint()'s unconditional top-of-frame ctaRect reset, so a
+        // stale rect from a different state can never eat a click here.
+        if (! ctaRect.isEmpty() && ctaRect.contains (e.position))
+        {
+            if (onRequestStemSeparation) onRequestStemSeparation();
+            return;
+        }
+
         const int w = getWidth(), h = getHeight();
         const int sb = 11;
 
@@ -935,6 +1066,20 @@ public:
     void mouseMove (const juce::MouseEvent& e) override
     {
         if (cachedLen <= 0) { setMouseCursor (juce::MouseCursor::PointingHandCursor); return; }
+
+        // D2 R2-fix: pointing-hand feedback over the STEMS-placeholder CTA, same
+        // ctaRect paint()'s hover tint reads. Repaint ONLY on a hover-state
+        // transition (ctaHoverLast), same cheap-dirty-watch idiom as hoverLane
+        // just below -- not on every pixel of mouse movement while hovering.
+        if (! ctaRect.isEmpty())
+        {
+            const bool overCta = ctaRect.contains (e.position);
+            setMouseCursor (overCta ? juce::MouseCursor::PointingHandCursor
+                                    : juce::MouseCursor::NormalCursor);
+            if (overCta != ctaHoverLast) { ctaHoverLast = overCta; repaint(); }
+            if (overCta) return;
+        }
+
         const bool edge = hitEndHandle (e.x) >= 0 || hitStartEdge (e.x) >= 0;
         setMouseCursor (edge ? juce::MouseCursor::LeftRightResizeCursor
                              : juce::MouseCursor::NormalCursor);
@@ -947,6 +1092,7 @@ public:
     void mouseExit (const juce::MouseEvent&) override
     {
         if (hoverLane != -1) { hoverLane = -1; repaint(); }
+        if (ctaHoverLast) { ctaHoverLast = false; repaint(); }   // D2 R2-fix
     }
 
 private:
@@ -1029,6 +1175,19 @@ private:
         {
             const int sel = p.selectedPad.load();
             if (sel != lastSel) { lastSel = sel; repaint(); }
+        }
+
+        // D2: repaint when the EFFECTIVE hero view changes without a click --
+        // stems can arrive/vanish asynchronously (separation completing on the
+        // worker thread, or a new file load dropping hasStems() to false) while
+        // the sticky request stays constant; fold both message-thread-only reads
+        // into one dirty hash, same lastSel/lastGrainHash precedent above/at
+        // SliceDetailStrip. Message-thread-only: heroView.load() and hasStems()
+        // are both read here on the UI timer, never from processBlock.
+        {
+            const int hv = gent::sanitizeHeroView (p.heroView.load());
+            const int hh = hv * 2 + (p.hasStems() ? 1 : 0);
+            if (hh != lastHeroHash) { lastHeroHash = hh; repaint(); }
         }
 
         // refresh stem ribbons when separation finishes / stems change
@@ -1128,6 +1287,7 @@ private:
     void* cachedSrc = nullptr;
     int cachedW = 0, cachedLen = 0, lastDirty = -1;
     int lastSel = -1;   // C4: watched independently so bare selection changes repaint
+    int lastHeroHash = -1;   // D2: sanitizeHeroView()*2 + hasStems() -- effective-view dirty watch
     double viewStart = 0.0, viewSpan = 1.0;
     std::vector<std::pair<float, float>> peaks;
     std::array<std::vector<std::pair<float, float>>, 6> stemPeaks;
@@ -1138,6 +1298,16 @@ private:
     int hoverLane = -1;                     // stem lane under the mouse (for solo reveal)
     int stemLabW = 60, stemSoloW = 18;   // C3 review nit: stemRulerH removed (dead — rulerH is hardcoded 0)
     int bottomChromeH = 0;                  // C2: reserved band for the .ov.bl/.ov.br chip plates
+
+    // D2 R2-fix: the STEMS-placeholder "SEPARATE STEMS" CTA's painted rect, set
+    // ONLY on the paint frames where the placeholder is actually drawn (STEMS
+    // requested AND stems not yet ready), and explicitly invalidated (empty
+    // rect) on every other paint (COMPOSITE view, stems ready, no source) so a
+    // stale rect from a prior state can never eat a click in a state where no
+    // CTA is on screen -- mouseDown/mouseMove gate on ctaRect.isEmpty() before
+    // hit-testing it.
+    juce::Rectangle<float> ctaRect;
+    bool ctaHoverLast = false;   // D2 R2-fix: mouseMove's dirty-watched hover state for ctaRect
 
     DragMode drag = DragMode::none;
     int dragPad = -1;
@@ -2266,6 +2436,73 @@ struct TrigPad : juce::Component
 };
 
 // ---------------------------------------------------------------------------
+// D2: hero COMPOSITE<->STEMS segmented control (mockup #viewSeg, HTML 247-253;
+// CSS .seg/.seg .s 90-102) — the same segmented-well primitive TrigPad already
+// established (Phase A/B chrome convention, REDESIGN_TASK_D.md ground rule 6),
+// but a dedicated 2-way struct rather than a reuse of TrigPad itself: TrigPad
+// is wired to the 3-way playMode trigger and carries a <small> subtitle line
+// the mockup's #viewSeg segments don't have (no "word" text under
+// "Composite"/"Stems"), and this control's fonts must carry the later ×1.12
+// CSS-px visual correction TrigPad predates (docs/STEM_VIEW_MODEL.md D2 scope;
+// CLAUDE.md style precedent already in force at SliceDetailStrip call sites).
+// Per the D1 addendum ("Joe ruling 2026-07-03, DECISION-2/3 interplay"), the
+// STEMS branch is never suppressed by stem availability (a placeholder is
+// always available), so displayed == requested == painted: `active` here is
+// driven by the sanitized sticky REQUEST (gent::sanitizeHeroView(heroView)),
+// the same predicate that selects WaveformView's paint branch.
+struct HeroViewSeg : juce::Component
+{
+    juce::String label;   // "Composite" / "Stems" -- no subtitle line (mockup silent on one)
+    int  pos    = 0;       // 0 = left segment, 2 = right segment (rounds only that outer side)
+    bool active = false;   // reflects the sanitized sticky request (D1 addendum)
+    std::function<void()> onClick;
+
+    HeroViewSeg() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+    void setActive (bool a) { if (active != a) { active = a; repaint(); } }
+    void mouseDown (const juce::MouseEvent&) override { if (onClick) onClick(); }
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        const float rad = 7.0f;
+        juce::Path bed;
+        bed.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight(), rad, rad,
+                                 pos == 0, pos == 2, pos == 0, pos == 2);
+        g.setColour (Theme::well);
+        g.fillPath (bed);
+        {
+            juce::Graphics::ScopedSaveState ss (g);
+            g.reduceClipRegion (bed);
+            g.setColour (juce::Colours::black.withAlpha (0.35f));
+            g.fillRect (r.getX(), r.getY() + 1.0f, r.getWidth(), 1.5f);
+        }
+
+        const bool hover = isMouseOver();
+        auto pill = r.reduced (3.5f);
+        if (active)   // .seg .s.on -- amber pill with a soft bloom (box-shadow 0 0 10px .25)
+        {
+            Theme::featherGlow (g, pill, 5.0f, Theme::accent.withAlpha (0.25f), 4.0f, 4);
+            juce::ColourGradient bg (Theme::accent.withAlpha (0.28f), pill.getX(), pill.getY(),
+                                     Theme::accent.withAlpha (0.12f), pill.getX(), pill.getBottom(), false);
+            g.setGradientFill (bg);
+            g.fillRoundedRectangle (pill, 5.0f);
+            g.setColour (Theme::accent.withAlpha (0.30f));
+            g.drawRoundedRectangle (pill, 5.0f, 1.0f);
+            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
+        }
+
+        const juce::Colour fg = active ? Theme::accentTextOn : (hover ? Theme::t2 : Theme::t3);
+        g.setColour (fg);
+        // .seg .s -- 9px CSS, 600 weight, .1em tracking, uppercase; ×1.12 visual correction
+        g.setFont (Theme::ui (9.0f * 1.12f, true).withExtraKerningFactor (0.10f));
+        g.drawText (label.toUpperCase(), r, juce::Justification::centred);
+    }
+};
+
+// ---------------------------------------------------------------------------
 // A plain container that holds the whole UI at a FIXED design size; the editor
 // applies an AffineTransform to scale it as one unit (aspect-locked proportional
 // zoom), so every child scales together and no layout reflows on resize. Its
@@ -2337,6 +2574,7 @@ private:
     juce::Label      stemStatusLbl;
     std::array<juce::TextButton, 7> srcTag;     // PAD SOURCE: FULL, DRM, BASS, VOX, GTR, PNO, OTH
     std::array<TrigPad, 3> trigSeg;              // TRIGGER: Gate / One-shot / Latch (drives playMode)
+    std::array<HeroViewSeg, 2> viewSeg;          // D2: hero COMPOSITE<->STEMS seg (mockup #viewSeg)
     juce::Label fileLbl, bpmLbl, playLbl, ratioLbl, titleLbl, padTitle, padRead, ppL, plL, paL, prL, pcL, psL, ppanL;
     juce::Label padMetaLbl, padMeta2Lbl, chokeLbl, pcoL, preL, ftypeLbl, pbL;   // pad meta lines (.m1/.m2) + choke + FILTER + bleed captions
     juce::Label gsL, gdL, gpL, gyL, gtL;   // granular knob captions (size/density/position/spray/pitch)

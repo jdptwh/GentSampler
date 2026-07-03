@@ -173,6 +173,15 @@ public:
     // editor size persistence
     std::atomic<int>  editorW { 900 }, editorH { 640 };
 
+    // D2: hero COMPOSITE<->STEMS view-mode STICKY REQUEST (docs/STEM_VIEW_MODEL.md
+    // SS4). 0 = COMPOSITE, 1 = STEMS. Editor-close-proof per the editorW/editorH
+    // precedent above -- lives on the processor, not the editor. Message-thread
+    // reads/writes ONLY (WaveformView::paint + the hero seg's click handler);
+    // processBlock never reads this (regression fence). Availability changes
+    // (stems arriving/vanishing) must never overwrite this stored request --
+    // only gent::resolveHeroView()'s EFFECTIVE-view computation changes.
+    std::atomic<int>  heroView { 0 };
+
     // kits / export / capture
     bool saveKit (const juce::File& kitFile);
     bool loadKit (const juce::File& kitFile);
