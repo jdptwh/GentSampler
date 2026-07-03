@@ -13,6 +13,7 @@
 #include "EngineMath.h"
 
 #include <climits>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -293,5 +294,135 @@ TEST_CASE ("D2.4 composition: sanitizeHeroView(garbage) -> resolveHeroView never
             const int expectedEffective = (sanitized == 1 && stemsAvailable) ? 1 : 0;
             CHECK (effective == expectedEffective);
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// D3 — gent::laneIndexAt (lane-index geometry, PluginEditor.h mouseDown ~698 /
+// mouseMove ~928, both now DORMANT band hit-tests per D3's own scope -- the
+// live STEMS-view rewire is D4's job). See docs/STEM_VIEW_MODEL.md SS8/SS9 and
+// REDESIGN_TASK_D.md's D3 ctest additions: "boundary y at every lane edge for
+// bandH in {96,135,160,250}, out-of-band clamping identical to today's jlimit,
+// plus the tiling property test."
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// Reference re-implementation of the PRE-D3 inline formula, kept independent
+// of gent::laneIndexAt so these tests actually exercise agreement between two
+// separately-written expressions rather than testing the extraction against
+// itself.
+int referenceLaneIndexAt (int y, int bandTop, int bandH)
+{
+    const double laneH = (double) bandH / 6.0;
+    double ratio = ((double) y - (double) bandTop) / laneH;
+    int lane = (int) ratio;
+    if (lane < 0) lane = 0;
+    if (lane > 5) lane = 5;
+    return lane;
+}
+}
+
+TEST_CASE ("D3.1 laneIndexAt: boundary y at every lane edge, bandH in {96,135,160,250}")
+{
+    const int bandHs[4] = { 96, 135, 160, 250 };
+    const int bandTop = 2;   // matches production's bandTop = rulerH + 2
+    for (int bandH : bandHs)
+    {
+        const double laneH = (double) bandH / 6.0;
+        for (int lane = 0; lane < 6; ++lane)
+        {
+            // the TRUE floating-point lane boundary (bandH need not divide evenly
+            // by 6 -- 135/160/250 all leave a fractional laneH, so the boundary
+            // pixel itself is only unambiguous when we round consistently with
+            // laneIndexAt's own (int) truncation, which is exactly what
+            // referenceLaneIndexAt also does -- both are checked for agreement
+            // here rather than asserting a hand-picked "== lane" that would be
+            // wrong for a fractional laneH).
+            const double boundary = laneH * (double) lane;
+            const int yAtBoundary = bandTop + (int) boundary;         // truncates like production
+            const int yOnePastBoundary = bandTop + (int) std::ceil (boundary);
+            const int yJustBeforeBoundary = bandTop + (int) boundary - 1;
+
+            CHECK (gent::laneIndexAt (yAtBoundary, bandTop, bandH)
+                   == referenceLaneIndexAt (yAtBoundary, bandTop, bandH));
+            CHECK (gent::laneIndexAt (yOnePastBoundary, bandTop, bandH)
+                   == referenceLaneIndexAt (yOnePastBoundary, bandTop, bandH));
+            CHECK (gent::laneIndexAt (yJustBeforeBoundary, bandTop, bandH)
+                   == referenceLaneIndexAt (yJustBeforeBoundary, bandTop, bandH));
+
+            // just inside the lane's bottom edge (one pixel before the next lane starts)
+            const int yBottom = bandTop + (int) (laneH * (lane + 1)) - 1;
+            CHECK (gent::laneIndexAt (yBottom, bandTop, bandH)
+                   == referenceLaneIndexAt (yBottom, bandTop, bandH));
+        }
+        // the very first pixel of the band is lane 0; the very last pixel is lane 5
+        CHECK (gent::laneIndexAt (bandTop, bandTop, bandH) == 0);
+        CHECK (gent::laneIndexAt (bandTop + bandH - 1, bandTop, bandH) == 5);
+    }
+}
+
+TEST_CASE ("D3.2 laneIndexAt: out-of-band clamping identical to today's jlimit semantics")
+{
+    const int bandHs[4] = { 96, 135, 160, 250 };
+    const int bandTop = 2;
+    for (int bandH : bandHs)
+    {
+        // above the band (y < bandTop): clamps to lane 0, same as jlimit(0,5,negative)
+        CHECK (gent::laneIndexAt (bandTop - 1, bandTop, bandH) == 0);
+        CHECK (gent::laneIndexAt (bandTop - 1000, bandTop, bandH) == 0);
+        CHECK (gent::laneIndexAt (-1000000, bandTop, bandH) == 0);
+
+        // below the band (y >= bandTop + bandH): clamps to lane 5
+        CHECK (gent::laneIndexAt (bandTop + bandH, bandTop, bandH) == 5);
+        CHECK (gent::laneIndexAt (bandTop + bandH + 1000, bandTop, bandH) == 5);
+        CHECK (gent::laneIndexAt (1000000, bandTop, bandH) == 5);
+
+        // agreement with the independent reference re-implementation across a
+        // dense out-of-band sweep both sides
+        for (int y = bandTop - 50; y < bandTop; ++y)
+            CHECK (gent::laneIndexAt (y, bandTop, bandH) == referenceLaneIndexAt (y, bandTop, bandH));
+        for (int y = bandTop + bandH; y < bandTop + bandH + 50; ++y)
+            CHECK (gent::laneIndexAt (y, bandTop, bandH) == referenceLaneIndexAt (y, bandTop, bandH));
+    }
+}
+
+TEST_CASE ("D3.3 laneIndexAt: tiling property -- every in-band y maps to exactly one lane, "
+           "lanes tile with no gap/overlap, consistent with computed lane tops")
+{
+    const int bandHs[4] = { 96, 135, 160, 250 };
+    const int bandTop = 2;
+    for (int bandH : bandHs)
+    {
+        const double laneH = (double) bandH / 6.0;
+
+        // computed lane tops (lane i spans [top_i, top_{i+1}) in continuous space)
+        double laneTop[7];
+        for (int i = 0; i <= 6; ++i)
+            laneTop[i] = (double) bandTop + laneH * (double) i;
+
+        // every integer y in [bandTop, bandTop+bandH) falls in exactly one lane,
+        // and laneIndexAt's answer is consistent with the computed lane tops
+        // (no gap/overlap: the lane whose [top_i, top_{i+1}) contains y is the
+        // same lane laneIndexAt returns).
+        for (int y = bandTop; y < bandTop + bandH; ++y)
+        {
+            const int lane = gent::laneIndexAt (y, bandTop, bandH);
+            CHECK (lane >= 0);
+            CHECK (lane <= 5);
+            // consistency check: y must lie within [laneTop[lane], laneTop[lane+1])
+            // modulo floating-point boundary rounding at the exact edge pixel, which
+            // is why we check against a half-open interval expanded by a tiny epsilon
+            // rather than demanding bit-exact equality with a second computation path.
+            const double eps = 1e-9;
+            CHECK ((double) y >= laneTop[lane] - eps);
+            CHECK ((double) y <  laneTop[lane + 1] + eps);
+        }
+
+        // full sweep agreement with the independent reference implementation
+        // across the whole in-band range (belt-and-braces on top of the
+        // boundary-specific D3.1 cases above)
+        for (int y = bandTop; y < bandTop + bandH; ++y)
+            CHECK (gent::laneIndexAt (y, bandTop, bandH) == referenceLaneIndexAt (y, bandTop, bandH));
     }
 }

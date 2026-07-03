@@ -318,4 +318,31 @@ inline int resolveHeroView (int requested, bool stemsAvailable)
     return (requested == 1 && stemsAvailable) ? 1 : 0;
 }
 
+// ---------------------------------------------------------------------------
+//  D3 — stem lane geometry
+//  See docs/STEM_VIEW_MODEL.md SS8/SS9. Extracted from the duplicated inline
+//  formula in mouseDown (PluginEditor.h ~861-863, pre-D3 line 732) and its
+//  mouseMove twin (pre-D3 line 943): `jlimit(0,5,(int)((e.y-bandTop)/(bandH/6.0)))`.
+//  D3 keeps this extraction feeding the DORMANT band hit-test code only (its
+//  band geometry collapses to zero in the retired composite band and the real
+//  STEMS-view rewire is D4's job); behavior-identical to the pre-D3 inline
+//  formula for every (bandTop, bandH) pair actually reachable in production --
+//  both call sites guard `bandH > 0` before ever calling this (unchanged by
+//  D3), so bandH<=0 is out of this function's contract (division-by-zero
+//  territory the original inline formula never had to handle either, since it
+//  lived inside the same `if (stemBandH > 0 && ...)` guard).
+// ---------------------------------------------------------------------------
+
+// From the pre-D3 band hit-test (PluginEditor.h mouseDown/mouseMove). `y` is
+// the event's y in the SAME coordinate space as `bandTop`; `bandH` is the
+// total band height (six lanes), REQUIRED > 0 (caller's contract, matching
+// both production call sites' existing `stemBandH > 0` guard). Returns the
+// 0-5 lane index, clamped exactly as the original jlimit(0,5,...) did for any
+// y (including out-of-band y above/below the six-lane run).
+inline int laneIndexAt (int y, int bandTop, int bandH)
+{
+    const double laneH = (double) bandH / 6.0;
+    return std::clamp ((int) (((double) y - (double) bandTop) / laneH), 0, 5);
+}
+
 } // namespace gent

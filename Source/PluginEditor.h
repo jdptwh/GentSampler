@@ -343,13 +343,45 @@ public:
         const int heroReq = gent::sanitizeHeroView (p.heroView.load());
         if (heroReq == 1)
         {
+            // D3: real port of the mockup's drawStems() (gentsampler_redesign_v2.html
+            // 469-491). The mockup canvas is 2x backing scale (2032x320 vs a 1016x160
+            // hero element, docs/STEM_VIEW_MODEL.md SS2 "2x canvas-backing note") --
+            // px literals below are halved from the mockup's canvas-space values,
+            // then aligned to the existing stemLabW/stemSoloW members (60/18) that
+            // D4's lane hit-zones will reuse verbatim (STEM_VIEW_MODEL.md SS8 point 1
+            // cites "the exact constants already used at lines 735/733" -- i.e. these
+            // same members), rather than an independently re-derived half-of-58. The
+            // mockup's own column start (x=64 canvas-space) is superseded by "start
+            // right of the label plate" (this task's own prose) so columns never
+            // begin mid-plate. sbs capture (D6) arbitrates any residual.
             const bool stemsReady = gent::resolveHeroView (heroReq, p.hasStems()) == 1;
             static const char* slab[6] = { "DRUMS", "BASS", "VOX", "GTR", "PNO", "OTHER" };
-            const float laneH = (float) waveBottom / 6.0f;
+            const float laneH  = (float) waveBottom / 6.0f;
+            const float plateW = (float) stemLabW;
+            const float soloW  = (float) stemSoloW;
+
+            // D3/D1-DECISION-4: lanes claim the FULL hero -- no separate flag row
+            // reserved above them (unlike composite's flagY-row layout). Flags/cue-
+            // region/playheads render full-height THROUGH the lanes, matching the
+            // mockup's drawFlags(g,W,H) full-canvas treatment (SS2). paint() uses
+            // local laneH/waveBottom directly for its own geometry below -- it does
+            // NOT write stemBandTop/stemBandH/flagBarY/flagBarH here. Those members
+            // stay at their composite-branch-set values (stemBandTop/H zeroed by the
+            // retired band; flagBarY/H likewise collapse to the bandH==0 constants)
+            // so mouseDown/mouseMove's DORMANT band hit-test (PAINT ONLY this task --
+            // interaction rewiring is D4's) never activates over the STEMS lanes
+            // either -- setting them non-zero here would silently turn that dormant
+            // code back on for the wrong geometry, reintroducing the exact
+            // whole-band-early-return landmine D4 is supposed to fix, one task early.
+
             for (int s = 0; s < 6; ++s)
             {
                 const auto col = Theme::stem (s);
-                const float ly = laneH * (float) s;
+                const bool muted  = p.isStemMuted (s);
+                const bool soloed = p.isStemSoloed (s);
+                const float ly     = laneH * (float) s;
+                const float rowMid = ly + laneH * 0.5f;
+
                 if (s % 2 != 0)   // odd lanes get a faint alternating bed (mockup drawStems li%2)
                 {
                     g.setColour (juce::Colours::white.withAlpha (0.015f));
@@ -358,22 +390,78 @@ public:
                 g.setColour (juce::Colours::black.withAlpha (0.45f));
                 g.fillRect (0.0f, ly + laneH - 1.0f, (float) w, 1.0f);   // lane separator
 
-                // label plate (opaque, left) -- stem-hued bold mono label
-                const float plateW = juce::jmin (58.0f, (float) w * 0.2f);
+                if (stemsReady)
+                {
+                    // real per-stem colour columns from stemPeaks (rebuildStemPeaks,
+                    // ~1256-1283), alpha .8 (mockup line 482), starting right of the
+                    // label plate -- muted lanes dim to match the pre-D3 band's own
+                    // muted ribbon alpha (0.12) so the mute affordance stays legible
+                    // at full lane height, not just at the 13px band's scale.
+                    const auto& sp = stemPeaks[(size_t) s];
+                    if (! sp.empty())
+                    {
+                        g.setColour (col.withAlpha (muted ? 0.12f : 0.8f));
+                        const int x0 = (int) plateW;
+                        const int x1 = juce::jmin (w, (int) sp.size());
+                        const float rh = laneH * 0.42f;
+                        for (int x = x0; x < x1; ++x)
+                        {
+                            const auto pk = sp[(size_t) x];
+                            const float amp = juce::jmax (std::abs (pk.first), std::abs (pk.second));
+                            g.drawVerticalLine (x, rowMid - amp * rh, rowMid + amp * rh);
+                        }
+                    }
+                }
+
+                // label plate (opaque, left) -- doubles as the MUTE toggle per
+                // DECISION-4 (paint only this task; D4 wires the click). Carries the
+                // pre-D3 band's exact mute semantics/appearance (PluginEditor.h
+                // 394-410 lineage): filled/tinted when unmuted, outlined/struck-
+                // through when muted.
                 auto plate = juce::Rectangle<float> (0.0f, ly, plateW, laneH);
                 g.setColour (juce::Colour (0xff0A0D10).withAlpha (0.85f));
                 g.fillRect (plate);
-                g.setColour (col);
+                if (muted)
+                {
+                    g.setColour (Theme::knobTrack);
+                    g.drawRoundedRectangle (plate.reduced (2.0f), 4.0f, 1.0f);
+                    g.setColour (Theme::t3);
+                }
+                else
+                {
+                    g.setColour (col.withAlpha (0.12f));
+                    g.fillRoundedRectangle (plate.reduced (2.0f), 4.0f);
+                    g.setColour (col);
+                }
                 g.setFont (Theme::mono (9.5f * 1.12f, true));
                 g.drawText (slab[s], plate.reduced (6.0f, 0.0f), juce::Justification::centredLeft);
+                if (muted)
+                    g.drawLine (plate.getX() + 6.0f, rowMid, plate.getRight() - 6.0f, rowMid, 1.0f);
 
-                if (stemsReady)
+                // solo "S" box, hover-revealed (or shown solid when soloed) at the
+                // lane's right edge -- carries the pre-D3 band's exact solo semantics/
+                // appearance (PluginEditor.h 412-424 lineage). Paint only this task;
+                // hoverLane is untouched (still fed by mouseMove's existing dormant
+                // code, itself unchanged by D3 per the timer-stomp/single-edit-path
+                // rules).
+                if (hoverLane == s || soloed)
                 {
-                    // D3 paints real per-stem columns here; D2c leaves a quiet
-                    // placeholder tint across the lane body so the ready state
-                    // reads visibly different from the pre-separation placeholder.
-                    g.setColour (col.withAlpha (0.10f));
-                    g.fillRect (plateW, ly, (float) w - plateW, laneH - 1.0f);
+                    auto sbox = juce::Rectangle<float> ((float) w - soloW - 2.0f,
+                                                        rowMid - soloW * 0.5f, soloW, soloW);
+                    if (soloed)
+                    {
+                        g.setColour (Theme::accent); g.fillRoundedRectangle (sbox, 4.0f);
+                        g.setColour (Theme::inkOnAccent);
+                    }
+                    else
+                    {
+                        g.setColour (Theme::panel); g.fillRoundedRectangle (sbox, 4.0f);
+                        g.setColour (Theme::knobTrack.brighter (0.25f));
+                        g.drawRoundedRectangle (sbox, 4.0f, 1.0f);
+                        g.setColour (Theme::t3);
+                    }
+                    g.setFont (juce::Font (9.0f, juce::Font::bold));
+                    g.drawText ("S", sbox, juce::Justification::centred);
                 }
             }
 
@@ -399,7 +487,21 @@ public:
                 g.setColour (Theme::t2);
                 g.drawText (hint, Theme::chipFace (hintR), juce::Justification::centred);
             }
-            // (stemsReady case: ctaRect stays cleared from the top-of-paint reset above --
+            else
+            {
+                // D3: flags, active cue region, and playheads render full-height
+                // THROUGH the lanes (this task's own scope line) -- same shared
+                // method the composite branch calls below, top=0/flagY=0 so the
+                // full lane area (0..waveBottom) is in play, matching the mockup's
+                // drawFlags(g,W,H) full-canvas-height treatment. Only painted once
+                // real stem data exists -- the pre-separation placeholder has no
+                // meaningful slice content to overlay (mirrors the pre-D3 band,
+                // which only ever showed under the composite wave regardless).
+                const int selS = p.selectedPad.load();
+                const double srS = (keep != nullptr) ? keep->sampleRate : 0.0;
+                paintFlagsCuePlayheads (g, w, 0, waveBottom, 0, selS, srS);
+            }
+            // (stemsReady==false: ctaRect stays cleared from the top-of-paint reset above --
             // no CTA is painted this frame, so no rect should be armed.)
 
             // scrollbar strip stays live in STEMS view too (shared chrome, unchanged geometry)
@@ -416,32 +518,23 @@ public:
             return;
         }
 
-        // vertical order (mockup): stem lanes -> cue flags -> waveform
-        bool showStems = false;
-        for (auto& sp : stemPeaks) if (! sp.empty()) { showStems = true; break; }
-        // C3: hero is now a fixed 160px (down from Phase B's 196px parking spot), so
-        // the OLD h>180 gate would make the stems band permanently unreachable at the
-        // one height the hero ever renders at — the exact landmine flagged in the C3
-        // spec. Gate on content only (showStems) now that there's a single fixed hero
-        // height; h stays in the condition only as a defensive floor against a
-        // degenerate/near-zero layout, not as a real-world cutoff.
-        const bool stemsShowing = showStems && h > 60;
-        // C3: the top time-ruler was JUCE-only furniture never present in the mockup's
-        // own drawStems() (it has no top ruler in either view) — at 160px there isn't
-        // room for ruler + 6 usable lanes + flags + any wave sliver, so it's dropped
-        // here (composite view is unaffected: its own bottom ruler lives in a separate,
-        // bandH==0 branch below and is untouched).
+        // D3: COMPOSITE branch -- the lanes band is retired entirely (its paint
+        // block, the h>60 content gate, and the bandH jlimit(78,250) floor
+        // computation all deleted per this task's own scope line: "composite =
+        // full-height wave exactly as the bandH==0 layout already renders"). What
+        // remains below is that pre-existing bandH==0 layout, unchanged: rulerH is
+        // still hardcoded 0 (no top ruler, never present in the mockup either
+        // view -- SS2/SS9), bandH/bandTop collapse to their bandH==0 constants so
+        // flagY/top compute exactly as they always did whenever no band was
+        // showing. stemBandTop/stemBandH are zeroed (not deleted -- D1 SS9
+        // "repurposed", D4 rewires their consumers) so the dormant band hit-test
+        // in mouseDown/mouseMove keeps compiling but never matches a real click
+        // (stemBandH<=0 always fails its own `> 0` guard).
         const int rulerH  = 0;
         const int bandTop = rulerH + 2;
-        // stem lanes are a prominent band. Floor raised from Phase B's 56 (9.3px/lane,
-        // too thin for the label pill + 18px solo box to be legible/hittable) to 78
-        // (13px/lane) — verified against the hero's real 160px budget: waveBottom(117)
-        // - bandTop(2) - bandH(78) - flagGap(9) - flagH(15) - gap(1) leaves ~12px of
-        // composite wave still visible beneath the lanes (see C3 report for the math).
-        const int bandH   = stemsShowing
-                                ? juce::jlimit (78, 250, (int) ((h - rulerH - 70) * 0.52)) : 0;
+        const int bandH   = 0;
         const int flagH   = 15;
-        const int flagY   = bandTop + bandH + (bandH > 0 ? 9 : 0);
+        const int flagY   = bandTop + bandH;             // bandH==0: no +9 gap term
         const int top     = flagY + flagH + 1;          // waveform / region top
         stemBandTop = bandTop; stemBandH = bandH;
         flagBarY = flagY; flagBarH = flagH;
@@ -470,78 +563,6 @@ public:
 
         // C1: composite view no longer tints slice regions behind the wave — the
         // flags carry pad-source colour (C2). No per-slice fill here by design.
-
-        // stem ribbon lanes — the mute/solo controls (mockup: tinted pill + ribbon + hover-solo)
-        if (bandH > 0)
-        {
-            const juce::Colour scol[6] = {
-                Theme::stem (0), Theme::stem (1), Theme::stem (2),
-                Theme::stem (3), Theme::stem (4), Theme::stem (5) };
-            static const char* slab[6] = { "DRUMS", "BASS", "VOX", "GTR", "PNO", "OTHER" };
-            const juce::Colour cLine  = Theme::knobTrack, cLine2 = Theme::knobTrack.brighter (0.25f),
-                               cT3 = Theme::t3, cCue = Theme::accent, cInk = Theme::inkOnAccent,
-                               cBox = Theme::panel;
-            const float laneH = (float) bandH / 6.0f;
-            const int   labW  = stemLabW;
-            const int   soloW = stemSoloW;
-            const float pillH = juce::jmin (22.0f, laneH - 4.0f);
-            for (int s = 0; s < 6; ++s)
-            {
-                const auto& sp    = stemPeaks[(size_t) s];
-                const bool muted  = p.isStemMuted (s);
-                const bool soloed = p.isStemSoloed (s);
-                const float ly    = (float) bandTop + laneH * (float) s;
-                const float rowMid = ly + laneH * 0.5f;
-
-                // ribbon (between pill and solo box)
-                const float rx0 = 4.0f + (float) labW + 10.0f;
-                const float rx1 = (float) w - (float) soloW - 12.0f;
-                const float rh  = juce::jmin (laneH * 0.46f, 9.0f);
-                if (! sp.empty())
-                {
-                    g.setColour (scol[s].withAlpha (muted ? 0.12f : 0.92f));
-                    const int n2 = juce::jmin ((int) rx1, (int) sp.size());
-                    for (int x = (int) rx0; x < n2; ++x)
-                    {
-                        const auto pk = sp[(size_t) x];
-                        const float amp = juce::jmax (std::abs (pk.first), std::abs (pk.second));
-                        g.drawVerticalLine (x, rowMid - amp * rh, rowMid + amp * rh);
-                    }
-                }
-
-                // label pill (mute button): tinted bg, coloured text
-                auto pill = juce::Rectangle<float> (4.0f, rowMid - pillH * 0.5f, (float) labW, pillH);
-                if (muted)
-                {
-                    g.setColour (cLine); g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-                    g.setColour (cT3);
-                }
-                else
-                {
-                    g.setColour (scol[s].withAlpha (0.12f)); g.fillRoundedRectangle (pill, 5.0f);
-                    g.setColour (scol[s].withAlpha (0.35f)); g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-                    g.setColour (scol[s]);
-                }
-                g.setFont (juce::Font (9.5f, juce::Font::bold));
-                g.drawText (slab[s], pill, juce::Justification::centred);
-                if (muted)
-                    g.drawLine (pill.getX() + 6.0f, pill.getCentreY(), pill.getRight() - 6.0f, pill.getCentreY(), 1.0f);
-
-                // solo "S" box (revealed on hover, or shown when soloed)
-                if (hoverLane == s || soloed)
-                {
-                    auto sbox = juce::Rectangle<float> ((float) w - (float) soloW - 2.0f,
-                                                        rowMid - (float) soloW * 0.5f,
-                                                        (float) soloW, (float) soloW);
-                    if (soloed) { g.setColour (cCue); g.fillRoundedRectangle (sbox, 4.0f); g.setColour (cInk); }
-                    else        { g.setColour (cBox); g.fillRoundedRectangle (sbox, 4.0f);
-                                  g.setColour (cLine2); g.drawRoundedRectangle (sbox, 4.0f, 1.0f);
-                                  g.setColour (cT3); }
-                    g.setFont (juce::Font (9.0f, juce::Font::bold));
-                    g.drawText ("S", sbox, juce::Justification::centred);
-                }
-            }
-        }
 
         // coordinate grid (map texture)
         {
@@ -601,197 +622,13 @@ public:
             }
         }
 
-        // C2: active cue region — the selected pad's slice window gets the amber
-        // translucent fill + glowing border (mockup drawFlags: fillStyle
-        // rgba(232,153,58,.10) then strokeRect rgba(255,184,92,.65) w2). Only when
-        // the selected pad has a real closed window (open/gated slices have no
-        // window to fill — C3's strip covers that case with its OPEN tag). Painted
-        // before the flags/handles loop (wave < cue region < flags/handles) so the
-        // region doesn't overdraw the selected pad's line glow or end-handle bracket.
-        if (p.getCue (sel) >= 0 && ! p.isOpenSlice (sel))
-        {
-            const float rs = sampleToX (p.getCue (sel));
-            const float re = sampleToX (p.getEffectiveCueEnd (sel));
-            const float ra = juce::jmin (rs, re), rb = juce::jmax (rs, re);
-            if (rb >= 0.0f && ra <= (float) w)
-            {
-                const float ca = juce::jmax (0.0f, ra), cb = juce::jmin ((float) w, rb);
-                auto region = juce::Rectangle<float> (ca, (float) top, cb - ca, (float) (waveBottom - top));
-                g.setColour (Theme::accent.withAlpha (0.10f));
-                g.fillRect (region);
-                g.setColour (Theme::glow.withAlpha (0.65f));
-                g.drawRect (region.reduced (1.0f), 2.0f);
-            }
-        }
-
-        // region edges, flags, end handles + active-window highlight
-        for (int i = 0; i < 16; ++i)
-        {
-            if (p.getCue (i) < 0) continue;                  // unassigned
-            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
-            const bool open   = p.isOpenSlice (i);
-            const bool selPad = (i == sel);
-            const float xs = sampleToX (p.getCue (i));
-            const float xe = endHandleX (i);                 // window end, or open re-open grip
-            const bool explicitEnd = p.getCueEnd (i) >= 0;   // open (== kOpenSlice) reads as false
-            const float a = selPad ? 1.0f : 0.55f;
-
-            if (xs >= -16.0f && xs <= (float) w)
-            {
-                // C2: soft hue glow behind the slice line (mockup drawFlags: stroked at
-                // globalAlpha .85 with the flag's shadowColor bleeding onto it) —
-                // feathered fills widening outward from the line, cheapest bloom that
-                // survives JUCE's lack of a shadowBlur primitive.
-                for (int gl = 3; gl >= 1; --gl)
-                {
-                    const float gw = (float) gl * 2.6f;
-                    const float galpha = a * 0.16f / (float) gl;
-                    g.setColour (col.withAlpha (galpha));
-                    g.fillRect (xs - gw * 0.5f, (float) top, gw, (float) (waveBottom - top));
-                }
-
-                // start line (selected is brighter + 2px so the active edge stands out)
-                g.setColour (col.withAlpha (a));
-                if (selPad) g.fillRect ((float) xs - 1.0f, (float) top, 2.0f, (float) (waveBottom - top));
-                else        g.drawVerticalLine ((int) xs, (float) top, (float) waveBottom);
-
-                // angled pennant flag (map marker) sits just above the waveform
-                const float fw = selPad ? 22.0f : 18.0f;
-                const float fh = selPad ? 16.0f : 14.0f;
-                const float fy = (float) flagY;
-                const float fx = juce::jlimit (0.0f, (float) w - fw, xs);
-                juce::Path flag;
-                flag.startNewSubPath (fx, fy);
-                flag.lineTo (fx + fw, fy);
-                flag.lineTo (fx + fw - fh * 0.5f, fy + fh * 0.5f);
-                flag.lineTo (fx + fw, fy + fh);
-                flag.lineTo (fx, fy + fh);
-                flag.closeSubPath();
-                // flag glow (mockup shadowColor=col, shadowBlur=9): reuse the shared
-                // feathered-rect bloom against the flag's bounding box.
-                Theme::featherGlow (g, flag.getBounds().expanded (1.0f), 2.0f,
-                                    col.withAlpha (0.5f), 6.0f, 4);
-                g.setColour (selPad ? col.brighter (0.25f) : col);
-                g.fillPath (flag);
-                g.setColour (juce::Colours::black.withAlpha (0.92f));
-                g.setFont (juce::Font (selPad ? 11.0f : 10.0f, juce::Font::bold));
-                g.drawText (juce::String (i + 1), (int) fx, (int) fy, (int) (fw - fh * 0.4f), (int) fh,
-                            juce::Justification::centred);
-
-                // selected territory tag: "CUE n · 14.2s", or "CUE n · OPEN" when gated
-                if (selPad && sr > 0.0)
-                {
-                    const juce::String tag = open
-                        ? ("CUE " + juce::String (i + 1) + "  OPEN")
-                        : ("CUE " + juce::String (i + 1)
-                           + juce::String::formatted ("  %.1fs",
-                                 (double) (p.getEffectiveCueEnd (i) - p.getCue (i)) / sr));
-                    g.setFont (juce::Font (9.0f, juce::Font::bold));
-                    const float tw = g.getCurrentFont().getStringWidthFloat (tag) + 12.0f;
-                    auto tr = juce::Rectangle<float> (juce::jlimit (0.0f, (float) w - tw, xs + 2.0f),
-                                                      (float) top + 3.0f, tw, 15.0f);
-                    g.setColour (Theme::well.withAlpha (0.85f));
-                    g.fillRoundedRectangle (tr, 4.0f);
-                    g.setColour (Theme::accent);
-                    g.drawText (tag, tr, juce::Justification::centred);
-                }
-            }
-
-            if (open)
-            {
-                // OPEN/gated slice: a ▶ gate affordance just right of the start line
-                // (drag the faint grip right to re-open into a window). No closed region.
-                if (xs >= -16.0f && xs <= (float) w)
-                {
-                    const float gy = (float) top + (float) (waveBottom - top) * 0.5f;
-                    juce::Path tri;
-                    tri.addTriangle (xs + 4.0f, gy - 6.0f, xs + 4.0f, gy + 6.0f, xs + 13.0f, gy);
-                    g.setColour (col.withAlpha (selPad ? 0.95f : 0.6f));
-                    g.fillPath (tri);
-                    g.setColour (col.withAlpha (selPad ? 0.5f : 0.3f));   // the re-open grip
-                    g.drawVerticalLine ((int) (xs + 14.0f), gy - 9.0f, gy + 9.0f);
-                }
-            }
-            else if (xe >= 0.0f && xe <= (float) w)
-            {
-                g.setColour (col.withAlpha (explicitEnd ? a : a * 0.45f));
-                g.drawVerticalLine ((int) xe, (float) top, (float) waveBottom);
-                // end handle: small bracket near the bottom
-                juce::Path ph;
-                ph.addTriangle (xe, (float) waveBottom - 12.0f,
-                                xe - 7.0f, (float) waveBottom,
-                                xe, (float) waveBottom);
-                g.fillPath (ph);
-            }
-        }
-
-        // assign cursor: dashed cream marker
-        {
-            const int ac = p.getAssignCursor();
-            if (ac >= 0)
-            {
-                const float ax = sampleToX (ac);
-                if (ax >= 0.0f && ax <= (float) w)
-                {
-                    g.setColour (Theme::glow.withAlpha (0.8f));
-                    const float dash[2] = { 5.0f, 4.0f };
-                    g.drawDashedLine ({ { ax, (float) top }, { ax, (float) waveBottom } }, dash, 2, 1.4f);
-                }
-            }
-        }
-
-        // preview playhead: bright cream line
-        {
-            const int pv = p.getPreviewPos();
-            if (pv >= 0)
-            {
-                const float vx = sampleToX (pv);
-                if (vx >= 0.0f && vx <= (float) w)
-                {
-                    g.setColour (Theme::glow);
-                    g.drawVerticalLine ((int) vx, (float) top, (float) waveBottom);
-                    g.setColour (Theme::glow.withAlpha (0.25f));
-                    g.fillRect (vx - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
-                }
-            }
-        }
-
-        // hint when nothing is assigned yet
-        {
-            bool anyAssigned = false;
-            for (int i = 0; i < 16 && ! anyAssigned; ++i)
-                anyAssigned = p.getCue (i) >= 0;
-            if (! anyAssigned)
-            {
-                g.setColour (Theme::accent.withAlpha (0.8f));
-                g.setFont (juce::Font (11.0f, juce::Font::bold));
-                g.drawText ("click/scrub to a spot, then tap an empty pad to drop its cue",
-                            6, top + 2, w - 12, 14, juce::Justification::left);
-            }
-        }
-
-        // C2: glowing playheads — one moving line per sounding pad, in that pad's
-        // colour. Mockup's drawFlags playhead: a horizontal linear-gradient bloom
-        // (transparent -> col @.30 -> transparent, +-14px) behind a bright 3px core.
-        for (int i = 0; i < 16; ++i)
-        {
-            const int pp = p.getPadPlayPos (i);
-            if (pp < 0) continue;
-            const float px = sampleToX (pp);
-            if (px < 0.0f || px > (float) w) continue;
-            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
-            const auto bloom = col.brighter (0.35f);
-            juce::ColourGradient pg (bloom.withAlpha (0.0f), px - 14.0f, 0.0f,
-                                     bloom.withAlpha (0.0f), px + 14.0f, 0.0f, false);
-            pg.addColour (0.5, bloom.withAlpha (0.30f));
-            g.setGradientFill (pg);
-            g.fillRect (px - 14.0f, (float) top, 28.0f, (float) (waveBottom - top));
-            g.setColour (col.brighter (0.7f).withAlpha (0.95f));
-            g.fillRect (px - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
-            juce::Path tip;
-            tip.addTriangle (px - 4.0f, (float) top, px + 4.0f, (float) top, px, (float) top + 6.0f);
-            g.fillPath (tip);
-        }
+        // C2/D3: flags, active cue region, and playheads — shared full-height paint
+        // used by BOTH the composite wave and the STEMS lanes (D3 scope: "render
+        // full-height THROUGH the lanes... verify it runs in the STEMS branch").
+        // Extracted verbatim (byte-identical body) into paintFlagsCuePlayheads() so
+        // the STEMS branch can call the exact same code instead of duplicating it —
+        // no second edit path, per ground rule 3.
+        paintFlagsCuePlayheads (g, w, top, waveBottom, flagY, sel, sr);
 
         // C1: composite-view time ruler along the bottom of the wave, muted mono
         // (mockup drawComposite: rgba(155,161,168,.5) @ 10px mono, five even marks).
@@ -858,9 +695,15 @@ public:
         const int sb = 11;
 
         // stem lane band: solo box (right) or label pill (left) toggles
+        // D3: DORMANT -- stemBandH is zeroed by the retired composite band (D3
+        // scope) and the real STEMS-view rewire is D4's job (interaction rewiring
+        // is explicitly NOT D3's). This code path never fires today (stemBandH<=0
+        // always fails the guard below) but must keep compiling; the lane-index
+        // formula itself is now the shared gent::laneIndexAt extraction (D3 ctest
+        // scope) so D4 reuses the exact same math instead of a third inline copy.
         if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
         {
-            const int lane = juce::jlimit (0, 5, (int) ((e.y - stemBandTop) / (stemBandH / 6.0f)));
+            const int lane = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
             if (e.x >= w - stemSoloW - 6)
                 p.setStemSoloed (lane, ! p.isStemSoloed (lane));
             else if (e.x <= 4 + stemLabW + 6)
@@ -1083,9 +926,13 @@ public:
         const bool edge = hitEndHandle (e.x) >= 0 || hitStartEdge (e.x) >= 0;
         setMouseCursor (edge ? juce::MouseCursor::LeftRightResizeCursor
                              : juce::MouseCursor::NormalCursor);
+        // D3: DORMANT for the same reason as mouseDown's band test above --
+        // stemBandH is zeroed in the retired composite band; D4 rewires this to
+        // the real STEMS-view full-lane geometry. gent::laneIndexAt is the same
+        // shared extraction mouseDown now uses.
         int hl = -1;
         if (stemBandH > 0 && e.y >= stemBandTop && e.y < stemBandTop + stemBandH)
-            hl = juce::jlimit (0, 5, (int) ((e.y - stemBandTop) / (stemBandH / 6.0f)));
+            hl = gent::laneIndexAt (e.y, stemBandTop, stemBandH);
         if (hl != hoverLane) { hoverLane = hl; repaint(); }
     }
 
@@ -1136,6 +983,212 @@ private:
         for (int i = 0; i < 16; ++i)
             if (p.getCue (i) >= 0 && std::abs (endHandleX (i) - (float) mx) <= 5.0f) return i;
         return -1;
+    }
+
+    // C2/D3: flags, active cue region, and playheads — extracted verbatim (byte-
+    // identical body) from the pre-D3 composite paint so BOTH the composite wave
+    // and the D3 STEMS lanes can call the exact same painting code (D3 scope:
+    // "the existing C2 painting — verify it runs in the STEMS branch, z-above
+    // lanes"). No logic changed here, only parameterized on (top, waveBottom,
+    // flagY) so each caller supplies its own vertical geometry -- composite keeps
+    // its existing flagY-row-above-wave layout; the STEMS branch passes top=0/
+    // flagY=0 so flags/cue-region/playheads span the full lane area, matching the
+    // mockup's drawFlags(g,W,H) full-canvas-height treatment (docs/STEM_VIEW_MODEL.md
+    // SS2, "full-height...not just a flagBarY strip").
+    void paintFlagsCuePlayheads (juce::Graphics& g, int w, int top, int waveBottom,
+                                 int flagY, int sel, double sr)
+    {
+        // C2: active cue region — the selected pad's slice window gets the amber
+        // translucent fill + glowing border (mockup drawFlags: fillStyle
+        // rgba(232,153,58,.10) then strokeRect rgba(255,184,92,.65) w2). Only when
+        // the selected pad has a real closed window (open/gated slices have no
+        // window to fill — C3's strip covers that case with its OPEN tag). Painted
+        // before the flags/handles loop (wave < cue region < flags/handles) so the
+        // region doesn't overdraw the selected pad's line glow or end-handle bracket.
+        if (p.getCue (sel) >= 0 && ! p.isOpenSlice (sel))
+        {
+            const float rs = sampleToX (p.getCue (sel));
+            const float re = sampleToX (p.getEffectiveCueEnd (sel));
+            const float ra = juce::jmin (rs, re), rb = juce::jmax (rs, re);
+            if (rb >= 0.0f && ra <= (float) w)
+            {
+                const float ca = juce::jmax (0.0f, ra), cb = juce::jmin ((float) w, rb);
+                auto region = juce::Rectangle<float> (ca, (float) top, cb - ca, (float) (waveBottom - top));
+                g.setColour (Theme::accent.withAlpha (0.10f));
+                g.fillRect (region);
+                g.setColour (Theme::glow.withAlpha (0.65f));
+                g.drawRect (region.reduced (1.0f), 2.0f);
+            }
+        }
+
+        // region edges, flags, end handles + active-window highlight
+        for (int i = 0; i < 16; ++i)
+        {
+            if (p.getCue (i) < 0) continue;                  // unassigned
+            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
+            const bool open   = p.isOpenSlice (i);
+            const bool selPad = (i == sel);
+            const float xs = sampleToX (p.getCue (i));
+            const float xe = endHandleX (i);                 // window end, or open re-open grip
+            const bool explicitEnd = p.getCueEnd (i) >= 0;   // open (== kOpenSlice) reads as false
+            const float a = selPad ? 1.0f : 0.55f;
+
+            if (xs >= -16.0f && xs <= (float) w)
+            {
+                // C2: soft hue glow behind the slice line (mockup drawFlags: stroked at
+                // globalAlpha .85 with the flag's shadowColor bleeding onto it) —
+                // feathered fills widening outward from the line, cheapest bloom that
+                // survives JUCE's lack of a shadowBlur primitive.
+                for (int gl = 3; gl >= 1; --gl)
+                {
+                    const float gw = (float) gl * 2.6f;
+                    const float galpha = a * 0.16f / (float) gl;
+                    g.setColour (col.withAlpha (galpha));
+                    g.fillRect (xs - gw * 0.5f, (float) top, gw, (float) (waveBottom - top));
+                }
+
+                // start line (selected is brighter + 2px so the active edge stands out)
+                g.setColour (col.withAlpha (a));
+                if (selPad) g.fillRect ((float) xs - 1.0f, (float) top, 2.0f, (float) (waveBottom - top));
+                else        g.drawVerticalLine ((int) xs, (float) top, (float) waveBottom);
+
+                // angled pennant flag (map marker) sits just above the waveform
+                const float fw = selPad ? 22.0f : 18.0f;
+                const float fh = selPad ? 16.0f : 14.0f;
+                const float fy = (float) flagY;
+                const float fx = juce::jlimit (0.0f, (float) w - fw, xs);
+                juce::Path flag;
+                flag.startNewSubPath (fx, fy);
+                flag.lineTo (fx + fw, fy);
+                flag.lineTo (fx + fw - fh * 0.5f, fy + fh * 0.5f);
+                flag.lineTo (fx + fw, fy + fh);
+                flag.lineTo (fx, fy + fh);
+                flag.closeSubPath();
+                // flag glow (mockup shadowColor=col, shadowBlur=9): reuse the shared
+                // feathered-rect bloom against the flag's bounding box.
+                Theme::featherGlow (g, flag.getBounds().expanded (1.0f), 2.0f,
+                                    col.withAlpha (0.5f), 6.0f, 4);
+                g.setColour (selPad ? col.brighter (0.25f) : col);
+                g.fillPath (flag);
+                g.setColour (juce::Colours::black.withAlpha (0.92f));
+                g.setFont (juce::Font (selPad ? 11.0f : 10.0f, juce::Font::bold));
+                g.drawText (juce::String (i + 1), (int) fx, (int) fy, (int) (fw - fh * 0.4f), (int) fh,
+                            juce::Justification::centred);
+
+                // selected territory tag: "CUE n · 14.2s", or "CUE n · OPEN" when gated
+                if (selPad && sr > 0.0)
+                {
+                    const juce::String tag = open
+                        ? ("CUE " + juce::String (i + 1) + "  OPEN")
+                        : ("CUE " + juce::String (i + 1)
+                           + juce::String::formatted ("  %.1fs",
+                                 (double) (p.getEffectiveCueEnd (i) - p.getCue (i)) / sr));
+                    g.setFont (juce::Font (9.0f, juce::Font::bold));
+                    const float tw = g.getCurrentFont().getStringWidthFloat (tag) + 12.0f;
+                    auto tr = juce::Rectangle<float> (juce::jlimit (0.0f, (float) w - tw, xs + 2.0f),
+                                                      (float) top + 3.0f, tw, 15.0f);
+                    g.setColour (Theme::well.withAlpha (0.85f));
+                    g.fillRoundedRectangle (tr, 4.0f);
+                    g.setColour (Theme::accent);
+                    g.drawText (tag, tr, juce::Justification::centred);
+                }
+            }
+
+            if (open)
+            {
+                // OPEN/gated slice: a ▶ gate affordance just right of the start line
+                // (drag the faint grip right to re-open into a window). No closed region.
+                if (xs >= -16.0f && xs <= (float) w)
+                {
+                    const float gy = (float) top + (float) (waveBottom - top) * 0.5f;
+                    juce::Path tri;
+                    tri.addTriangle (xs + 4.0f, gy - 6.0f, xs + 4.0f, gy + 6.0f, xs + 13.0f, gy);
+                    g.setColour (col.withAlpha (selPad ? 0.95f : 0.6f));
+                    g.fillPath (tri);
+                    g.setColour (col.withAlpha (selPad ? 0.5f : 0.3f));   // the re-open grip
+                    g.drawVerticalLine ((int) (xs + 14.0f), gy - 9.0f, gy + 9.0f);
+                }
+            }
+            else if (xe >= 0.0f && xe <= (float) w)
+            {
+                g.setColour (col.withAlpha (explicitEnd ? a : a * 0.45f));
+                g.drawVerticalLine ((int) xe, (float) top, (float) waveBottom);
+                // end handle: small bracket near the bottom
+                juce::Path ph;
+                ph.addTriangle (xe, (float) waveBottom - 12.0f,
+                                xe - 7.0f, (float) waveBottom,
+                                xe, (float) waveBottom);
+                g.fillPath (ph);
+            }
+        }
+
+        // assign cursor: dashed cream marker
+        {
+            const int ac = p.getAssignCursor();
+            if (ac >= 0)
+            {
+                const float ax = sampleToX (ac);
+                if (ax >= 0.0f && ax <= (float) w)
+                {
+                    g.setColour (Theme::glow.withAlpha (0.8f));
+                    const float dash[2] = { 5.0f, 4.0f };
+                    g.drawDashedLine ({ { ax, (float) top }, { ax, (float) waveBottom } }, dash, 2, 1.4f);
+                }
+            }
+        }
+
+        // preview playhead: bright cream line
+        {
+            const int pv = p.getPreviewPos();
+            if (pv >= 0)
+            {
+                const float vx = sampleToX (pv);
+                if (vx >= 0.0f && vx <= (float) w)
+                {
+                    g.setColour (Theme::glow);
+                    g.drawVerticalLine ((int) vx, (float) top, (float) waveBottom);
+                    g.setColour (Theme::glow.withAlpha (0.25f));
+                    g.fillRect (vx - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
+                }
+            }
+        }
+
+        // hint when nothing is assigned yet
+        {
+            bool anyAssigned = false;
+            for (int i = 0; i < 16 && ! anyAssigned; ++i)
+                anyAssigned = p.getCue (i) >= 0;
+            if (! anyAssigned)
+            {
+                g.setColour (Theme::accent.withAlpha (0.8f));
+                g.setFont (juce::Font (11.0f, juce::Font::bold));
+                g.drawText ("click/scrub to a spot, then tap an empty pad to drop its cue",
+                            6, top + 2, w - 12, 14, juce::Justification::left);
+            }
+        }
+
+        // C2: glowing playheads — one moving line per sounding pad, in that pad's
+        // colour. Mockup's drawFlags playhead: a horizontal linear-gradient bloom
+        // (transparent -> col @.30 -> transparent, +-14px) behind a bright 3px core.
+        for (int i = 0; i < 16; ++i)
+        {
+            const int pp = p.getPadPlayPos (i);
+            if (pp < 0) continue;
+            const float px = sampleToX (pp);
+            if (px < 0.0f || px > (float) w) continue;
+            const auto col = padMapHue (i, p);                // C2: neutral for FULL/multi-stem
+            const auto bloom = col.brighter (0.35f);
+            juce::ColourGradient pg (bloom.withAlpha (0.0f), px - 14.0f, 0.0f,
+                                     bloom.withAlpha (0.0f), px + 14.0f, 0.0f, false);
+            pg.addColour (0.5, bloom.withAlpha (0.30f));
+            g.setGradientFill (pg);
+            g.fillRect (px - 14.0f, (float) top, 28.0f, (float) (waveBottom - top));
+            g.setColour (col.brighter (0.7f).withAlpha (0.95f));
+            g.fillRect (px - 1.5f, (float) top, 3.0f, (float) (waveBottom - top));
+            juce::Path tip;
+            tip.addTriangle (px - 4.0f, (float) top, px + 4.0f, (float) top, px, (float) top + 6.0f);
+            g.fillPath (tip);
+        }
     }
 
     void setView (double newStart, double newSpan)

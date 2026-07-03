@@ -12,34 +12,41 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Phase D2c (2026-07-03): `heroView` sticky-request atomic on
-  the processor (editorW/editorH precedent) + three-spot persistence (key
-  "heroView", saveKit/getStateInformation write, applyStateTree reads through
-  gent::sanitizeHeroView) + the COMPOSITE<->STEMS seg control (HeroViewSeg,
-  TrigPad-pattern, in the hero's .ov.tr left of qualityBox) + WaveformView's
-  top-level paint branch. Per Joe's D1 addendum (docs/STEM_VIEW_MODEL.md,
-  "Joe ruling 2026-07-03"): the paint-branch selector is the SANITIZED
-  REQUEST, not resolveHeroView — requesting STEMS always shows the STEMS
-  branch (six lane plates + labels, real-lane scaffold when hasStems() else
-  the DECISION-3 "SEPARATE STEMS to fill the map" placeholder); the seg's
-  active pill now equals the request (no request-vs-effective split). Row 1
-  (no source loaded) keeps the unchanged empty-state prompt regardless of
-  request. R2 fix (same day): the placeholder's CTA is now a FUNCTIONAL click
-  target, not just painted text — its rect (ctaRect) is captured only on the
-  frames it's actually drawn and unconditionally invalidated at the top of
-  every paint() call, hit-tested first in mouseDown (fires the same callback
-  sepStemsBtn.onClick uses, via a direct std::function copy — no duplicated
-  logic), with hover cursor/chip-tint feedback in mouseMove. Full gate green
-  (build + 36 ctest cases/49,835 assertions + pluginval strictness 5). Prior:
-  D1 doc ratified, D2a/D2b landed
-  resolveHeroView/sanitizeHeroView (13 tests); TEST_TARGET_TASK.md
-  (Source/EngineMath.h extraction) and Phase C6 (P1+P2 shipped, P3 benched)
-  both complete 2026-07-02/03. NOTE: build/ is a JUNCTION to
-  D:\GentSamplerBuild (C: was 100% full) — all paths unchanged, bits live on D:.
+- Last completed: Phase D3 (2026-07-03): real port of the mockup's drawStems()
+  into WaveformView::paint's STEMS branch — 6 lanes at laneH=waveBottom/6,
+  alternating lane beds, 1px separators, real per-stem colour columns from
+  stemPeaks (alpha .8/.12 muted) starting right of the label plate, label
+  plates carrying DECISION-4's mute-toggle appearance (filled/tinted unmuted,
+  outlined/struck-through muted) and hover-revealed solo boxes — PAINT ONLY,
+  their click zones are D4's job. Flags/cue-region/playheads now render
+  full-height through the lanes via a shared `paintFlagsCuePlayheads()`
+  (extracted byte-identical from the old inline block so composite and STEMS
+  call the exact same code, no second edit path). COMPOSITE branch: the
+  always-on lanes band is retired entirely (paint block deleted, `bandH`
+  jlimit/78-floor and `h>60` gate removed as paint logic, composite reverts to
+  the pre-existing bandH==0 full-height layout byte-for-byte — verified via
+  diff that the wave column loop and bottom ruler are unchanged). `stemBandTop/
+  H`/`flagBarY/H` members kept (zeroed by the retired band) so the DORMANT
+  band hit-test in mouseDown/mouseMove keeps compiling untouched; its
+  duplicated inline lane-index formula is now `gent::laneIndexAt` in
+  EngineMath.h (new ctest: boundary/out-of-band/tiling cases). KNOWN ACCEPTED
+  WINDOW (by design, per REDESIGN_TASK_D.md sequencing): mute/solo are
+  PAINTED in the full STEMS lanes but NOT YET CLICKABLE there, and the old
+  band's click zones are gone from composite — mute/solo are temporarily
+  unreachable by mouse until D4 rewires the hit-tests. Full gate green (build
+  + 39 ctest cases/53,568 assertions + pluginval strictness 5). Prior: D2c
+  (heroView state/persistence/seg + STEMS placeholder), D1 doc ratified +
+  addendum, D2a/D2b (resolveHeroView/sanitizeHeroView, 13 tests);
+  TEST_TARGET_TASK.md (Source/EngineMath.h extraction) and Phase C6 (P1+P2
+  shipped, P3 benched) both complete 2026-07-02/03. NOTE: build/ is a
+  JUNCTION to D:\GentSamplerBuild (C: was 100% full) — all paths unchanged,
+  bits live on D:.
 - In progress: Nothing live.
-- Next up: Phase D3 — port drawStems() into WaveformView::paint's STEMS
-  branch for real, retire the always-on composite-adjacent lanes band, then
-  D4 (hit-test rewire) and D5 (async lifecycle matrix) per REDESIGN_TASK_D.md.
+- Next up: Phase D4 — the interaction rewire: replace the whole-band
+  early-return hit-test with D1 §8's map (lane mute/solo x-zones claim only
+  their own zones at their lane's y; everything else falls through to the
+  shared flag-select/handle-drag/scroll/pan paths), extract `gent::laneZoneAt`,
+  then D5 (async lifecycle matrix) per REDESIGN_TASK_D.md.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
