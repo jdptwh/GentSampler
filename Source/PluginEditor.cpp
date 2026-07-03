@@ -924,10 +924,14 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         // order HTML 247-253: seg first, then .chip.caret; .ov flex gap 6px, CSS 90-102)
         qualityBox.setBounds (in.getRight() - 58, in.getY(), 58, 24);
         {
-            const int segW = 116, segH = 24, segGap = 6;
-            auto segR = juce::Rectangle<int> (qualityBox.getX() - segGap - segW, in.getY(), segW, segH);
-            const int cw = segW / 2;
-            viewSeg[0].setBounds (segR.removeFromLeft (cw));
+            // Text-sized segments (mockup .s padding model) — a fixed 58px half
+            // truncated "COMPOSITE" (D6 capture finding). Widths come from the
+            // shared label font so paint and layout can never disagree.
+            const int segH = 24, segGap = 6;
+            const int w0 = viewSeg[0].preferredWidth();
+            const int w1 = viewSeg[1].preferredWidth();
+            auto segR = juce::Rectangle<int> (qualityBox.getX() - segGap - (w0 + w1), in.getY(), w0 + w1, segH);
+            viewSeg[0].setBounds (segR.removeFromLeft (w0));
             viewSeg[1].setBounds (segR);
         }
         // bottom-left: PREVIEW / SNAP / FOLLOW / SLICE

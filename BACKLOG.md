@@ -3,6 +3,16 @@
 Items here need a spec before any implementation. Do not pick these up
 without Joe green-lighting a spec.
 
+## Standalone missing ORT core DLLs (found 2026-07-03, D6 captures)
+CMakeLists' POST_BUILD ORT-copy step targets only GentSampler_VST3 — the
+Standalone's output folder never gets onnxruntime.dll /
+onnxruntime_providers_shared.dll, so a fresh build's standalone fails stem
+separation with "could not load onnxruntime.dll from the plugin folder".
+Fix: duplicate the copy_if_different step for GentSampler_Standalone
+(CMakeLists is fenced during Phase D — do after phase close). The D6
+capture run worked around it by hand-copying the two DLLs from
+build/_deps/onnxruntime_gpu-src/lib/ into the artefact folder (untracked).
+
 ## P3 retry: per-column wave-gradient "breathing" (benched 2026-07-02)
 REDESIGN_C6_POLISH.md P3 was reverted after the cached 1x256 waveRamp blit
 rendered the hero wave at ~half alpha (measured lum 51->27, amber lost).

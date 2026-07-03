@@ -2611,6 +2611,21 @@ struct HeroViewSeg : juce::Component
 
     HeroViewSeg() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
     void setActive (bool a) { if (active != a) { active = a; repaint(); } }
+
+    // Shared by paint() and layoutContent(): the mockup's .seg segments are
+    // text-sized (CSS padding), not equal halves — a fixed 58px half truncated
+    // "COMPOSITE" to "COMPOS…" (D6 capture finding). 10px side padding ≈ the
+    // mockup's .s padding.
+    static juce::Font labelFont()
+    {
+        return Theme::ui (9.0f * 1.12f, true).withExtraKerningFactor (0.10f);
+    }
+    int preferredWidth() const
+    {
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (labelFont(), label.toUpperCase(), 0.0f, 0.0f);
+        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth()) + 20;
+    }
     void mouseDown (const juce::MouseEvent&) override { if (onClick) onClick(); }
     void mouseEnter (const juce::MouseEvent&) override { repaint(); }
     void mouseExit  (const juce::MouseEvent&) override { repaint(); }
@@ -2649,7 +2664,7 @@ struct HeroViewSeg : juce::Component
         const juce::Colour fg = active ? Theme::accentTextOn : (hover ? Theme::t2 : Theme::t3);
         g.setColour (fg);
         // .seg .s -- 9px CSS, 600 weight, .1em tracking, uppercase; ×1.12 visual correction
-        g.setFont (Theme::ui (9.0f * 1.12f, true).withExtraKerningFactor (0.10f));
+        g.setFont (labelFont());
         g.drawText (label.toUpperCase(), r, juce::Justification::centred);
     }
 };

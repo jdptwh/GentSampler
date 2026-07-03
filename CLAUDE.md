@@ -43,11 +43,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   (resolveHeroView/sanitizeHeroView); TEST_TARGET_TASK.md and Phase C6 both
   complete 2026-07-02/03. NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
   (C: was 100% full) — all paths unchanged, bits live on D:.
-- In progress: Nothing live — holding for R3 reviewer pass (D3-D5 full diff,
-  per REDESIGN_TASK_D.md's reviewer placement map) before D5 starts.
-- Next up: R3 reviewer pass, then Phase D5 (async lifecycle + degraded
-  states matrix) per REDESIGN_TASK_D.md, then D6 (captures, FL validation,
-  commit).
+- In progress: Phase D at the D6 GATE (2026-07-03). D5 committed (lifecycle
+  matrix + DECISION-6 stemSet clear, 54 ctest cases); R3 PASS (single-edit-
+  path CONFIRMED, fence CLEAN); D6 captures delivered to Desktop
+  (sbsD_stems/sbsD_composite/D6_placeholder/D6_midsep/floor shots) — all
+  functional observations confirmed live during capture (mute/solo/flag-
+  select/CTA-inert/no dead zones). Seg "COMPOS…" truncation found in
+  captures and FIXED (text-sized segments via HeroViewSeg::preferredWidth).
+  HOLDING for Joe: (a) FL validation of the phase, (b) ruling on stemStatus
+  staleness (stale narration text survives new-file load — one-line fix in
+  the DECISION-6 block awaits authorization, or backlog).
+- Next up: Joe's FL pass closes Phase D; then BACKLOG items (standalone ORT
+  DLLs, extend-undo, P3 breathing retry).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
