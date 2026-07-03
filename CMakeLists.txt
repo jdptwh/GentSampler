@@ -120,6 +120,15 @@ add_custom_command(TARGET GentSampler_VST3 POST_BUILD
         "$<TARGET_FILE_DIR:GentSampler_VST3>"
     VERBATIM)
 
+# ---- same two core DLLs next to the Standalone (BACKLOG fix 2026-07-03:
+# fresh-build standalones couldn't separate — copy step targeted VST3 only) ----
+add_custom_command(TARGET GentSampler_Standalone POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${ORT_NATIVE_DIR}/onnxruntime.dll"
+        "${ORT_NATIVE_DIR}/onnxruntime_providers_shared.dll"
+        "$<TARGET_FILE_DIR:GentSampler_Standalone>"
+    VERBATIM)
+
 # ---- deploy: merge-copy the fresh VST3 binary into the system VST3 folder ----
 # NOT COPY_PLUGIN_AFTER_BUILD: JUCE's copyDir.cmake deletes the destination first
 # (REMOVE_RECURSE), which wipes the CUDA/cuDNN runtime DLLs ModelDownloader parks
