@@ -12,51 +12,17 @@ Flip Log). v2 work in progress: AI stem separation via ONNX Runtime
 clean, passes pluginval, and runs stable inside FL Studio.
 
 ## Current state (inferred from GENTSAMPLER_AUDIT.md 2026-06-28 and GPU_HANDOFF.md 2026-06-25 — correct me)
-- Last completed: Phase D4 (2026-07-03) — the interaction rewire (blast-radius
-  task). The dormant whole-band early-return hit-test in
-  `WaveformView::mouseDown`/`mouseMove` (the pre-D4 `if (stemBandH > 0 &&
-  e.y...) { ...unconditional return... }` blocks) is DELETED. Replaced with
-  D1 §8's map: in STEMS view (painted view == `gent::sanitizeHeroView
-  (heroView)==1` AND real lanes showing), a lane mute/solo x-zone test over
-  the full `(0, waveBottom)` lane geometry claims a click ONLY within its own
-  x-range (`gent::laneZoneAt` — new pure extraction, mute/solo boundary
-  constants lifted verbatim from the dormant code, solo tested before mute to
-  match its if/else-if precedence) at that lane's y (`gent::laneIndexAt`,
-  from D3); everything else (including the wave-column middle of a lane)
-  falls through unchanged to scrollbar/pan/flag-select/handle-drag/placeStart
-  — same single edit path, zero duplicated drag/undo/snap logic. Flag-select
-  hit-test now uses STEMS-correct pennant-row geometry (`[0, flagBarH)`,
-  matching D3's `paintFlagsCuePlayheads(..., flagY=0, ...)` call) instead of
-  composite's stale `flagBarY/flagBarH` row when in STEMS view; composite
-  path unchanged. Hover (`hoverLane`) rewired to the same full-lane geometry,
-  gated the same way; 30Hz timer untouched (hover is mouseMove-only state,
-  no stomp). COMPOSITE view: zero lane hit-tests fire (`stemsReady` requires
-  `heroReq==1`, always false in composite) — no dead zones where the old band
-  was. New pure fn `gent::laneZoneAt(x,w,labW,soloW)` in EngineMath.h +
-  6 new doctest cases in StemMaskTests.cpp (D4.1-D4.6: boundary pixels both
-  zones, degenerate-small-w precedence, reference-impl sweep, laneIndexAt x
-  laneZoneAt composition over a scripted click grid) — riding the existing
-  ctest target, no CMakeLists change. Full gate green (build + 45 ctest
-  cases/55,860 assertions + pluginval strictness 5). Prior: D3 (STEMS lanes
-  paint + composite band retirement), D2c (heroView state/persistence/seg +
-  STEMS placeholder), D1 doc ratified + addendum, D2a/D2b
-  (resolveHeroView/sanitizeHeroView); TEST_TARGET_TASK.md and Phase C6 both
-  complete 2026-07-02/03. NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
+- Last completed: PHASE D COMPLETE — Joe FL-validated 2026-07-03; the full
+  face matches the mockup (COMPOSITE⇄STEMS stem map, docs/STEM_VIEW_MODEL.md
+  RATIFIED + 2 addenda). NOTE: build/ is a JUNCTION to D:\GentSamplerBuild
   (C: was 100% full) — all paths unchanged, bits live on D:.
-- Last completed: PHASE D COMPLETE — Joe FL-validated and signed off
-  2026-07-03 ("fl looking solid"). The full face now matches the mockup:
-  COMPOSITE⇄STEMS seg (text-sized segments), full-hero six-lane stem map,
-  lane mute/solo in their x-zones with everything else on the shared edit
-  path, lifecycle matrix incl. DECISION-6 stemSet clear + Joe-authorized
-  stemStatus clear (both runAnalysis-gated in loadFile). 54 ctest cases.
-  Full arc: docs/STEM_VIEW_MODEL.md (RATIFIED + 2 addenda) → D2 (first
-  Haiku BULK task, test-first) → D3 lanes → D4 interaction → D5 lifecycle →
-  D6 captures (Desktop: sbsD_*/D6_*).
-- In progress: Nothing live.
-- Next up: BACKLOG items — standalone ORT DLLs (CMake one-liner, now
-  unfenced), extend-undo spec, P3 breathing retry. Note: pluginval in
-  gate.sh has failed transiently twice right after full builds (SUCCESS on
-  immediate rerun both times) — consider a retry-once in gate.sh.
+- In progress: PHASE 3 (PHASE3_SPEC.md, executing Downloads/PHASE3_TASK.md).
+  Part 0 bench cleanup: 0.1 DONE (Standalone gets ORT core DLLs — BULK task);
+  0.2 DONE (pluginval gate retries once — run_gate_retry, fault-injection
+  verified). Next: 0.3 extend-undo (mask+grain into CueSnap, R0 review),
+  0.4 optional breathing retry, then P1 feature cache → P2 classifier →
+  HARD JOE GATE (his 2-3 real samples) before P3 KIT / P4 SLICE dropdown.
+- Next up: Phase 3 per the spec's task order above.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

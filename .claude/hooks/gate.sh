@@ -8,6 +8,7 @@
 #   GATE 1  build     — Release build of the plugin        (VERIFY_CMD)
 #   GATE 2  tests     — ctest unit tests (logic-only)      (TEST_CMD)
 #   GATE 3  pluginval — VST3 validation, auto-skipped if pluginval not on PATH
+#           (retries once on failure — transient flake, see CLAUDE.md note)
 #   GATE 4  lint      — none configured                    (LINT_CMD)
 #   GATE 5  ui        — n/a (JUCE editor, not a web UI)    (UI_VERIFY_CMD)
 # Keep these in sync with the "Verification command" section of CLAUDE.md.
@@ -59,6 +60,30 @@ run_gate () {
   fi
 }
 
+# Retry-once variant — pluginval ONLY (do not generalize to other gates).
+# Two documented transient pluginval failures have passed on immediate rerun
+# (see CLAUDE.md note); this gives it exactly one automatic retry before
+# treating a failure as real.
+run_gate_retry () {
+  local label="$1" cmd="$2"
+  [ -z "$cmd" ] && return 0
+  echo "[gate:$label] running: $cmd" >&2
+  if bash -c "$cmd" >&2; then
+    echo "[gate:$label] PASS" >&2
+    return 0
+  fi
+  echo "[gate:$label] transient failure — retrying once (see CLAUDE.md pluginval-flake note)" >&2
+  taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
+  sleep 2
+  if bash -c "$cmd" >&2; then
+    echo "[gate:$label] PASS" >&2
+    return 0
+  else
+    echo "[gate:$label] FAIL — fix before completing. Do not mark this task done." >&2
+    exit 2   # exit 2 = block the stop, feed stderr back to the agent
+  fi
+}
+
 # A finished/killed pluginval can linger and hold the .vst3 open, failing the
 # next link with LNK1104 — clear any strays before building.
 taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
@@ -68,7 +93,7 @@ run_gate "build" "$VERIFY_CMD"
 run_gate "tests" "$TEST_CMD"
 
 if [ -n "$PLUGINVAL_CMD" ]; then
-  run_gate "pluginval" "$PLUGINVAL_CMD"
+  run_gate_retry "pluginval" "$PLUGINVAL_CMD"
 else
   echo "[gate:pluginval] pluginval not on PATH — SKIPPED (install it to enable the second gate)" >&2
 fi
