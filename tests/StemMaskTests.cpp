@@ -12,7 +12,9 @@
 #include "doctest.h"
 #include "EngineMath.h"
 
+#include <climits>
 #include <cstdint>
+#include <vector>
 
 // ---------------------------------------------------------------------------
 // T5.1 — bit ops
@@ -135,6 +137,163 @@ TEST_CASE ("T5.4 validity: 1000 fixed-seed random stemMaskWithBit/reset-to-0 seq
                 m = gent::stemMaskWithBit (m, stem, on);
             }
             CHECK (m <= 0x3F);   // m is unsigned, so <= 0x3F alone proves [0, 0x3F]
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// D2 — hero view-mode state (gent::sanitizeHeroView / gent::resolveHeroView)
+// See docs/STEM_VIEW_MODEL.md SS4-SS6 (RATIFIED, normative). All cases below
+// are marked doctest::skip() per REDESIGN_TASK_D.md's BULK test-first
+// protocol: they must stay skipped (gates green) until D2b's real bodies
+// land, but must FAIL when run with --no-skip against the current STUB
+// bodies (`return 0;` for both functions) — that RED run is the proof the
+// tests actually check something.
+// ---------------------------------------------------------------------------
+
+// -- sanitizeHeroView -------------------------------------------------------
+// Legal values are {0,1}; everything else -> 0. Against the stub (always 0),
+// the stored==1 case is the one that must fail (expected 1, stub returns 0).
+TEST_CASE ("D2.1 sanitizeHeroView: 0 -> 0 (COMPOSITE passes through)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (0) == 0);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: 1 -> 1 (STEMS passes through)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (1) == 1);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: -1 -> 0 (negative garbage clamps to COMPOSITE)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (-1) == 0);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: 2 -> 0 (out-of-range-high clamps to COMPOSITE)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (2) == 0);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: 999 -> 0 (large garbage clamps to COMPOSITE)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (999) == 0);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: INT_MIN -> 0 (extreme negative clamps to COMPOSITE)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (INT_MIN) == 0);
+}
+
+TEST_CASE ("D2.1 sanitizeHeroView: INT_MAX -> 0 (extreme positive clamps to COMPOSITE)" * doctest::skip())
+{
+    CHECK (gent::sanitizeHeroView (INT_MAX) == 0);
+}
+
+// -- resolveHeroView ---------------------------------------------------------
+// requested COMPOSITE (0) is always 0 regardless of stemsAvailable; requested
+// STEMS (1) resolves to 1 iff stemsAvailable, else falls back to 0. Against
+// the stub (always 0), the (1,true) case is the one that must fail (expected
+// 1, stub returns 0).
+TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, no stems) -> COMPOSITE" * doctest::skip())
+{
+    CHECK (gent::resolveHeroView (0, false) == 0);
+}
+
+TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, stems available) -> COMPOSITE (request wins)" * doctest::skip())
+{
+    CHECK (gent::resolveHeroView (0, true) == 0);
+}
+
+TEST_CASE ("D2.2 resolveHeroView: (STEMS, no stems) -> falls back to COMPOSITE" * doctest::skip())
+{
+    CHECK (gent::resolveHeroView (1, false) == 0);
+}
+
+TEST_CASE ("D2.2 resolveHeroView: (STEMS, stems available) -> STEMS" * doctest::skip())
+{
+    CHECK (gent::resolveHeroView (1, true) == 1);
+}
+
+// -- Transition-sequence test (T4 pattern) -----------------------------------
+// Scripted (requested, stemsAvailable) sequence modeling the ratified SS6
+// matrix + SS5's sticky-request rule:
+//   1. request STEMS pre-separation (no stems yet)        -> effective 0
+//   2. stems arrive, same sticky request (still STEMS)    -> effective 1
+//   3. new file loaded, DECISION-6 clears stemSet          -> effective 0,
+//      request is STILL 1 (sticky; not reset by availability loss)
+//   4. stems re-separated for the new file                -> effective 1 again
+//   5. explicit user request -> COMPOSITE                 -> effective 0
+//      regardless of stemsAvailable (still true here)
+TEST_CASE ("D2.3 transition sequence: sticky STEMS request survives a stems-unavailable window, "
+           "explicit COMPOSITE request always wins" * doctest::skip())
+{
+    struct Step
+    {
+        int  requested;
+        bool stemsAvailable;
+        int  expectedEffective;
+    };
+
+    const std::vector<Step> steps = {
+        { 1, false, 0 },   // 1. requested STEMS pre-separation -> composite
+        { 1, true,  1 },   // 2. stems arrive, same sticky request -> stems
+        { 1, false, 0 },   // 3. new file load clears stems (DECISION-6);
+                           //    request STILL 1 -> falls back to composite
+        { 1, true,  1 },   // 4. stems re-separated for the new file -> stems
+        { 0, true,  0 },   // 5. explicit COMPOSITE request -> composite,
+                           //    even though stems are (still) available
+    };
+
+    int requestedAcrossSequence = 0;   // sanity: the sticky request itself
+                                        // only ever changes on an EXPLICIT
+                                        // user action (steps 1 and 5 here),
+                                        // never as a side effect of
+                                        // stemsAvailable flipping (step 3).
+    for (std::size_t i = 0; i < steps.size(); ++i)
+    {
+        const Step& s = steps[i];
+        requestedAcrossSequence = s.requested;
+        const int effective = gent::resolveHeroView (s.requested, s.stemsAvailable);
+        CHECK (effective == s.expectedEffective);
+        CHECK (requestedAcrossSequence == s.requested);   // request is what we scripted, not derived
+    }
+
+    // explicit final-state assertions on the full sequence (belt-and-braces
+    // against a partially-correct implementation that only satisfies the
+    // per-step CHECKs above by coincidence of loop order)
+    CHECK (gent::resolveHeroView (steps[0].requested, steps[0].stemsAvailable) == 0);
+    CHECK (gent::resolveHeroView (steps[1].requested, steps[1].stemsAvailable) == 1);
+    CHECK (gent::resolveHeroView (steps[2].requested, steps[2].stemsAvailable) == 0);
+    CHECK (gent::resolveHeroView (steps[3].requested, steps[3].stemsAvailable) == 1);
+    CHECK (gent::resolveHeroView (steps[4].requested, steps[4].stemsAvailable) == 0);
+}
+
+// -- Composition: sanitizeHeroView(garbage) feeding resolveHeroView ----------
+// Small exhaustive sweep over stored in {-2..3} x stemsAvailable in {t,f}:
+// sanitizeHeroView must first collapse `stored` to {0,1}, and resolveHeroView
+// must then never yield anything outside {0,1} for ANY sanitized input. This
+// also pins the concrete expected value per (stored, stemsAvailable) pair so
+// a stub that merely "happens" to stay in {0,1} without being correct still
+// fails.
+TEST_CASE ("D2.4 composition: sanitizeHeroView(garbage) -> resolveHeroView never yields outside {0,1}, "
+           "exhaustive stored in [-2,3] x stemsAvailable in {false,true}" * doctest::skip())
+{
+    for (int stored = -2; stored <= 3; ++stored)
+    {
+        const int sanitized = gent::sanitizeHeroView (stored);
+        // sanitize must collapse to exactly {0,1} -- only stored==1 stays 1,
+        // everything else (including stored==0) is COMPOSITE.
+        const int expectedSanitized = (stored == 1) ? 1 : 0;
+        CHECK (sanitized == expectedSanitized);
+
+        for (bool stemsAvailable : { false, true })
+        {
+            const int effective = gent::resolveHeroView (sanitized, stemsAvailable);
+            // never a third value, for any input in this sweep
+            CHECK ((effective == 0 || effective == 1));
+
+            const int expectedEffective = (sanitized == 1 && stemsAvailable) ? 1 : 0;
+            CHECK (effective == expectedEffective);
         }
     }
 }

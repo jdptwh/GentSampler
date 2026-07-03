@@ -273,4 +273,49 @@ inline float stemGainFor (std::uint8_t pmask, int k, float bleedParam, bool glob
     return globalAudible ? gk : 0.0f;
 }
 
+// ---------------------------------------------------------------------------
+//  D2 — hero view-mode state (COMPOSITE<->STEMS)
+//  See docs/STEM_VIEW_MODEL.md SS4 (State model) and SS6 (Async separation
+//  lifecycle x view — the full matrix). RATIFIED, normative; do not deviate
+//  without re-opening D1.
+//
+//  Legal view values: 0 = COMPOSITE, 1 = STEMS. No third value exists
+//  (SS4 "Legal values"). `heroView` (the processor atomic, D2 scope) stores
+//  the user's sticky REQUEST, never the effective view — availability
+//  changes must never silently overwrite the stored request (SS4
+//  "Effective vs requested").
+//
+//  sanitizeHeroView(stored): pure clamp for the persistence-restore path
+//  (SS4 "Sanitization", SS5). Any out-of-range/garbage stored int (negative,
+//  >1, hand-edited/corrupted kit file, INT_MIN/INT_MAX) maps to 0
+//  (COMPOSITE) -- the safe, always-valid default. Only {0,1} pass through
+//  unchanged.
+//
+//  resolveHeroView(requested, stemsAvailable): pure function from the sticky
+//  REQUEST + current stem availability to the EFFECTIVE view actually
+//  painted (SS4 "Effective vs requested", SS5 DECISION D1-DECISION-2, SS6).
+//  Semantics (binary result, never a third value -- SS6 preamble):
+//   - requested == COMPOSITE (0) -> always 0, regardless of stemsAvailable.
+//   - requested == STEMS (1) and stemsAvailable -> 1.
+//   - requested == STEMS (1) and !stemsAvailable -> 0 (falls back to
+//     COMPOSITE; the request itself is untouched/sticky -- callers keep
+//     storing 1 and this function will return 1 again the instant
+//     stemsAvailable flips true, with no further user action -- SS5 "missing-
+//     source case", SS6 row 1-4/6 -> row 5/7 transitions).
+//  This function is PURE: it does not read or write the sticky request
+//  itself (that lives in the processor atomic elsewhere) and has no
+//  knowledge of *why* stemsAvailable is what it is (pre-separation,
+//  downloading, separating, failed, or a stale/missing restored source are
+//  all just `false` at this layer -- SS6's matrix differs only in what the
+//  STEMS paint branch shows as content, not in what this predicate returns).
+inline int sanitizeHeroView (int stored)
+{
+    return 0;
+}
+
+inline int resolveHeroView (int requested, bool stemsAvailable)
+{
+    return 0;
+}
+
 } // namespace gent
