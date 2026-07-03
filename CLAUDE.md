@@ -22,10 +22,12 @@ clean, passes pluginval, and runs stable inside FL Studio.
   mid-flight and was killed, and per the stop-loss the hero keeps its original
   static gradient. Recovery verified by measurement: hero wave lum 48.6,
   amber-dominant, vs 51.0 pre-C6 healthy reference. P3 benched in BACKLOG.md.
-- In progress: Nothing live.
-- Next up: Joe's eyeball on the shipped P1+P2 (captures on Desktop). Then
-  Phase D (COMPOSITE<->STEMS lanes) is the next roadmap chapter. BACKLOG.md
-  holds extend-undo + the P3 breathing retry.
+- In progress: Nothing live. PHASE C CLOSED 2026-07-02: C1-C5 + C6 (P1+P2)
+  accepted by Joe; P3 breathing benched (BACKLOG.md).
+- Next up: unit test target spec (planner, in flight) — CTest + Catch2/doctest
+  over engine-core logic (slice window math, snap capture, trigger modes,
+  stem-source switching), wired into gate.sh. Then Phase D (COMPOSITE<->STEMS
+  lanes). BACKLOG.md holds extend-undo + the P3 breathing retry.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
@@ -78,6 +80,15 @@ Follow ROUTING.md in the repo root. Summary:
 
 ## Known landmines
 Running list of past failures and their fixes, so they never recur.
+- 2026-07-02 — A killed or failed agent dispatch may leave debris in the
+  working tree (one killed fix-agent was mid-replacing a paint block with
+  debug scaffolding). After ANY aborted dispatch: diff against the last
+  green commit before continuing; recover by checkout + reapplying only
+  the reviewed hunks.
+- 2026-07-02 — The standalone PERSISTS the last-loaded file, and slice-export
+  artifacts (e.g. GentSampler_Pad12.wav) can restore as a silent EMPTY source
+  — the wave renders blank and looks like a paint bug. Check the filename
+  label in the hero before diagnosing render bugs.
 - 2026-07-02 — Undo scope is PARTIAL: CueSnap (PluginProcessor.cpp ~325) snapshots
   cue/end windows ONLY — stem-source (padStemMask) and grain param changes are NOT
   undoable; Ctrl+Z after those reverts just the slice windows. Both surfaces sync
