@@ -153,7 +153,8 @@ if(GENT_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/vendor/doctest
         tests/SliceWindowTests.cpp
         tests/SnapTests.cpp
         tests/TriggerTests.cpp
-        tests/StemMaskTests.cpp)
+        tests/StemMaskTests.cpp
+        tests/FeatureAggTests.cpp)
     target_include_directories(GentSamplerTests PRIVATE Source tests/vendor)
     target_compile_features(GentSamplerTests PRIVATE cxx_std_17)
     target_compile_options(GentSamplerTests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

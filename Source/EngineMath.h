@@ -413,4 +413,97 @@ inline LaneZone laneZoneAt (int x, int w, int labW, int soloW)
     return LaneZone::wave;
 }
 
+// ---------------------------------------------------------------------------
+//  P1 — per-frame analysis features + slice-level aggregation
+//  See PHASE3_SPEC.md PART 1 ("Analyzer changes" + "Pure aggregation").
+//
+//  FrameFeatures is filled inside Analyzer::analyze's existing flux FFT loop
+//  (Source/Analysis.h, hop 512 at 1024-pt FFT; no second FFT pass) and stored
+//  per-frame under `infoLock` alongside the existing onset list. Plain, JUCE-
+//  free struct: 72 bytes/frame (4+1+1+12 floats), n/512 frames per source.
+//
+//  band[4]      — sum-of-squared-magnitude energy in 4 bins: <120 Hz,
+//                 120-600 Hz, 600-3k Hz, >3k Hz (bin->Hz via b*sr/fftSize).
+//  centroidHz   — magnitude-weighted spectral centroid for the frame, 0 for
+//                 a silent frame.
+//  zcr          — zero-crossing rate over the same 1024-sample time-domain
+//                 window (crossings / window length).
+//  chroma[12]   — 12-bin chroma folded from the same 1024-pt magnitudes,
+//                 restricted to 55-1760 Hz (same fold as the analyzer's
+//                 existing global key-detection chroma). Coarse below ~200 Hz
+//                 (43 Hz bin spacing) — acceptable here since this chroma only
+//                 feeds tonal-vs-noisy flatness, never key naming.
+// ---------------------------------------------------------------------------
+struct FrameFeatures
+{
+    float band[4];
+    float centroidHz;
+    float zcr;
+    float chroma[12];
+};
+
+// PHASE3_SPEC.md PART 1, "Pure aggregation": first `kAttackWindowSec` seconds
+// of a slice (or the whole slice if shorter) define the attack window that
+// bandRatio/centroidHz/zcr are aggregated over.
+constexpr float kAttackWindowSec = 0.12f;
+
+// aggregateSliceFeatures's per-slice summary. All fields aggregated per the
+// normative rules below (PHASE3_SPEC.md PART 1, verbatim):
+//
+//  - Attack window = first kAttackWindowSec seconds of the slice (or the
+//    whole slice if the slice is shorter). bandRatio (normalized to sum 1;
+//    an all-zero attack window -> equal 0.25 each), centroidHz (energy-
+//    weighted mean over the attack window's frames), and zcr (mean over the
+//    attack window's frames) are aggregated over the ATTACK WINDOW ONLY —
+//    frames beyond the attack window never contribute to these three fields.
+//    FRAME-COUNT PIN (gate ruling, non-integer boundaries): a frame belongs
+//    to the attack window iff its START time is inside it, so
+//    attackCount = clamp((int) std::ceil(kAttackWindowSec * frameRate),
+//                        1, sliceFrameCount)
+//    — CEIL, not floor (at 44100/512 ~ 86.13 fps, 0.12s = 10.335 frames ->
+//    11: frame 10 starts at 0.1161s < 0.12s and is included).
+//  - decaySec = time from the slice's peak-total-energy frame (max of
+//    band[0]+band[1]+band[2]+band[3] across the whole slice) to the first
+//    LATER frame whose total energy <= peak * 0.01 (i.e. -20 dB down from
+//    peak); if no such frame exists before the slice ends, decaySec = the
+//    remaining span from the peak frame to the slice end (i.e. "decays to
+//    the slice end" is reported as decaying across the full remaining span,
+//    not as "no decay").
+//  - durationSec = the slice's full time span (endFrame - startFrame) /
+//    frameRate, regardless of the attack window or decay computation.
+//  - chromaFlatness = geometric-mean / arithmetic-mean of the SLICE-SUMMED
+//    12-bin chroma (sum each of the 12 bins across every frame in the slice,
+//    then take flatness of that 12-vector) — a value in (0,1]: 1.0 = flat/
+//    noisy, values -> 0 = peaked/tonal. An empty or all-zero summed chroma
+//    vector maps to 1.0 (treated as flat/noisy, not tonal, by convention).
+//  - Degenerate ranges (empty frames vector; startFrame >= endFrame;
+//    startFrame/endFrame out of [0, frames.size()) bounds after clamping
+//    leaves nothing to aggregate) return a fully zeroed SliceAggregates with
+//    durationSec = 0 — deterministic, no exceptions, no UB.
+//
+// See PHASE3_SPEC.md PART 1 for the full normative text this comment mirrors.
+struct SliceAggregates
+{
+    float bandRatio[4];
+    float centroidHz;
+    float zcr;
+    float decaySec;
+    float durationSec;
+    float chromaFlatness;
+};
+
+// STUB — deliberately wrong (always returns a zeroed struct). The BULK
+// implementer replaces this body per the rules above; tests in
+// tests/FeatureAggTests.cpp are authored against this stub first and must
+// mostly FAIL against it (see that file's header comment for the expected
+// pass/fail table). `frameRate` is frames-per-second (== sampleRate / hop);
+// `startFrame`/`endFrame` are a half-open [startFrame, endFrame) frame-index
+// range into `frames`.
+inline SliceAggregates aggregateSliceFeatures (const std::vector<FrameFeatures>& frames,
+                                               double frameRate, int startFrame, int endFrame)
+{
+    (void) frames; (void) frameRate; (void) startFrame; (void) endFrame;
+    return SliceAggregates {};
+}
+
 } // namespace gent
