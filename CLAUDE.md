@@ -32,8 +32,10 @@ clean, passes pluginval, and runs stable inside FL Studio.
   round-trip invariant; dead unsigned>=0 check removed). NOTE: build/ is now a
   JUNCTION to D:\GentSamplerBuild (C: was 100% full; LNK1180) — all paths
   unchanged, bits live on D:.
-- Next up: Phase D (COMPOSITE<->STEMS lanes). BACKLOG.md holds extend-undo +
-  the P3 breathing retry.
+- Next up: Phase D (COMPOSITE<->STEMS lanes). D1 doc AUTHORED 2026-07-03:
+  docs/STEM_VIEW_MODEL.md, all nine required sections + 6 numbered DECISIONs
+  with recommended defaults; awaiting R1 reviewer PASS + Joe sign-off before
+  any D2 code starts. BACKLOG.md holds extend-undo + the P3 breathing retry.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
