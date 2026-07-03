@@ -310,12 +310,12 @@ inline float stemGainFor (std::uint8_t pmask, int k, float bleedParam, bool glob
 //  STEMS paint branch shows as content, not in what this predicate returns).
 inline int sanitizeHeroView (int stored)
 {
-    return 0;
+    return (stored == 0 || stored == 1) ? stored : 0;
 }
 
 inline int resolveHeroView (int requested, bool stemsAvailable)
 {
-    return 0;
+    return (requested == 1 && stemsAvailable) ? 1 : 0;
 }
 
 } // namespace gent

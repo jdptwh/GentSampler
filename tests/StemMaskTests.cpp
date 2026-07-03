@@ -143,48 +143,46 @@ TEST_CASE ("T5.4 validity: 1000 fixed-seed random stemMaskWithBit/reset-to-0 seq
 
 // ---------------------------------------------------------------------------
 // D2 — hero view-mode state (gent::sanitizeHeroView / gent::resolveHeroView)
-// See docs/STEM_VIEW_MODEL.md SS4-SS6 (RATIFIED, normative). All cases below
-// are marked doctest::skip() per REDESIGN_TASK_D.md's BULK test-first
-// protocol: they must stay skipped (gates green) until D2b's real bodies
-// land, but must FAIL when run with --no-skip against the current STUB
-// bodies (`return 0;` for both functions) — that RED run is the proof the
-// tests actually check something.
+// See docs/STEM_VIEW_MODEL.md SS4-SS6 (RATIFIED, normative). These cases were
+// authored test-first against deliberately-wrong stubs (D2a, skipped + RED
+// proven via --no-skip) and turned live when D2b's real bodies landed —
+// REDESIGN_TASK_D.md's BULK protocol, executed 2026-07-03.
 // ---------------------------------------------------------------------------
 
 // -- sanitizeHeroView -------------------------------------------------------
 // Legal values are {0,1}; everything else -> 0. Against the stub (always 0),
 // the stored==1 case is the one that must fail (expected 1, stub returns 0).
-TEST_CASE ("D2.1 sanitizeHeroView: 0 -> 0 (COMPOSITE passes through)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: 0 -> 0 (COMPOSITE passes through)")
 {
     CHECK (gent::sanitizeHeroView (0) == 0);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: 1 -> 1 (STEMS passes through)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: 1 -> 1 (STEMS passes through)")
 {
     CHECK (gent::sanitizeHeroView (1) == 1);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: -1 -> 0 (negative garbage clamps to COMPOSITE)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: -1 -> 0 (negative garbage clamps to COMPOSITE)")
 {
     CHECK (gent::sanitizeHeroView (-1) == 0);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: 2 -> 0 (out-of-range-high clamps to COMPOSITE)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: 2 -> 0 (out-of-range-high clamps to COMPOSITE)")
 {
     CHECK (gent::sanitizeHeroView (2) == 0);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: 999 -> 0 (large garbage clamps to COMPOSITE)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: 999 -> 0 (large garbage clamps to COMPOSITE)")
 {
     CHECK (gent::sanitizeHeroView (999) == 0);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: INT_MIN -> 0 (extreme negative clamps to COMPOSITE)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: INT_MIN -> 0 (extreme negative clamps to COMPOSITE)")
 {
     CHECK (gent::sanitizeHeroView (INT_MIN) == 0);
 }
 
-TEST_CASE ("D2.1 sanitizeHeroView: INT_MAX -> 0 (extreme positive clamps to COMPOSITE)" * doctest::skip())
+TEST_CASE ("D2.1 sanitizeHeroView: INT_MAX -> 0 (extreme positive clamps to COMPOSITE)")
 {
     CHECK (gent::sanitizeHeroView (INT_MAX) == 0);
 }
@@ -194,22 +192,22 @@ TEST_CASE ("D2.1 sanitizeHeroView: INT_MAX -> 0 (extreme positive clamps to COMP
 // STEMS (1) resolves to 1 iff stemsAvailable, else falls back to 0. Against
 // the stub (always 0), the (1,true) case is the one that must fail (expected
 // 1, stub returns 0).
-TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, no stems) -> COMPOSITE" * doctest::skip())
+TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, no stems) -> COMPOSITE")
 {
     CHECK (gent::resolveHeroView (0, false) == 0);
 }
 
-TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, stems available) -> COMPOSITE (request wins)" * doctest::skip())
+TEST_CASE ("D2.2 resolveHeroView: (COMPOSITE, stems available) -> COMPOSITE (request wins)")
 {
     CHECK (gent::resolveHeroView (0, true) == 0);
 }
 
-TEST_CASE ("D2.2 resolveHeroView: (STEMS, no stems) -> falls back to COMPOSITE" * doctest::skip())
+TEST_CASE ("D2.2 resolveHeroView: (STEMS, no stems) -> falls back to COMPOSITE")
 {
     CHECK (gent::resolveHeroView (1, false) == 0);
 }
 
-TEST_CASE ("D2.2 resolveHeroView: (STEMS, stems available) -> STEMS" * doctest::skip())
+TEST_CASE ("D2.2 resolveHeroView: (STEMS, stems available) -> STEMS")
 {
     CHECK (gent::resolveHeroView (1, true) == 1);
 }
@@ -225,7 +223,7 @@ TEST_CASE ("D2.2 resolveHeroView: (STEMS, stems available) -> STEMS" * doctest::
 //   5. explicit user request -> COMPOSITE                 -> effective 0
 //      regardless of stemsAvailable (still true here)
 TEST_CASE ("D2.3 transition sequence: sticky STEMS request survives a stems-unavailable window, "
-           "explicit COMPOSITE request always wins" * doctest::skip())
+           "explicit COMPOSITE request always wins")
 {
     struct Step
     {
@@ -276,7 +274,7 @@ TEST_CASE ("D2.3 transition sequence: sticky STEMS request survives a stems-unav
 // a stub that merely "happens" to stay in {0,1} without being correct still
 // fails.
 TEST_CASE ("D2.4 composition: sanitizeHeroView(garbage) -> resolveHeroView never yields outside {0,1}, "
-           "exhaustive stored in [-2,3] x stemsAvailable in {false,true}" * doctest::skip())
+           "exhaustive stored in [-2,3] x stemsAvailable in {false,true}")
 {
     for (int stored = -2; stored <= 3; ++stored)
     {
