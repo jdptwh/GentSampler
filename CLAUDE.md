@@ -22,10 +22,13 @@ clean, passes pluginval, and runs stable inside FL Studio.
   thread APVTS writes); AMENDMENT 0.3-A also fixed a pre-existing undo/redo
   slot-arithmetic bug (chained tracked edits used to skip a step on undo) —
   see the rewritten landmine below. Build/ctest(54)/pluginval green.
-  Next: 0.4 optional breathing retry (or skip), then P1 feature cache →
-  P2 classifier → HARD JOE GATE (his 2-3 real samples) before P3 KIT /
-  P4 SLICE dropdown.
-- Next up: 0.4 (optional) then Phase 3 Part 1 per PHASE3_SPEC.md.
+  0.4 (optional breathing-wave retry) SKIPPED 2026-07-03 — isolation harness
+  ran, mechanism UNCONFIRMED (contradicted: all 4 rig variants agreed within
+  0.08 luminance on a native-peer harness). Zero production diff. See BACKLOG.md
+  for the full retry writeup.
+  Next: P1 feature cache → P2 classifier → HARD JOE GATE (his 2-3 real
+  samples) before P3 KIT / P4 SLICE dropdown.
+- Next up: Phase 3 Part 1 (feature caching, PHASE3_SPEC.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
@@ -80,6 +83,14 @@ Follow ROUTING.md in the repo root. Summary:
 
 ## Known landmines
 Running list of past failures and their fixes, so they never recur.
+- 2026-07-03 — P3 breathing-wave isolation (task 0.4, SKIPPED): a scratch
+  JUCE harness reusing `build/_deps/juce-src` needs a SHORT build path —
+  MSVC's FileTracker fails (`FTK1011`) under the default deep Temp scratchpad
+  path. Also, off-screen `Image(Image::ARGB,...)` silently no-ops all
+  drawing outside a real component/peer (routes through a native/Direct2D
+  image type with no device context) — use `SoftwareImageType()` explicitly,
+  or better, a real `Component` + `createComponentSnapshot()` for anything
+  meant to be a faithful proxy of `paint()`. Full retry numbers in BACKLOG.md.
 - 2026-07-02 — A killed or failed agent dispatch may leave debris in the
   working tree (one killed fix-agent was mid-replacing a paint block with
   debug scaffolding). After ANY aborted dispatch: diff against the last
