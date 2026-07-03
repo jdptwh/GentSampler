@@ -741,6 +741,32 @@ entire hero the composite wave currently occupies alone.
 
 ---
 
+## Addendum — Joe ruling 2026-07-03 (DECISION-2/3 interplay, post-ratification)
+
+Raised during D2c implementation: does requesting STEMS with no stems paint
+the placeholder, or does the effective-view rule suppress the STEMS branch
+entirely (composite paints, placeholder never visible)?
+
+**Joe's ruling: requesting STEMS with no stems SHOWS the placeholder with the
+SEPARATE STEMS call-to-action.** Consequences, now normative:
+
+- The hero's paint-branch selector is the **sanitized REQUEST**
+  (`gent::sanitizeHeroView(heroView)`), not `resolveHeroView`. Request=STEMS
+  always enters the STEMS branch.
+- Inside the STEMS branch, `gent::resolveHeroView(request, stemsAvailable)`
+  answers the CONTENT question exactly per the R1 §6 clarification: 1 → real
+  lanes; 0 → the DECISION-3 placeholder (six lane plates + stem labels +
+  "SEPARATE STEMS" CTA wired to `sepStemsBtn`). The D2a/D2b test contract
+  for both functions is unchanged and stays green.
+- The seg's active pill shows the painted view — which now always equals the
+  request. DECISION-2's request-vs-effective distinction dissolves: with a
+  placeholder always available, the STEMS branch is never suppressed, so
+  displayed == requested == painted. §6's matrix rows read accordingly
+  ("Hero paints" column governs; the "COMPOSITE effective/shown regardless
+  of request" phrase in row 1 is superseded by this addendum for rows where
+  a source is loaded; row 1 (no source at all) keeps the existing empty-state
+  chip prompt in both requests).
+
 ## Decision index (for Joe's convenience)
 
 | # | Topic | Recommended default |
