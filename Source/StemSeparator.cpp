@@ -85,38 +85,52 @@ static bool ensureOrtLoaded()
     if (h == nullptr)
         return false;
 
-    // Pre-load the CUDA/cuDNN runtime from the plugin folder so it's resident BY
-    // NAME before ONNX Runtime loads onnxruntime_providers_cuda.dll. That provider
-    // DLL statically imports cudart/cublas/cublasLt/cufft/cudnn, which Windows would
-    // otherwise resolve against the HOST's search path (not the plugin folder) ->
-    // "Failed to load shared library". Loading each here with the altered search
-    // path resolves its own deps from the same folder; absent files (CPU-only
-    // installs) are silently skipped. Order: leaf deps -> cudnn -> the EP itself.
+    // GPU groundwork, GATED OFF while kEnableCuda==false (the plugin is CPU-only at
+    // runtime). Cold-loading this ~2.6 GB CUDA/cuDNN pack on the construct path stalled
+    // plugin construction indefinitely -- pluginval "Open plugin (cold)" timed out at
+    // 30s and the stem-engine-check log never got written, because DllMain CUDA init on
+    // several of these libs blocks/faults inside a host process (the same host-process
+    // integration fault that keeps CUDA off; see kEnableCuda note above). Nothing on the
+    // CPU path consumes these: the CUDA EP is only appended, and g_cudaSetDevice only
+    // called, under the same kEnableCuda guard in makeSession(). The CPU ORT load
+    // (onnxruntime.dll + InitApi below) is fully independent of this block. When
+    // kEnableCuda flips true to resume GPU work, this preload returns with it.
+    // (Its eventual proper home is makeSession(), just before the CUDA EP append.)
+    if (kEnableCuda)
     {
-        const juce::File pluginDir = dll.getParentDirectory();
-        // CUDA 11.8 + cuDNN 8.9 runtime set for ORT 1.18 (leaf deps first, then cudnn,
-        // then the EP). cuDNN 8 splits into *_infer sublibs (inference only needs those).
-        static const char* kCudaDlls[] = {
-            "cudart64_110.dll", "cublasLt64_11.dll", "cublas64_11.dll",
-            "cufft64_10.dll", "curand64_10.dll", "nvrtc64_112_0.dll",
-            "cudnn_ops_infer64_8.dll", "cudnn_cnn_infer64_8.dll", "cudnn_adv_infer64_8.dll",
-            "cudnn64_8.dll", "onnxruntime_providers_cuda.dll"
-        };
-        for (auto* name : kCudaDlls)
+        // Pre-load the CUDA/cuDNN runtime from the plugin folder so it's resident BY
+        // NAME before ONNX Runtime loads onnxruntime_providers_cuda.dll. That provider
+        // DLL statically imports cudart/cublas/cublasLt/cufft/cudnn, which Windows would
+        // otherwise resolve against the HOST's search path (not the plugin folder) ->
+        // "Failed to load shared library". Loading each here with the altered search
+        // path resolves its own deps from the same folder; absent files (CPU-only
+        // installs) are silently skipped. Order: leaf deps -> cudnn -> the EP itself.
         {
-            const juce::File f = pluginDir.getChildFile (name);
-            if (f.existsAsFile())
+            const juce::File pluginDir = dll.getParentDirectory();
+            // CUDA 11.8 + cuDNN 8.9 runtime set for ORT 1.18 (leaf deps first, then cudnn,
+            // then the EP). cuDNN 8 splits into *_infer sublibs (inference only needs those).
+            static const char* kCudaDlls[] = {
+                "cudart64_110.dll", "cublasLt64_11.dll", "cublas64_11.dll",
+                "cufft64_10.dll", "curand64_10.dll", "nvrtc64_112_0.dll",
+                "cudnn_ops_infer64_8.dll", "cudnn_cnn_infer64_8.dll", "cudnn_adv_infer64_8.dll",
+                "cudnn64_8.dll", "onnxruntime_providers_cuda.dll"
+            };
+            for (auto* name : kCudaDlls)
             {
-                LoadLibraryExW (f.getFullPathName().toWideCharPointer(),
-                                nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);  // best-effort
-                ++g_cudaDllsFound;
+                const juce::File f = pluginDir.getChildFile (name);
+                if (f.existsAsFile())
+                {
+                    LoadLibraryExW (f.getFullPathName().toWideCharPointer(),
+                                    nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);  // best-effort
+                    ++g_cudaDllsFound;
+                }
             }
         }
-    }
 
-    // Resolve cudaSetDevice so makeSession can bind the worker thread to GPU 0.
-    if (HMODULE cudart = GetModuleHandleW (L"cudart64_110.dll"))
-        g_cudaSetDevice = reinterpret_cast<CudaSetDeviceFn> (GetProcAddress (cudart, "cudaSetDevice"));
+        // Resolve cudaSetDevice so makeSession can bind the worker thread to GPU 0.
+        if (HMODULE cudart = GetModuleHandleW (L"cudart64_110.dll"))
+            g_cudaSetDevice = reinterpret_cast<CudaSetDeviceFn> (GetProcAddress (cudart, "cudaSetDevice"));
+    }
 
     using GetApiBaseFn = const OrtApiBase* (ORT_API_CALL*) ();
     auto getApiBase = reinterpret_cast<GetApiBaseFn> (GetProcAddress (h, "OrtGetApiBase"));
