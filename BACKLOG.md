@@ -69,3 +69,43 @@ path breaks MSVC FileTracker; that directory was to be deleted after the
 session but the tool sandbox denied `rm -rf` outside the working directory —
 `C:/gswave` may still exist on disk and is safe to delete manually (build
 artifacts only, no repo content).
+
+## HIGH — synchronous loadFile-on-construct in state restore (Pad12-ghost family) (found 2026-07-04)
+`applyStateTree()` (PluginProcessor.cpp:2594-2599) restores the persisted source
+by calling `loadFile(f, false)` **synchronously on the calling thread** whenever
+the stored `path` still `existsAsFile()`. That path runs from
+`setStateInformation()` (cpp:3207-3218) — i.e. on the host's message thread at
+project reopen / preset recall / plugin re-instantiation. Two problems, both
+data-integrity / host-stability:
+1. **Blocking decode on the message thread.** A large source file decodes inline
+   during host state restore (no worker handoff), stalling the host for the
+   decode duration on every reopen. This is the same *class* of construct-path
+   blocking as the CUDA-preload hang just fixed, on a different resource.
+2. **Ghost / silent-empty restore (the recurring bite).** This is the family
+   behind the two known landmines — the standalone persisting the last-loaded
+   file and slice-export artifacts (e.g. `GentSampler_Pad12.wav`) restoring as a
+   silent EMPTY source (CLAUDE.md, 2026-07-02). If the stored path now points at
+   a stale/overwritten/empty export, restore silently loads garbage and it reads
+   as a paint/render bug. Also related: the async-clobber-on-reload item (below /
+   queued) — restore order vs. worker-thread slice rebuilds can drop slice edits.
+Not scoped here. Spec should cover: worker-thread deferral of the restore decode
+(mirror `analysisThenSlice`/`wantRender` deferral), validating the restored
+source is non-empty before adopting it, and reconciling restore vs. the
+async slice-rebuild path. SEV-HIGH — silent data loss / host stall on a
+core round-trip. Needs a spec before implementation.
+
+## PACKAGING — do not ship the ~2.6 GB CUDA/cuDNN pack in the release build (flagged 2026-07-04)
+The full CUDA 11.8 / cuDNN 8.9 runtime (~2.6 GB: `onnxruntime_providers_cuda.dll`
+410 MB, `cudnn_cnn_infer64_8.dll` 571 MB, `cublasLt64_11.dll` 544 MB,
+`cufft64_10.dll` 280 MB, plus the rest of `kCudaDlls`) currently sits beside the
+build artefact (`build/GentSampler_artefacts/Release/VST3/.../x86_64-win/`,
+dated 2026-06-25). Per CLAUDE.md/CMakeLists the shipping design is: bundle only
+the two small core ORT DLLs next to the VST3; the CUDA EP + cuDNN + weights are a
+first-run ModelDownloader fetch to keep CPU-only installs small. The GPU pack is
+dev-box leftover from GPU experiments, not a build output (POST_BUILD copies only
+the 2 core DLLs). Runtime is CPU-only (`kEnableCuda=false`), and construct no
+longer touches these (fixed 2026-07-04). For the eventual installer/packaging
+pass: ensure the release/installer excludes the CUDA pack entirely (CPU-only
+payload), and confirm the pluginval/CI artefact folder doesn't carry it either
+(it was the trigger for the cold-open hang). No runtime dependency on these DLLs
+exists while CUDA is shelved. Packaging concern only — no code change implied.
