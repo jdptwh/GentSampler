@@ -1311,6 +1311,14 @@ void GentSamplerAudioProcessorEditor::filesDropped (const juce::StringArray& fil
 {
     if (files.isEmpty()) return;
     const juce::File f (files[0]);
+    // Reject drops of our OWN temp exports: GentSampler_Pad*.wav / Performance.mid
+    // live in tempDir(). Re-loading one restores a silent/empty source that reads
+    // as a paint bug (CLAUDE.md landmine, 2026-07-02). Silent no-op — leave the
+    // loaded track and every pad slice untouched. Compare canonicalized absolute
+    // paths (case-insensitive, separator-agnostic) so no path variant slips through.
+    if (gent::pathIsWithin (f.getFullPathName().toStdString(),
+                            tempDir().getFullPathName().toStdString()))
+        return;
     if (f.hasFileExtension ("gentkit"))
         p.loadKit (f);
     else

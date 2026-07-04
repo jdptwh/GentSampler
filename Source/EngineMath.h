@@ -23,9 +23,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace gent
@@ -1081,6 +1083,45 @@ finish_classification:
     }
 
     return {winningClass, winningConfidence};
+}
+
+// ---------------------------------------------------------------------------
+//  Self-drop guard — reject drops of our own temp exports (filesDropped)
+// ---------------------------------------------------------------------------
+// Normalize an absolute path for a case-insensitive, separator-agnostic
+// compare: backslashes -> forward slashes, ASCII lowercase, and strip a single
+// trailing slash. The CALLER must pass already-canonicalized absolute paths
+// (production uses juce::File::getFullPathName()); this header stays JUCE-free
+// and does no filesystem access, so it's unit-testable in the logic-only rig.
+inline std::string normPathForCompare (std::string s)
+{
+    for (auto& c : s)
+    {
+        if (c == '\\')
+            c = '/';
+        else
+            c = (char) std::tolower ((unsigned char) c);
+    }
+    if (! s.empty() && s.back() == '/')
+        s.pop_back();
+    return s;
+}
+
+// True iff `path` is `dir` itself or something inside `dir`. Both absolute.
+// Used by filesDropped to reject re-loading our own tempDir() exports
+// (GentSampler_Pad*.wav / Performance.mid), which restore as a silent EMPTY
+// source and read as a paint bug (CLAUDE.md landmine). Guards the sibling-
+// prefix false positive: dir "/x/GentSampler" must NOT match
+// "/x/GentSampler2/y" — the match only counts at a real path boundary.
+inline bool pathIsWithin (const std::string& path, const std::string& dir)
+{
+    const std::string p = normPathForCompare (path);
+    const std::string d = normPathForCompare (dir);
+    if (d.empty() || p.size() < d.size())
+        return false;
+    if (p.compare (0, d.size(), d) != 0)
+        return false;
+    return p.size() == d.size() || p[d.size()] == '/';
 }
 
 } // namespace gent
