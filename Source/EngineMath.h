@@ -663,4 +663,174 @@ inline SliceAggregates aggregateSliceFeatures (const std::vector<FrameFeatures>&
     return result;
 }
 
+// ---------------------------------------------------------------------------
+//  P2 — heuristic slice classifier (KICK/SNARE/HAT/PERC/TONAL/OTHER)
+//  See PHASE3_SPEC.md PART 2 ("Heuristic classifier") for the full normative
+//  text this comment mirrors. classifySlice is pure and deterministic: same
+//  input + same thresholds -> same output, always.
+//
+//  SliceFeatures = SliceAggregates + context (onsetStrength from the cached
+//  transient-onset list; hasStems/stemShare from a per-slice per-stem energy
+//  sum over StemSet buffers, done by the worker-thread caller — never here).
+//
+//  DECISION TREE (normative structure; numbers below are tuned at the Joe
+//  gate via ClassifierThresholds ONLY — do not hard-code literals anywhere
+//  that mirrors this table):
+//
+//   1. STEMS BRANCH (f.hasStems):
+//        a. stemShare[0] (drums) >= t.drumsDominant
+//             -> enter the PERCUSSION SUBTREE (below), using preset `t`
+//                (kThreshStems when hasStems, per the wiring contract).
+//        b. else if stemShare[1]+[2]+[3]+[4] (bass+vox+gtr+pno) >=
+//             t.tonalDominant -> TONAL (dominance test + t.tonalFlatMax
+//             criterion feeds the confidence margin, see below).
+//        c. else -> fall through to the NO-STEMS SPECTRAL TREE, but
+//             evaluated with kThreshNoStems (an ambiguous stem mix means
+//             the stems signal isn't trustworthy here, so classification
+//             widens to the no-stems thresholds even though f.hasStems is
+//             true) — this is the one case where the caller-selected `t`
+//             is NOT what decides the spectral-tree pass; classifySlice
+//             itself must switch to kThreshNoStems for this fallthrough.
+//
+//   2. PERCUSSION SUBTREE (used both from 1a and from 3's spectral tree),
+//      evaluated in this exact ORDER, first full match wins:
+//        KICK:  bandRatio[0] >= t.kickLowRatio  AND centroidHz <= t.kickCentroidMax  AND decaySec <= t.kickDecayMax
+//        HAT:   bandRatio[3] >= t.hatHighRatio  AND zcr >= t.hatZcrMin              AND durationSec <= t.hatDurMax
+//        SNARE: (bandRatio[1]+bandRatio[2]) >= t.snareMidRatio AND chromaFlatness >= t.snareFlatMin
+//        no match -> PERC, confidence = the drums-dominance margin alone
+//                    (m of stemShare[0] vs t.drumsDominant; if this path was
+//                    reached without a drums-dominance margin — i.e. via the
+//                    no-stems spectral tree's own PERC fallback — use the
+//                    highest near-miss margin among KICK/HAT/SNARE instead,
+//                    per rule 3).
+//
+//   3. NO-STEMS SPECTRAL TREE (used when !f.hasStems, OR when 1c fell
+//      through): TONAL test FIRST (chromaFlatness <= t.tonalFlatMax AND
+//      durationSec >= t.tonalDurMin) -> TONAL; else the PERCUSSION SUBTREE
+//      (KICK -> HAT -> SNARE); else PERC with confidence taken from
+//      whichever of KICK/HAT/SNARE's near-miss margin is HIGHEST — if that
+//      highest margin's resulting confidence is < t.minConfidence, the
+//      result demotes to OTHER (rule 5).
+//
+//   4. CONFIDENCE (exact, test-pinned): for each criterion in the WINNING
+//      class's test, compute a normalized margin
+//          m = clamp((x - threshold) / max(threshold, 1e-6), 0, 1)   for >=-criteria
+//          m = clamp((threshold - x) / max(threshold, 1e-6), 0, 1)   for <=-criteria (mirrored)
+//      then confidence = clamp(0.5 + 0.5 * mean(m), 0, 1) — a criterion that
+//      barely passes (x == threshold) contributes m=0, so a class whose every
+//      criterion barely passes has confidence exactly 0.5; margins beyond the
+//      threshold push confidence up toward 1.0, clamped.
+//
+//   5. AMBIGUITY RULE (binding): any winning class (KICK/SNARE/HAT/PERC/
+//      TONAL) with confidence < t.minConfidence is DEMOTED to OTHER, keeping
+//      the computed confidence value (OTHER's confidence is NOT reset to 0
+//      or 1 — it carries the same number that triggered the demotion).
+//      OTHER is never a wrong guess; a confident wrong guess is the failure
+//      mode this rule exists to prevent.
+// ---------------------------------------------------------------------------
+
+enum SliceClass { KICK = 0, SNARE = 1, HAT = 2, PERC = 3, TONAL = 4, OTHER = 5 };
+
+// = SliceAggregates + context. onsetStrength is 0..1 from the cached
+// transientOnsets list (caller-supplied, not computed here). hasStems/
+// stemShare come from a per-slice per-stem energy sum over StemSet buffers
+// (order: drums, bass, vocals, guitar, piano, other — matching StemSet);
+// stemShare sums to 1 when hasStems, all-zero when !hasStems.
+struct SliceFeatures
+{
+    float bandRatio[4];
+    float centroidHz;
+    float zcr;
+    float decaySec;
+    float durationSec;
+    float chromaFlatness;
+    float onsetStrength;
+    bool  hasStems;
+    float stemShare[6];
+};
+
+struct ClassifyResult
+{
+    SliceClass cls;
+    float confidence;
+};
+
+// ALL tunables live in this ONE struct (PHASE3_SPEC.md PART 2 threshold
+// table) — the Joe gate tunes these values only; structure changes (new
+// fields, new branches in classifySlice) require a spec amendment.
+struct ClassifierThresholds
+{
+    float drumsDominant;     // stems only: drums stemShare >= -> percussion subtree
+    float tonalDominant;     // stems only: bass+vox+gtr+pno share >= -> TONAL
+    float kickLowRatio;      // bandRatio[0] >=
+    float kickCentroidMax;   // centroidHz <=
+    float kickDecayMax;      // decaySec <=
+    float hatHighRatio;      // bandRatio[3] >=
+    float hatZcrMin;         // zcr >=
+    float hatDurMax;         // durationSec <=
+    float snareMidRatio;     // bandRatio[1]+bandRatio[2] >=
+    float snareFlatMin;      // chromaFlatness >= (noisy)
+    float tonalFlatMax;      // chromaFlatness <= (peaked)
+    float tonalDurMin;       // durationSec >=
+    float minConfidence;     // below -> demote to OTHER
+};
+
+// Table column 1 (PHASE3_SPEC.md PART 2) — used when SliceFeatures::hasStems
+// is true (the wiring contract: doClassifyJob selects this preset iff
+// hasStems()). drumsDominant/tonalDominant are meaningful here.
+constexpr ClassifierThresholds kThreshStems {
+    /* drumsDominant   */ 0.55f,
+    /* tonalDominant   */ 0.55f,
+    /* kickLowRatio    */ 0.45f,
+    /* kickCentroidMax */ 400.0f,
+    /* kickDecayMax    */ 0.35f,
+    /* hatHighRatio    */ 0.40f,
+    /* hatZcrMin       */ 0.12f,
+    /* hatDurMax       */ 0.35f,
+    /* snareMidRatio   */ 0.50f,
+    /* snareFlatMin    */ 0.55f,
+    /* tonalFlatMax    */ 0.60f,
+    /* tonalDurMin     */ 0.20f,
+    /* minConfidence   */ 0.50f
+};
+
+// Table column 2 (PHASE3_SPEC.md PART 2) — used for the no-stems spectral
+// tree, both when SliceFeatures::hasStems is false and when the stems branch
+// falls through on an ambiguous stem mix (1c above). drumsDominant/
+// tonalDominant have NO meaning in this column (the spec table lists "—" for
+// both): set to 2.0f, a value no stemShare (which sums to <= 1) can ever
+// reach, so the stems-only branches (1a/1b) can never trigger when this
+// preset is in play — they simply can't fire since classifySlice only
+// consults drumsDominant/tonalDominant when f.hasStems is true, and this
+// preset is never paired with f.hasStems == true by the wiring contract
+// (doClassifyJob picks kThreshStems for hasStems() sources); the sentinel is
+// defensive belt-and-suspenders, not load-bearing.
+constexpr ClassifierThresholds kThreshNoStems {
+    /* drumsDominant   */ 2.0f,     // sentinel: never meaningful/reachable, see above
+    /* tonalDominant   */ 2.0f,     // sentinel: never meaningful/reachable, see above
+    /* kickLowRatio    */ 0.50f,
+    /* kickCentroidMax */ 350.0f,
+    /* kickDecayMax    */ 0.30f,
+    /* hatHighRatio    */ 0.45f,
+    /* hatZcrMin       */ 0.15f,
+    /* hatDurMax       */ 0.30f,
+    /* snareMidRatio   */ 0.55f,
+    /* snareFlatMin    */ 0.60f,
+    /* tonalFlatMax    */ 0.50f,
+    /* tonalDurMin     */ 0.30f,
+    /* minConfidence   */ 0.60f
+};
+
+// STUB — deliberately wrong (always OTHER, confidence 0). The BULK
+// implementer replaces this body with the decision tree documented in the
+// comment block above; tests in tests/ClassifierTests.cpp are authored
+// against this stub first and must mostly FAIL against it (see that file's
+// header comment for the expected pass/fail table). Legitimate passes
+// against this stub are the ambiguity/OTHER-shaped cases and are called out
+// there explicitly — not a sign of a weak test.
+inline ClassifyResult classifySlice (const SliceFeatures& /*f*/, const ClassifierThresholds& /*t*/)
+{
+    return { OTHER, 0.0f };
+}
+
 } // namespace gent
