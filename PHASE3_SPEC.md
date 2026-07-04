@@ -402,3 +402,79 @@ stops lying" — state-skipping is the lie. Scope of the amendment:
 - R0 verifies the arithmetic against a hand-drawn slot diagram and checks
   every existing caller path (slice actions, clear, the new 0.3 pushes).
 - AC-0.3.2/.3 stand as originally written (two gestures = two steps).
+
+---
+
+## INVESTIGATION (2026-07-04) — live cue-on-unassigned-pad reference frame (NO FIX)
+
+Directed investigation of the reported "tapping an unassigned pad drops the cue
+relative to a neighboring slice instead of track-absolute, cascading into
+collapse." Read-only; no code changed. Conclusion up front: **the cue is
+anchored track-absolute in SOURCE domain, and there is NO source-vs-rendered
+domain mismatch.** The domain-mismatch hypothesis is REFUTED by the code.
+
+### Correction of a prior claim
+An earlier remark (made in passing during the 2026-07-04 cold-open/CUDA
+investigation) stated that `previewPlayPos`/`assignCursor` are commented
+"SOURCE-domain" but the runtime math is RENDERED domain because playback does
+`cues/r->speed`. **That was wrong and is retracted.** `cues/r->speed` converts a
+SOURCE-domain cue INTO a rendered-buffer index; it does not imply cues are
+rendered-domain. The comments are accurate.
+
+### The anchoring domain (with the conversion proof)
+- Source buffer length `L_s = getSource()->buffer.getNumSamples()`; the editor's
+  `cachedLen` is exactly this (PluginEditor.h:1307,1844).
+- Rendered buffer length `L_r = ceil(inLen / speed)` (doRenderJob, cpp:1793),
+  i.e. `L_r = L_s / speed`. `out->speed = speed` (cpp:1775).
+- Playback maps cue → rendered index by dividing: `v->pos = cues[pad] / r->speed`
+  clamped to `r->buffer` (cpp:1931-1932); auto-end likewise `/r->speed`
+  (cpp:1949,1961). For `cues/speed ∈ [0, L_r]` the cue must be in `[0, L_s]` →
+  **cues[] are SOURCE-domain.**
+- Preview transport reads the RENDERED buffer (`rb = r->buffer`, cpp:2723-2726);
+  `prevPos` indexes it (`0..L_r`); it is published back to source domain as
+  `previewPlayPos = prevPos * r->speed` (cpp:3140) → `[0, L_s]`. Preview START
+  takes a source position and divides in: `prevPos = cmd / r->speed`
+  (cpp:3075). Round-trips exactly.
+- `assignCursor` comes from `xToSample()` over the whole waveform in `cachedLen`
+  (= `L_s`) space, offset only by `viewStart` scroll (PluginEditor.h:1049-1053)
+  → SOURCE-domain, track-absolute.
+- Independent corroboration: this spec's own Code-ground-truth line already
+  states "**cues are source-domain**… renderedStems (stretched domain) is the
+  wrong buffer… do not use it."
+
+Every API-level quantity — `cues[]`, `cueEnds[]`, `assignCursor`, `previewCmd`,
+`previewPlayPos` — is in the SAME source domain. The `*speed`/`/speed` are
+consistent source↔rendered-index conversions. No frame is neighbor-relative.
+
+### What `assignPadCue` computes against
+`assignPadCue` (cpp:473-490) takes `pos = previewPlayPos` while previewing, else
+`assignCursor` (cpp:477-479). Both are whole-track SOURCE positions (the free-
+running preview playhead over the entire buffer, or the absolute waveform click).
+**Neither is computed relative to a neighboring pad/slice window.** It then
+`setCue(pad, pos)` → `applyCueEdit` writes `cues[pad]`/`cueEnds[pad]` only.
+
+### The four confirmations requested
+1. **One pad's cue cannot mutate another pad's STORED slice.** `setCue`/
+   `applyCueEdit` (EngineMath.h:63-70) write only `cues[pad]` and `cueEnds[pad]`.
+   No other index is touched. BUT in **slice mode** a neighbor's *derived* (auto)
+   end recomputes to the nearest cue greater than its own — `effectiveCueEnd`'s
+   `allCues` scan (EngineMath.h:91-104; audio path cpp:1953-1961). So a new cue
+   landing inside a neighbor's window shortens that neighbor's PLAYED window
+   without changing its stored data. **This derived-boundary shift is the most
+   likely source of the perceived "collapse," and it is BY DESIGN (stop-at-next-
+   cue), not a reference-frame error.**
+2. **Fires only for unassigned pads.** MIDI: `if (cues[pad] < 0) assignPadCue`
+   (cpp:2046-2047). Editor click: `if (p.getCue(i) < 0)` (PluginEditor.h:2060-
+   2061). Both gate strictly on `cue < 0`.
+3. **On the undoable path.** `assignPadCue` calls `pushUndo()` before `setCue`
+   (cpp:482); the drop is one tracked edit and Ctrl+Z reverts it.
+4. **Anchoring frame** — see above: SOURCE-domain, track-absolute.
+
+### Recommendation (for Joe's decision; no fix pending)
+The domain mismatch is not real, so a "reference-frame fix" would break a
+currently-correct anchoring. Before any code change, capture the exact repro:
+which pads, slice-mode on/off, the `speed`/tempo value at the time, and the
+`cues[]` values before vs after the tap. Most likely the observed collapse is
+the by-design slice-mode auto-end cascade (item 1). If a genuine mis-placement
+persists under `speed == 1.0` (where all conversions are identity), that would
+point somewhere OTHER than source-vs-rendered domain and needs its own trace.
