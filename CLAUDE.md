@@ -26,9 +26,20 @@ clean, passes pluginval, and runs stable inside FL Studio.
   ran, mechanism UNCONFIRMED (contradicted: all 4 rig variants agreed within
   0.08 luminance on a native-peer harness). Zero production diff. See BACKLOG.md
   for the full retry writeup.
-  Next: P1 feature cache → P2 classifier → HARD JOE GATE (his 2-3 real
-  samples) before P3 KIT / P4 SLICE dropdown.
-- Next up: Phase 3 Part 1 (feature caching, PHASE3_SPEC.md).
+  P1 feature cache DONE (P1a/b/c: FrameFeatures in the existing FFT pass +
+  aggregateSliceFeatures, 8MB-cap). P2 classifier DONE (P2a tests / P2b BULK
+  body / wiring): gent::classifySlice + kThreshStems/kThreshNoStems table,
+  worker-thread doClassifyJob writes a per-slice report to Documents\
+  GentSampler, dev "Classify slices -> report" item in the SLICE menu. R1
+  PASS. 77 ctest cases.
+- In progress: **AT THE HARD JOE EAR-GATE** (PHASE3_SPEC.md PART 2, full STOP
+  like C5/D6). Joe runs his 2-3 real samples (drum break / full mix / melodic)
+  through the dev classify item, checks the report rows vs his ears; tuning
+  edits touch ONLY the ClassifierThresholds table. His written approval goes
+  in PHASE3_SPEC.md's Gate record BEFORE any P3 KIT / P4 SLICE-dropdown code.
+  Watch item: classifier deliberately leans OTHER on ambiguous slices;
+  ambiguous stems-present rows are marked "*" (classified w/ kThreshNoStems).
+- Next up (post-gate): P3 KIT mapping, P4 SLICE split-chip dropdown.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
