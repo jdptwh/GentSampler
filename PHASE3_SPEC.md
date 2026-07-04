@@ -1,5 +1,22 @@
 # SPEC: Phase 3 — Bench Cleanup + Semantic Slicing (SLICE modes dropdown, KIT auto-mapping)
 
+> **SUPERSEDED FOR v1 (2026-07-04, Joe).** The classify-first structure below is
+> **parked to v2**. v1 builds from `PHASE3_RESCOPE.md` (approved design:
+> autoslice = a mode menu of producer intents; SECTIONS is primary) executing
+> `PHASE3_TASK_SECTIONS.md` (both in Downloads). What that means for this file:
+> - The Part-2 classifier + threshold table + its HARD EAR-GATE are **no longer
+>   on the v1 path** — the gate that was blocking is dissolved for v1, and its
+>   Gate record stays empty until v2 re-gates the classifier.
+> - Parts 3 (classify-driven KIT mapping) and 4 (dropdown as specced here) are
+>   superseded: v1 KIT = isolate-every-hit laid in time order, no classification;
+>   the dropdown ships per the re-scope (SECTIONS Bars/Novelty + existing modes).
+> - Everything already SHIPPED under this spec stays shipped and binding: Part 0
+>   bench cleanup (0.1–0.3 + AMENDMENT 0.3-A), P1 feature cache, P2 classifier
+>   core/wiring (parked but present), the 2026-07-04 investigation note below,
+>   and the tap-to-cue point-cue behavior.
+> - **Keep this file** — it is the v2 classifier record and the P1/P2 code
+>   ground truth. Do not delete or rewrite its content.
+
 **Repo:** `C:\Users\JoeyD\Desktop\GentSampler\GentSampler` @ HEAD `728f155` (redesign A–D complete, 54 ctest cases, gate order build → ctest → pluginval)
 **Binding source doc:** `C:\Users\JoeyD\Downloads\PHASE3_TASK.md` (Joe, stays in Downloads — this spec executes it; where this spec and that doc conflict, that doc wins and this spec gets amended)
 **Authored:** 2026-07-03 (Fable planner). All symbols/lines below verified against HEAD by direct reading.
