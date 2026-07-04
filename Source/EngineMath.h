@@ -828,9 +828,259 @@ constexpr ClassifierThresholds kThreshNoStems {
 // header comment for the expected pass/fail table). Legitimate passes
 // against this stub are the ambiguity/OTHER-shaped cases and are called out
 // there explicitly — not a sign of a weak test.
-inline ClassifyResult classifySlice (const SliceFeatures& /*f*/, const ClassifierThresholds& /*t*/)
+inline ClassifyResult classifySlice (const SliceFeatures& f, const ClassifierThresholds& t)
 {
-    return { OTHER, 0.0f };
+    // Helper lambda: compute normalized margin for a single criterion
+    // Returns {passes: bool, margin: float}. Margin is only valid/meaningful if passes=true.
+    auto computeMargin = [](float x, float threshold, bool isGreaterEqual) -> std::pair<bool, float>
+    {
+        bool passes;
+        float m;
+        const float divisor = std::max (threshold, 1e-6f);
+        if (isGreaterEqual)
+        {
+            passes = (x >= threshold);
+            m = (x - threshold) / divisor;
+        }
+        else
+        {
+            passes = (x <= threshold);
+            m = (threshold - x) / divisor;
+        }
+        // Clamp a PASSING criterion's margin to [0,1]. A FAILING criterion
+        // keeps its (negative) raw margin on purpose: it only ever feeds the
+        // PERC/OTHER near-miss ranking, where a negative pushes near-miss
+        // confidence DOWN — the conservative "ambiguous -> OTHER, never a
+        // confident wrong guess" behavior the spec intends and P2a's demotion
+        // test (ClassifierTests.cpp:455) pins. Winning classes have all
+        // criteria passing, so this matches the spec's clamp-every-margin
+        // formula exactly for them. (Near-miss margin clamping is the one
+        // point PHASE3_SPEC PART 2 leaves underspecified — flagged for R1/Joe;
+        // the conservative reading stands unless the ear-gate says otherwise.)
+        if (passes)
+            m = std::clamp (m, 0.0f, 1.0f);
+        return {passes, m};
+    };
+
+    // Helper lambda: compute confidence from a list of criterion margins
+    auto computeConfidence = [](const std::vector<float>& margins) -> float
+    {
+        if (margins.empty()) return 0.5f;
+        float sum = 0.0f;
+        for (float m : margins) sum += m;
+        float mean = sum / (float) margins.size();
+        return std::clamp (0.5f + 0.5f * mean, 0.0f, 1.0f);
+    };
+
+    // Track the winning class and its confidence
+    SliceClass winningClass = OTHER;
+    float winningConfidence = 0.0f;
+
+    // Track best near-miss margin for PERC fallback in spectral tree
+    float bestNearMissMargin = 0.0f;
+    bool hasNearMiss = false;
+
+    if (f.hasStems)
+    {
+        // STEMS BRANCH
+        if (f.stemShare[0] >= t.drumsDominant)
+        {
+            // Enter percussion subtree with kThreshStems (which is `t` here)
+            // Try KICK
+            {
+                auto [p0, m0] = computeMargin (f.bandRatio[0], t.kickLowRatio, true);
+                auto [p1, m1] = computeMargin (f.centroidHz, t.kickCentroidMax, false);
+                auto [p2, m2] = computeMargin (f.decaySec, t.kickDecayMax, false);
+                if (p0 && p1 && p2)
+                {
+                    std::vector<float> margins = {m0, m1, m2};
+                    winningClass = KICK;
+                    winningConfidence = computeConfidence (margins);
+                    goto finish_classification;
+                }
+                // Track as near-miss: mean of all margins
+                float nearMissM = (m0 + m1 + m2) / 3.0f;
+                if (nearMissM > bestNearMissMargin)
+                {
+                    bestNearMissMargin = nearMissM;
+                    hasNearMiss = true;
+                }
+            }
+
+            // Try HAT
+            {
+                auto [p0, m0] = computeMargin (f.bandRatio[3], t.hatHighRatio, true);
+                auto [p1, m1] = computeMargin (f.zcr, t.hatZcrMin, true);
+                auto [p2, m2] = computeMargin (f.durationSec, t.hatDurMax, false);
+                if (p0 && p1 && p2)
+                {
+                    std::vector<float> margins = {m0, m1, m2};
+                    winningClass = HAT;
+                    winningConfidence = computeConfidence (margins);
+                    goto finish_classification;
+                }
+                // Track as near-miss: mean of all margins
+                float nearMissM = (m0 + m1 + m2) / 3.0f;
+                if (nearMissM > bestNearMissMargin)
+                {
+                    bestNearMissMargin = nearMissM;
+                    hasNearMiss = true;
+                }
+            }
+
+            // Try SNARE
+            {
+                float midSum = f.bandRatio[1] + f.bandRatio[2];
+                auto [p0, m0] = computeMargin (midSum, t.snareMidRatio, true);
+                auto [p1, m1] = computeMargin (f.chromaFlatness, t.snareFlatMin, true);
+                if (p0 && p1)
+                {
+                    std::vector<float> margins = {m0, m1};
+                    winningClass = SNARE;
+                    winningConfidence = computeConfidence (margins);
+                    goto finish_classification;
+                }
+                // Track as near-miss: mean of all margins
+                float nearMissM = (m0 + m1) / 2.0f;
+                if (nearMissM > bestNearMissMargin)
+                {
+                    bestNearMissMargin = nearMissM;
+                    hasNearMiss = true;
+                }
+            }
+
+            // Percussion subtree fallback: PERC
+            // Confidence = drums-dominance margin
+            {
+                auto [p, drumsDomMargin] = computeMargin (f.stemShare[0], t.drumsDominant, true);
+                winningClass = PERC;
+                winningConfidence = computeConfidence ({drumsDomMargin});
+                goto finish_classification;
+            }
+        }
+        else if ((f.stemShare[1] + f.stemShare[2] + f.stemShare[3] + f.stemShare[4]) >= t.tonalDominant)
+        {
+            // TONAL via dominance (both criteria feed confidence margin)
+            auto [p0, tonalShareMargin] = computeMargin (
+                f.stemShare[1] + f.stemShare[2] + f.stemShare[3] + f.stemShare[4],
+                t.tonalDominant, true);
+            auto [p1, flatnessMargin] = computeMargin (f.chromaFlatness, t.tonalFlatMax, false);
+            // We enter this branch on dominance alone, but include flatness in confidence
+            std::vector<float> margins = {tonalShareMargin, flatnessMargin};
+            winningClass = TONAL;
+            winningConfidence = computeConfidence (margins);
+            goto finish_classification;
+        }
+        else
+        {
+            // Fall through to NO-STEMS SPECTRAL TREE with kThreshNoStems
+            goto spectral_tree_with_kThreshNoStems;
+        }
+    }
+    else
+    {
+        // NO STEMS SPECTRAL TREE (hasStems false)
+spectral_tree_with_kThreshNoStems:
+        const ClassifierThresholds& activeT = f.hasStems ? kThreshNoStems : t;
+
+        // TONAL test FIRST (both criteria must pass)
+        {
+            auto [p0, m0] = computeMargin (f.chromaFlatness, activeT.tonalFlatMax, false);
+            auto [p1, m1] = computeMargin (f.durationSec, activeT.tonalDurMin, true);
+            if (p0 && p1)
+            {
+                std::vector<float> margins = {m0, m1};
+                winningClass = TONAL;
+                winningConfidence = computeConfidence (margins);
+                goto finish_classification;
+            }
+        }
+
+        // Try KICK
+        {
+            auto [p0, m0] = computeMargin (f.bandRatio[0], activeT.kickLowRatio, true);
+            auto [p1, m1] = computeMargin (f.centroidHz, activeT.kickCentroidMax, false);
+            auto [p2, m2] = computeMargin (f.decaySec, activeT.kickDecayMax, false);
+            if (p0 && p1 && p2)
+            {
+                std::vector<float> margins = {m0, m1, m2};
+                winningClass = KICK;
+                winningConfidence = computeConfidence (margins);
+                goto finish_classification;
+            }
+            // Track as near-miss: mean of all margins (treating failed criteria as m=0)
+            float nearMissM = (m0 + m1 + m2) / 3.0f;
+            if (nearMissM > bestNearMissMargin)
+            {
+                bestNearMissMargin = nearMissM;
+                hasNearMiss = true;
+            }
+        }
+
+        // Try HAT
+        {
+            auto [p0, m0] = computeMargin (f.bandRatio[3], activeT.hatHighRatio, true);
+            auto [p1, m1] = computeMargin (f.zcr, activeT.hatZcrMin, true);
+            auto [p2, m2] = computeMargin (f.durationSec, activeT.hatDurMax, false);
+            if (p0 && p1 && p2)
+            {
+                std::vector<float> margins = {m0, m1, m2};
+                winningClass = HAT;
+                winningConfidence = computeConfidence (margins);
+                goto finish_classification;
+            }
+            // Track as near-miss: mean of all margins
+            float nearMissM = (m0 + m1 + m2) / 3.0f;
+            if (nearMissM > bestNearMissMargin)
+            {
+                bestNearMissMargin = nearMissM;
+                hasNearMiss = true;
+            }
+        }
+
+        // Try SNARE
+        {
+            float midSum = f.bandRatio[1] + f.bandRatio[2];
+            auto [p0, m0] = computeMargin (midSum, activeT.snareMidRatio, true);
+            auto [p1, m1] = computeMargin (f.chromaFlatness, activeT.snareFlatMin, true);
+            if (p0 && p1)
+            {
+                std::vector<float> margins = {m0, m1};
+                winningClass = SNARE;
+                winningConfidence = computeConfidence (margins);
+                goto finish_classification;
+            }
+            // Track as near-miss: mean of all margins
+            float nearMissM = (m0 + m1) / 2.0f;
+            if (nearMissM > bestNearMissMargin)
+            {
+                bestNearMissMargin = nearMissM;
+                hasNearMiss = true;
+            }
+        }
+
+        // PERC fallback with highest near-miss margin
+        if (hasNearMiss)
+        {
+            winningClass = PERC;
+            winningConfidence = computeConfidence ({bestNearMissMargin});
+        }
+        else
+        {
+            winningClass = PERC;
+            winningConfidence = 0.5f;
+        }
+    }
+
+finish_classification:
+    // Apply ambiguity rule: if confidence < minConfidence, demote to OTHER
+    // but keep the computed confidence
+    if (winningClass != OTHER && winningConfidence < t.minConfidence)
+    {
+        return {OTHER, winningConfidence};
+    }
+
+    return {winningClass, winningConfidence};
 }
 
 } // namespace gent

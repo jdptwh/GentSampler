@@ -127,7 +127,7 @@ void normalizeBandRatio (gent::SliceFeatures& f)
 // any future retuning of ClassifierThresholds.
 // ---------------------------------------------------------------------------
 TEST_CASE ("P2.1 classifySlice: kick-like vector (stems) -> KICK, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -153,7 +153,7 @@ TEST_CASE ("P2.1 classifySlice: kick-like vector (stems) -> KICK, confidence >= 
 }
 
 TEST_CASE ("P2.1 classifySlice: hat-like vector (stems) -> HAT, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -181,7 +181,7 @@ TEST_CASE ("P2.1 classifySlice: hat-like vector (stems) -> HAT, confidence >= mi
 }
 
 TEST_CASE ("P2.1 classifySlice: snare-like vector (stems) -> SNARE, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -214,7 +214,7 @@ TEST_CASE ("P2.1 classifySlice: snare-like vector (stems) -> SNARE, confidence >
 }
 
 TEST_CASE ("P2.1 classifySlice: tonal-like vector via STEM DOMINANCE -> TONAL, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -240,7 +240,7 @@ TEST_CASE ("P2.1 classifySlice: tonal-like vector via STEM DOMINANCE -> TONAL, c
 }
 
 TEST_CASE ("P2.1 classifySlice: tonal-like vector via NO-STEMS FLATNESS -> TONAL, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshNoStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -259,7 +259,7 @@ TEST_CASE ("P2.1 classifySlice: tonal-like vector via NO-STEMS FLATNESS -> TONAL
 }
 
 TEST_CASE ("P2.1 classifySlice: perc-fallback vector -> PERC, confidence >= minConfidence"
-           * doctest::skip())
+)
 {
     // No-stems spectral tree: fails the TONAL test, fails all of KICK/HAT/
     // SNARE's full criteria sets, but drums-adjacent enough (band energy
@@ -298,7 +298,7 @@ TEST_CASE ("P2.1 classifySlice: perc-fallback vector -> PERC, confidence >= minC
 // percussion class (KICK/HAT/SNARE/PERC), never TONAL.
 // ---------------------------------------------------------------------------
 TEST_CASE ("P2.2 classifySlice: drums-dominance overrides tonal-looking chroma -> percussion class, not TONAL"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -333,7 +333,7 @@ TEST_CASE ("P2.2 classifySlice: drums-dominance overrides tonal-looking chroma -
 // ---------------------------------------------------------------------------
 TEST_CASE ("P2.3 classifySlice: 1000-vector invariant (both presets) -- "
            "non-OTHER implies confidence>=minConfidence, determinism, confidence in [0,1]"
-           * doctest::skip())
+)
 {
     XorShift32 rng (0xC1A551F1u);   // "classify" fixed seed
 
@@ -393,7 +393,7 @@ TEST_CASE ("P2.3 classifySlice: 1000-vector invariant (both presets) -- "
 // under minConfidence -> OTHER (demotion path).
 // ---------------------------------------------------------------------------
 TEST_CASE ("P2.4 classifySlice: barely-passing KICK vector -> confidence ~= 0.5"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
@@ -424,7 +424,7 @@ TEST_CASE ("P2.4 classifySlice: barely-passing KICK vector -> confidence ~= 0.5"
 }
 
 TEST_CASE ("P2.4 classifySlice: confidence just under minConfidence -> demoted to OTHER"
-           * doctest::skip())
+)
 {
     // No-stems spectral tree, PERC near-miss path: construct a vector whose
     // best near-miss margin yields a confidence just barely under
@@ -462,7 +462,7 @@ TEST_CASE ("P2.4 classifySlice: confidence just under minConfidence -> demoted t
 // is KICK -> HAT -> SNARE, first full match wins).
 // ---------------------------------------------------------------------------
 TEST_CASE ("P2.5 classifySlice: vector satisfying both KICK and HAT criteria -> KICK (order pin)"
-           * doctest::skip())
+)
 {
     const auto& t = gent::kThreshStems;
     gent::SliceFeatures f = zeroFeatures();
