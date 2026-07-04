@@ -32,14 +32,17 @@ clean, passes pluginval, and runs stable inside FL Studio.
   worker-thread doClassifyJob writes a per-slice report to Documents\
   GentSampler, dev "Classify slices -> report" item in the SLICE menu. R1
   PASS. 77 ctest cases.
-- In progress: **AT THE HARD JOE EAR-GATE** (PHASE3_SPEC.md PART 2, full STOP
-  like C5/D6). Joe runs his 2-3 real samples (drum break / full mix / melodic)
-  through the dev classify item, checks the report rows vs his ears; tuning
-  edits touch ONLY the ClassifierThresholds table. His written approval goes
-  in PHASE3_SPEC.md's Gate record BEFORE any P3 KIT / P4 SLICE-dropdown code.
-  Watch item: classifier deliberately leans OTHER on ambiguous slices;
-  ambiguous stems-present rows are marked "*" (classified w/ kThreshNoStems).
-- Next up (post-gate): P3 KIT mapping, P4 SLICE split-chip dropdown.
+- **RE-SCOPED 2026-07-04:** PHASE3_SPEC.md is SUPERSEDED FOR v1 (classifier +
+  its ear-gate parked to v2; that gate is DISSOLVED for v1). v1 executes
+  SECTIONS_SPEC.md (from Downloads/PHASE3_RESCOPE.md + PHASE3_TASK_SECTIONS.md):
+  autoslice = mode menu of intents, SECTIONS primary. Part 1 BARS: DONE
+  (`6253f65`, doctest 94), Joe FL-validated 2026-07-04. Part 2 NOVELTY
+  (spectral-change boundaries from the P1 FrameFeatures cache + dev report/
+  apply items 61-66): in flight — ends at a NOVELTY EAR GATE (full stop, Joe
+  judges boundaries on real tracks, tuning surface = kNoveltyThresh only).
+  Part 3 (SLICE split-chip dropdown) LOCKED until that gate is approved.
+- Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
+  hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 - 2026-07-04 session: base re-verified GREEN this tip (build/ctest/pluginval-5,
   cold). Fixed a pre-existing cold-open pluginval hang (CUDA preload on
