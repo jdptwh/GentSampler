@@ -109,3 +109,24 @@ pass: ensure the release/installer excludes the CUDA pack entirely (CPU-only
 payload), and confirm the pluginval/CI artefact folder doesn't carry it either
 (it was the trigger for the cold-open hang). No runtime dependency on these DLLs
 exists while CUDA is shelved. Packaging concern only — no code change implied.
+
+## HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
+Data-integrity race on the state-restore path (paired with the sync-loadFile
+item above — same reopen path, fix them together). `setStateInformation()` ->
+`applyStateTree()` (PluginProcessor.cpp:2585-2636) restores `cues[]`/`cueEnds[]`/
+`padStemMask[]` from saved state, reloads the source via `loadFile(f,false)`
+(runAnalysis=false, cpp:2594-2599), then finishes with `wantRender = true;
+notify();` (cpp:2633-2634). That wakes the worker `run()` loop, which on the
+same signal can run `doAnalysisJob` / `doRenderJob` / `doPadRenderJobs`
+(cpp:817-823). Concern: worker rebuild work fired by (or racing with) restore
+can overwrite the just-restored cues with freshly-derived transient slices, so a
+reopened project silently loses hand-edited slice boundaries — no error, reads
+as "my slices reset themselves."
+Needs a spec to: (1) trace the exact ordering of restore vs. every `want*`
+worker job and prove which can re-derive cues after restore; (2) make restore
+authoritative — rebuild jobs must NOT clobber restored cue/end/mask state (a
+restore-generation guard, or defer/sequence restore so no re-slice fires on
+load, only on explicit user action); (3) add a pure-logic regression where
+possible (restore-then-rebuild ordering) plus a manual reopen check. SEV-HIGH —
+silent loss of user slice edits on a core save/reopen round-trip. Do not pick up
+without Joe green-lighting a spec.
