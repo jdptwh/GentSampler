@@ -595,6 +595,26 @@ void GentSamplerAudioProcessor::sliceBeats (double beatsPerSlice)
     applySlices (s, len);
 }
 
+void GentSamplerAudioProcessor::sliceSections (int bars)
+{
+    auto src = getSource();
+    const double bpm = getEffectiveSourceBpm();
+    if (src == nullptr || bpm <= 1.0)
+        return;
+
+    const int len = src->buffer.getNumSamples();
+    const double spb = (60.0 / bpm) * src->sampleRate;
+    const auto result = gent::barSectionSlices (len, spb * 4.0, bars);
+
+    if (result.sectionCount > 16)
+        DBG ("SECTIONS: " << result.sectionCount << " sections at " << bars << " bars, first 16 laid");
+
+    std::vector<int> s (16);
+    for (int i = 0; i < 16; ++i)
+        s[(size_t) i] = result.cue[(size_t) i];
+    applySlices (s, len);
+}
+
 // ---- music-aware auto-slice (2A): transients reconciled to the beat grid --------
 double GentSamplerAudioProcessor::samplesPerBeat() const
 {

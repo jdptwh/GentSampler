@@ -1124,4 +1124,48 @@ inline bool pathIsWithin (const std::string& path, const std::string& dir)
     return p.size() == d.size() || p[d.size()] == '/';
 }
 
+// ---------------------------------------------------------------------------
+//  SECTIONS — Part 1: deterministic N-bar slicing
+//  See SECTIONS_SPEC.md PART 1 ("Pure core") for the full normative text this
+//  comment mirrors. barSectionSlices is pure and deterministic.
+//
+//  Section length L = bars * samplesPerBar. sectionCount = ceil(len / L)
+//  (>= 1 for len > 0). Pad i < min(sectionCount, 16) gets cue[i] = i*L,
+//  0-anchored (grid-aligned by construction). Pad i >= sectionCount is
+//  UNASSIGNED: cue[i] = -1 — contrast sliceBeats (PluginProcessor.cpp:583-596)
+//  which clamps overflow pads to len-1 (a pile-up); barSectionSlices must
+//  NEVER do that — an unassigned pad stays -1, full stop.
+//  Degenerate (len<=0 || samplesPerBar<=0 || bars<=0): all -1, sectionCount 0.
+// ---------------------------------------------------------------------------
+struct BarSections
+{
+    std::array<int, 16> cue;
+    int sectionCount;
+};
+
+inline BarSections barSectionSlices (int len, double samplesPerBar, int bars)
+{
+    BarSections result {};
+    result.cue.fill (-1);
+    result.sectionCount = 0;
+
+    if (len <= 0 || samplesPerBar <= 0.0 || bars <= 0)
+        return result;
+
+    const double L = (double) bars * samplesPerBar;
+    const int sectionCount = (int) std::ceil ((double) len / L);
+    result.sectionCount = std::max (1, sectionCount);
+
+    const int assigned = std::min (result.sectionCount, 16);
+    for (int i = 0; i < assigned; ++i)
+    {
+        // i < sectionCount guarantees i*L < len; keep a defensive min against
+        // len-1 only in case llround pushes the rounded value past the end.
+        const long long pos = std::llround ((double) i * L);
+        result.cue[(size_t) i] = std::min ((int) pos, len - 1);
+    }
+
+    return result;
+}
+
 } // namespace gent

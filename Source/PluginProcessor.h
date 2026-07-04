@@ -147,6 +147,7 @@ public:
     void sliceTransients();                                // analyzed transients → pads
     void sliceGrid();                                      // 16 equal divisions
     void sliceBeats (double beatsPerSlice);                // 1, 2, 4 beats per pad (uses source BPM)
+    void sliceSections (int bars);                         // N-bar sections from start (uses source BPM)
 
     // music-aware auto-slice: transients reconciled to the beat grid (2A)
     void autoSliceMusical();                               // blend of transients + grid + snap

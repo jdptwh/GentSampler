@@ -156,7 +156,8 @@ if(GENT_BUILD_TESTS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/vendor/doctest
         tests/StemMaskTests.cpp
         tests/FeatureAggTests.cpp
         tests/ClassifierTests.cpp
-        tests/PathGuardTests.cpp)
+        tests/PathGuardTests.cpp
+        tests/SectionTests.cpp)
     target_include_directories(GentSamplerTests PRIVATE Source tests/vendor)
     target_compile_features(GentSamplerTests PRIVATE cxx_std_17)
     target_compile_options(GentSamplerTests PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)

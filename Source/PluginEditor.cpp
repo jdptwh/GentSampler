@@ -555,6 +555,12 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         even.addItem (42, "Every 2 beats");
         even.addItem (43, "Every bar");
         m.addSubMenu ("Even grid (ignore audio)", even);
+        juce::PopupMenu sections;
+        sections.addItem (45, "Every 1 bar");
+        sections.addItem (46, "Every 2 bars");
+        sections.addItem (47, "Every 4 bars");
+        sections.addItem (48, "Every 8 bars");
+        m.addSubMenu ("SECTIONS (flip)", sections);
         m.addSeparator();
         m.addItem (50, "Clear selected pad");
         m.addItem (51, "Reset all region ends to auto");
@@ -574,6 +580,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                 if (r >= 20 && r <= 22) { p.pushUndo(); p.setSliceSensitivity (r - 20);  p.autoSliceMusical(); return; }
                 if (r >= 30 && r <= 32) { p.pushUndo(); p.setSliceSnap (r - 30);         p.autoSliceMusical(); return; }
                 if (r >= 40 && r <= 43) { sliceMode.setSelectedId (r - 39, juce::sendNotification); return; }
+                if (r >= 45 && r <= 48) { p.pushUndo(); p.sliceSections (1 << (r - 45)); return; }
                 if (r == 60) { p.requestClassifyReport(); return; }
                 p.pushUndo();
                 if (r == 50)      p.clearCue (p.selectedPad.load());
