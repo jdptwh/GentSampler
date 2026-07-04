@@ -282,6 +282,11 @@ public:
     // other transientOnsets/transientSlices reader in this class.
     std::vector<int> getOnsetPositions() const;
 
+    // P1 (PHASE3_SPEC.md PART 1): copy-under-lock accessor for the cached
+    // per-frame analysis features, mirroring getOnsetPositions()'s pattern.
+    // Consumer is P2's doClassifyJob (worker thread); safe from any thread.
+    void getFeatureFrames (std::vector<gent::FrameFeatures>& out, double& rate) const;
+
     // edit history (cue/end + stem-source + grain state, 0.3). Message thread
     // only: undo()/redo() now also write APVTS grain params via
     // getParameterAsValue (see applySnap), which is a message-thread-only API;
@@ -425,6 +430,13 @@ private:
     juce::String detectedKey, fileName, filePath;   // guarded by infoLock
     std::vector<int> transientSlices;               // guarded by infoLock
     std::vector<std::pair<int,float>> transientOnsets;   // guarded by infoLock (music-aware slicing)
+    // P1 (PHASE3_SPEC.md PART 1): cached per-frame analysis features, guarded
+    // by infoLock beside transientOnsets. Written by doAnalysisJob (worker
+    // thread) alongside detectedKey/transientSlices/transientOnsets; cleared
+    // on new-file load same as transientOnsets. Never read on the audio
+    // thread; the only reader is the P2 getFeatureFrames() accessor.
+    std::vector<gent::FrameFeatures> featureFrames;
+    double featureFrameRate = 0.0;
     std::vector<int> computeBlendedSlices() const;       // reconcile onsets <-> beat grid
     // music-aware auto-slice settings (persisted with the project)
     std::atomic<int>  sliceGridDiv     { 2 };       // 0 Bar, 1 Beat, 2 1/8, 3 1/16

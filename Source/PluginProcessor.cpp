@@ -250,6 +250,8 @@ bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
         fileName = f.getFileName();
         filePath = f.getFullPathName();
         transientOnsets.clear();   // always: stale onsets must never drive a new file's auto-slice
+        featureFrames.clear();     // always: stale features must never drive a new file's classify/KIT
+        featureFrameRate = 0.0;
         if (runAnalysis) { detectedKey.clear(); transientSlices.clear(); }
     }
 
@@ -642,6 +644,15 @@ std::vector<int> GentSamplerAudioProcessor::getOnsetPositions() const
     return out;
 }
 
+// P1 (PHASE3_SPEC.md PART 1): copy-under-lock accessor for the cached
+// per-frame analysis features, mirroring getOnsetPositions() above.
+void GentSamplerAudioProcessor::getFeatureFrames (std::vector<gent::FrameFeatures>& out, double& rate) const
+{
+    const juce::SpinLock::ScopedLockType sl (infoLock);
+    out = featureFrames;
+    rate = featureFrameRate;
+}
+
 std::vector<int> GentSamplerAudioProcessor::computeBlendedSlices() const
 {
     auto src = getSource();
@@ -1019,6 +1030,8 @@ void GentSamplerAudioProcessor::doAnalysisJob()
         detectedKey = res.key;
         transientSlices = res.slices;
         transientOnsets = res.onsets;
+        featureFrames = res.frames;
+        featureFrameRate = res.frameRate;
     }
     detectedBpm = res.bpm;
 

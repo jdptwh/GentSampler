@@ -8,6 +8,7 @@
 // ============================================================================
 
 #include <JuceHeader.h>
+#include "EngineMath.h"
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -21,6 +22,9 @@ struct AnalysisResult
     juce::String key;
     std::vector<int> slices;                       // top-16 transient cuts (sample positions)
     std::vector<std::pair<int, float>> onsets;     // ALL onset peaks: (samplePos, strength 0..1)
+    std::vector<gent::FrameFeatures> frames;        // PHASE3_SPEC PART 1: per-frame features
+    int hop = 512;
+    double frameRate = 0.0;
 };
 
 class Analyzer
@@ -61,6 +65,14 @@ public:
         std::vector<float> prevMag ((size_t) (fftSize / 2), 0.0f);
         std::vector<float> fftBuf ((size_t) (fftSize * 2), 0.0f);
 
+        // PHASE3_SPEC.md PART 1 — per-frame feature band edges (Hz), named
+        // per the spec's "band-edge Hz as named constexpr" instruction.
+        constexpr float kBandEdgeLowHz  = 120.0f;
+        constexpr float kBandEdgeMidHz  = 600.0f;
+        constexpr float kBandEdgeHighHz = 3000.0f;
+
+        r.frames.reserve ((size_t) numFrames);
+
         for (int f = 0; f < numFrames; ++f)
         {
             std::fill (fftBuf.begin(), fftBuf.end(), 0.0f);
@@ -78,7 +90,70 @@ public:
                 prevMag[(size_t) b] = m;
             }
             flux[(size_t) f] = s;
+
+            // ---- PHASE3_SPEC.md PART 1: per-frame feature extraction --------
+            // Reuses this frame's fftBuf magnitudes (already computed above,
+            // no second FFT pass) and the same windowed mono samples for ZCR.
+            gent::FrameFeatures ff {};
+            ff.band[0] = ff.band[1] = ff.band[2] = ff.band[3] = 0.0f;
+
+            float centWeightedSum = 0.0f;
+            float centMagSum = 0.0f;
+
+            for (int b = 0; b < fftSize / 2; ++b)
+            {
+                const float mag = fftBuf[(size_t) b];
+                const float freq = (float) b * (float) sr / (float) fftSize;
+                const float e = mag * mag;
+
+                if (freq < kBandEdgeLowHz)          ff.band[0] += e;
+                else if (freq < kBandEdgeMidHz)     ff.band[1] += e;
+                else if (freq < kBandEdgeHighHz)    ff.band[2] += e;
+                else                                ff.band[3] += e;
+
+                centWeightedSum += mag * freq;
+                centMagSum += mag;
+            }
+            ff.centroidHz = centMagSum > 0.0f ? (centWeightedSum / centMagSum) : 0.0f;
+
+            // ZCR over the same raw (unwindowed) 1024-sample time-domain
+            // region — Hann is non-negative so windowing barely perturbs sign
+            // changes, but the raw samples are the cleanest, most standard
+            // definition of ZCR and avoid any windowing-taper edge artifacts.
+            {
+                int crossings = 0;
+                for (int i = 1; i < fftSize; ++i)
+                {
+                    const float a = mono[(size_t) (off + i - 1)];
+                    const float b = mono[(size_t) (off + i)];
+                    if ((a >= 0.0f) != (b >= 0.0f))
+                        ++crossings;
+                }
+                ff.zcr = (float) crossings / (float) fftSize;
+            }
+
+            // 12-bin chroma fold — MIRRORS the key-detector's fold below
+            // (same freq range 55-1760 Hz, same bin->Hz, same MIDI/pitch-class
+            // fold), applied per-frame to this frame's 1024-pt magnitudes
+            // instead of the global 4096-pt key-detection pass.
+            {
+                double chromaAccum[12] = {};
+                for (int b = 1; b < fftSize / 2; ++b)
+                {
+                    const double freq = (double) b * sr / (double) fftSize;
+                    if (freq < 55.0 || freq > 1760.0) continue;
+                    const int midi = (int) std::round (69.0 + 12.0 * std::log2 (freq / 440.0));
+                    chromaAccum[((midi % 12) + 12) % 12] += (double) fftBuf[(size_t) b];
+                }
+                for (int c = 0; c < 12; ++c)
+                    ff.chroma[c] = (float) chromaAccum[c];
+            }
+
+            r.frames.push_back (ff);
         }
+
+        r.hop = hop;
+        r.frameRate = sr / (double) hop;
 
         if (numFrames < 16)
             return r;
