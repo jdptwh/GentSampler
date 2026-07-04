@@ -68,12 +68,24 @@ bars". Handler: `p.pushUndo(); p.sliceSections(N); return;` (one CueSnap).
 Default for Part 3's chip = 4 bars; menu has no default state to persist yet.
 
 ### Acceptance (Part 1)
-- [ ] Track slices into clean N-bar, grid-aligned sections; changing N re-slices.
-- [ ] Short source → trailing pads unassigned (silent), no len-1 pile-up.
-- [ ] Long source → 16 sections from start, overflow DBG-noted, no crash.
-- [ ] Each section triggers as its own pad (existing slice-mode auto-end).
-- [ ] One undo restores the entire prior layout; redo re-applies.
-- [ ] gate.sh green (build/ctest/pluginval-5). Joe FL-validates before Part 2.
+- [x] Track slices into clean N-bar, grid-aligned sections; changing N re-slices.
+- [x] Short source → trailing pads unassigned (silent), no len-1 pile-up.
+- [x] Long source → 16 sections from start, overflow DBG-noted, no crash.
+- [x] Each section triggers as its own pad (existing slice-mode auto-end).
+- [x] One undo restores the entire prior layout; redo re-applies.
+- [x] gate.sh green (build/ctest/pluginval-5). Joe FL-validates before Part 2.
+
+**Part 1 record:** committed `6253f65` (doctest 86→94). Joe FL-validated
+2026-07-04 ("basic and seems fine") — Part 2 unblocked.
+
+### AMENDMENT P2-A (2026-07-04, planner): dev-menu ids + report fields
+- Dev menu uses ids **61-63 = report @ few/medium/many** and **64-66 = APPLY @
+  few/medium/many** (submenu "Sections novelty (dev)"), superseding the single
+  "61 report / 62 apply" allocation below — the ear gate needs Joe to try all
+  three sensitivities without a settings surface, which Part 3 owns.
+- The pure change curve exposes per-part distances for the report's "which
+  features moved": per frame `{combined, bandDist, chromaDist}`; smoothing and
+  peak-picking operate on `combined` only.
 
 ## PART 2 — NOVELTY (spectral change) + EAR GATE
 
