@@ -816,6 +816,8 @@ void GentSamplerAudioProcessor::run()
             return;
         if (wantAnalysis.exchange (false))
             doAnalysisJob();
+        if (wantClassify.exchange (false))
+            doClassifyJob();
         if (wantRender.exchange (false))
             doRenderJob();
         doPadRenderJobs();      // cheap staleness scan; rebuilds only what changed
@@ -1062,6 +1064,14 @@ void GentSamplerAudioProcessor::requestStemSeparation()
     notify();
 }
 
+// P2 wiring (PHASE3_SPEC.md PART 2 "Wiring + gate deliverable"): mirror of
+// requestStemSeparation() above — sets a flag, wakes the worker, returns.
+void GentSamplerAudioProcessor::requestClassifyReport()
+{
+    wantClassify = true;
+    notify();
+}
+
 bool GentSamplerAudioProcessor::hasStems() const
 {
     const juce::SpinLock::ScopedLockType sl (stemLock);
@@ -1277,6 +1287,299 @@ void GentSamplerAudioProcessor::doStemJob()
     // stems exist now -> render them through the stretch (2b-1)
     wantStemRender = true;
     notify();
+}
+
+// ----------------------------------------------------------------------------
+//  P2 wiring (PHASE3_SPEC.md PART 2 "Wiring + gate deliverable"): read-only
+//  classification of the CURRENTLY assigned slices into a text report. Runs
+//  entirely on the worker thread (called only from run()'s wantClassify
+//  dispatch, exactly like doAnalysisJob/doStemJob). Never reslices, never
+//  writes cues/masks/grain, never pushes undo — a lying report is worse than
+//  no report, so every number here is read straight off the same cached
+//  state the rest of the engine uses, under the same locks.
+// ----------------------------------------------------------------------------
+void GentSamplerAudioProcessor::doClassifyJob()
+{
+    const auto gentDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                            .getChildFile ("GentSampler");
+    gentDir.createDirectory();
+
+    const juce::String stamp = juce::Time::getCurrentTime().formatted ("%Y%m%d-%H%M%S");
+    const juce::String rawName = getFileName();
+    const juce::String safeName = rawName.isNotEmpty()
+        ? juce::File::createLegalFileName (rawName)
+        : juce::String ("no_source");
+    const auto reportFile = gentDir.getChildFile ("ClassifyReport_" + safeName + "_" + stamp + ".txt");
+
+    auto writeAndReveal = [reportFile] (const juce::String& text)
+    {
+        reportFile.replaceWithText (text);
+        juce::MessageManager::callAsync ([reportFile]
+        {
+            reportFile.revealToUser();
+        });
+    };
+
+    // ---- snapshot every input under its own lock (worker thread) ----------
+    auto src = getSource();
+    if (src == nullptr)
+    {
+        writeAndReveal ("GentSampler classify report\n\nNo source loaded — nothing to classify.\n");
+        return;
+    }
+
+    std::vector<gent::FrameFeatures> frames;
+    double frameRate = 0.0;
+    getFeatureFrames (frames, frameRate);
+
+    std::vector<std::pair<int, float>> onsets;
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        onsets = transientOnsets;
+    }
+
+    StemSet::Ptr stems = getStems();      // refcounted keep-alive for the duration of this job
+    const bool stemsAvailable = (stems != nullptr);
+    const juce::String stemStatusStr = getStemStatus();
+    const int stemQualityIdx = getStemQuality();
+    static const char* const kQualityName[3] = { "FAST", "HQ", "MAX" };
+    const juce::String qualityStr = (stemQualityIdx >= 0 && stemQualityIdx < 3)
+        ? kQualityName[stemQualityIdx] : "?";
+
+    const double bpm = getEffectiveSourceBpm();
+    const double sr  = src->sampleRate;
+    const int sourceLen = src->buffer.getNumSamples();
+
+    // assigned pads (cue >= 0), ascending by cue position
+    struct AssignedPad { int pad; int cue; };
+    std::vector<AssignedPad> assigned;
+    for (int pad = 0; pad < 16; ++pad)
+    {
+        const int c = cues[(size_t) pad].load();
+        if (c >= 0)
+            assigned.push_back ({ pad, c });
+    }
+    std::sort (assigned.begin(), assigned.end(),
+               [] (const AssignedPad& a, const AssignedPad& b)
+               { return a.cue != b.cue ? a.cue < b.cue : a.pad < b.pad; });   // pad tiebreaker = deterministic
+
+    // ---- guard: nothing to classify (silent-source landmine — never crash) ----
+    if (sourceLen < 2 || assigned.empty() || frames.empty() || frameRate <= 0.0)
+    {
+        juce::String text;
+        text << "GentSampler classify report\n";
+        text << "source: " << rawName << "\n\n";
+        if (sourceLen < 2)
+            text << "Source is empty — nothing to classify.\n";
+        else if (assigned.empty())
+            text << "No pads are assigned (no cues set) — nothing to classify.\n";
+        else
+            text << "No cached analysis features yet — run an auto-slice first, "
+                    "then try Classify again.\n";
+        writeAndReveal (text);
+        return;
+    }
+
+    // sample position -> frame index (frames were stored at hop => frameRate = sr/hop)
+    auto sampleToFrame = [frameRate, sr] (int samplePos) -> int
+    {
+        return (int) std::llround ((double) samplePos * frameRate / sr);
+    };
+
+    const auto& thresholds = stemsAvailable ? gent::kThreshStems : gent::kThreshNoStems;
+
+    struct Row
+    {
+        int pad; int cue; gent::SliceAggregates agg; gent::ClassifyResult result;
+        float onsetStrength; float stemShare[6];
+        bool ambiguous;   // stems present but mix ambiguous -> classified with kThreshNoStems
+    };
+    std::vector<Row> rows;
+    rows.reserve (assigned.size());
+
+    const int frameCount = (int) frames.size();
+
+    for (size_t i = 0; i < assigned.size(); ++i)
+    {
+        const int cue = assigned[i].cue;
+        const int sliceEndSample = (i + 1 < assigned.size()) ? assigned[i + 1].cue : sourceLen;
+
+        const int startFrame = juce::jlimit (0, frameCount, sampleToFrame (cue));
+        const int endFrame   = juce::jlimit (0, frameCount, sampleToFrame (sliceEndSample));
+
+        const gent::SliceAggregates agg = gent::aggregateSliceFeatures (frames, frameRate, startFrame, endFrame);
+
+        // nearest onset to this cue (0 if none cached)
+        float onsetStrength = 0.0f;
+        if (! onsets.empty())
+        {
+            int bestIdx = 0;
+            int bestDist = std::abs (onsets[0].first - cue);
+            for (int k = 1; k < (int) onsets.size(); ++k)
+            {
+                const int d = std::abs (onsets[(size_t) k].first - cue);
+                if (d < bestDist) { bestDist = d; bestIdx = k; }
+            }
+            onsetStrength = onsets[(size_t) bestIdx].second;
+        }
+
+        // per-stem energy share (source-domain sample-range sum of squares)
+        float stemShare[6] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+        if (stemsAvailable)
+        {
+            const int rangeStart = juce::jlimit (0, sourceLen, cue);
+            const int rangeEnd   = juce::jlimit (rangeStart, sourceLen, sliceEndSample);
+            float energy[6] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+            float total = 0.0f;
+            for (int s = 0; s < 6; ++s)
+            {
+                const auto& buf = stems->buffers[(size_t) s];
+                const int bufLen = buf.getNumSamples();
+                const int st = juce::jmin (rangeStart, bufLen);
+                const int en = juce::jmin (rangeEnd, bufLen);
+                float e = 0.0f;
+                for (int ch = 0; ch < buf.getNumChannels(); ++ch)
+                {
+                    const float* d = buf.getReadPointer (ch);
+                    for (int n = st; n < en; ++n)
+                        e += d[n] * d[n];
+                }
+                energy[s] = e;
+                total += e;
+            }
+            if (total > 0.0f)
+                for (int s = 0; s < 6; ++s)
+                    stemShare[s] = energy[s] / total;
+        }
+
+        gent::SliceFeatures feat {};
+        feat.bandRatio[0] = agg.bandRatio[0];
+        feat.bandRatio[1] = agg.bandRatio[1];
+        feat.bandRatio[2] = agg.bandRatio[2];
+        feat.bandRatio[3] = agg.bandRatio[3];
+        feat.centroidHz   = agg.centroidHz;
+        feat.zcr          = agg.zcr;
+        feat.decaySec     = agg.decaySec;
+        feat.durationSec  = agg.durationSec;
+        feat.chromaFlatness = agg.chromaFlatness;
+        feat.onsetStrength  = onsetStrength;
+        feat.hasStems       = stemsAvailable;
+        for (int s = 0; s < 6; ++s)
+            feat.stemShare[s] = stemShare[s];
+
+        const gent::ClassifyResult result = gent::classifySlice (feat, thresholds);
+
+        // Report-honesty (R1 finding): classifySlice internally falls through to
+        // kThreshNoStems for a stems-present slice whose mix is ambiguous
+        // (drums < drumsDominant AND tonal < tonalDominant) — so its effective
+        // preset differs from the kThreshStems header. Mirror that exact branch
+        // condition here so the row can be marked, and Joe isn't tuning it
+        // against the wrong printed thresholds.
+        const float tonalMix = stemShare[1] + stemShare[2] + stemShare[3] + stemShare[4];
+        const bool ambiguous = stemsAvailable
+                            && stemShare[0] < gent::kThreshStems.drumsDominant
+                            && tonalMix     < gent::kThreshStems.tonalDominant;
+
+        Row row;
+        row.pad = assigned[i].pad;
+        row.cue = cue;
+        row.agg = agg;
+        row.result = result;
+        row.onsetStrength = onsetStrength;
+        for (int s = 0; s < 6; ++s) row.stemShare[s] = stemShare[s];
+        row.ambiguous = ambiguous;
+        rows.push_back (row);
+    }
+
+    // ---- build the fixed-width report ----------------------------------
+    static const char* const kClassName[6] = { "KICK", "SNARE", "HAT", "PERC", "TONAL", "OTHER" };
+
+    auto formatTime = [sr] (int samplePos) -> juce::String
+    {
+        const double totalSec = sr > 0.0 ? (double) samplePos / sr : 0.0;
+        const int mins = (int) (totalSec / 60.0);
+        const double secs = totalSec - mins * 60.0;
+        return juce::String (mins) + ":" + juce::String (secs, 3).paddedLeft ('0', 6);
+    };
+
+    juce::String text;
+    text << "GentSampler classify report\n";
+    text << "source:  " << rawName << "\n";
+    text << "bpm:     " << (bpm > 1.0 ? juce::String (bpm, 1) : juce::String ("(unknown)")) << "\n";
+    text << "stems:   " << (stemsAvailable ? "yes" : "no")
+         << (stemsAvailable ? ("  (quality " + qualityStr + ", " + stemStatusStr + ")") : juce::String())
+         << "\n";
+    text << "preset:  " << (stemsAvailable ? "kThreshStems" : "kThreshNoStems") << "\n";
+    text << "\nactive thresholds (" << (stemsAvailable ? "kThreshStems" : "kThreshNoStems") << "):\n";
+    text << "  drumsDominant   = " << juce::String (thresholds.drumsDominant, 2) << "\n";
+    text << "  tonalDominant   = " << juce::String (thresholds.tonalDominant, 2) << "\n";
+    text << "  kickLowRatio    = " << juce::String (thresholds.kickLowRatio, 2) << "\n";
+    text << "  kickCentroidMax = " << juce::String (thresholds.kickCentroidMax, 1) << "\n";
+    text << "  kickDecayMax    = " << juce::String (thresholds.kickDecayMax, 2) << "\n";
+    text << "  hatHighRatio    = " << juce::String (thresholds.hatHighRatio, 2) << "\n";
+    text << "  hatZcrMin       = " << juce::String (thresholds.hatZcrMin, 2) << "\n";
+    text << "  hatDurMax       = " << juce::String (thresholds.hatDurMax, 2) << "\n";
+    text << "  snareMidRatio   = " << juce::String (thresholds.snareMidRatio, 2) << "\n";
+    text << "  snareFlatMin    = " << juce::String (thresholds.snareFlatMin, 2) << "\n";
+    text << "  tonalFlatMax    = " << juce::String (thresholds.tonalFlatMax, 2) << "\n";
+    text << "  tonalDurMin     = " << juce::String (thresholds.tonalDurMin, 2) << "\n";
+    text << "  minConfidence   = " << juce::String (thresholds.minConfidence, 2) << "\n";
+
+    text << "\n";
+    text << juce::String ("slice").paddedRight (' ', 6)
+         << juce::String ("pad").paddedRight (' ', 5)
+         << juce::String ("time").paddedRight (' ', 11)
+         << juce::String ("class").paddedRight (' ', 7)
+         << juce::String ("conf").paddedRight (' ', 6)
+         << juce::String ("low").paddedRight (' ', 6)
+         << juce::String ("mid1").paddedRight (' ', 6)
+         << juce::String ("mid2").paddedRight (' ', 6)
+         << juce::String ("high").paddedRight (' ', 6)
+         << juce::String ("centHz").paddedRight (' ', 9)
+         << juce::String ("zcr").paddedRight (' ', 6)
+         << juce::String ("decay").paddedRight (' ', 7)
+         << juce::String ("dur").paddedRight (' ', 7)
+         << juce::String ("flat").paddedRight (' ', 6)
+         << juce::String ("drums%/tonal%") << "\n";
+
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        const auto& r = rows[i];
+        juce::String stemCol = "no stems";
+        if (stemsAvailable)
+        {
+            const float drumsPct = r.stemShare[0] * 100.0f;
+            const float tonalPct = (r.stemShare[1] + r.stemShare[2] + r.stemShare[3] + r.stemShare[4]) * 100.0f;
+            stemCol = juce::String (drumsPct, 0) + "%/" + juce::String (tonalPct, 0) + "%";
+        }
+
+        text << juce::String ((int) i + 1).paddedRight (' ', 6)
+             << juce::String (r.pad).paddedRight (' ', 5)
+             << formatTime (r.cue).paddedRight (' ', 11)
+             << juce::String (kClassName[r.result.cls]).paddedRight (' ', 7)
+             << juce::String (r.result.confidence, 2).paddedRight (' ', 6)
+             << juce::String (r.agg.bandRatio[0], 2).paddedRight (' ', 6)
+             << juce::String (r.agg.bandRatio[1], 2).paddedRight (' ', 6)
+             << juce::String (r.agg.bandRatio[2], 2).paddedRight (' ', 6)
+             << juce::String (r.agg.bandRatio[3], 2).paddedRight (' ', 6)
+             << juce::String (r.agg.centroidHz, 0).paddedRight (' ', 9)
+             << juce::String (r.agg.zcr, 3).paddedRight (' ', 6)
+             << juce::String (r.agg.decaySec, 2).paddedRight (' ', 7)
+             << juce::String (r.agg.durationSec, 2).paddedRight (' ', 7)
+             << juce::String (r.agg.chromaFlatness, 2).paddedRight (' ', 6)
+             << stemCol << (r.ambiguous ? "  *" : "") << "\n";
+    }
+
+    // Footnote for the ambiguous-fallthrough marker (only when it fired).
+    bool anyAmbiguous = false;
+    for (const auto& r : rows) if (r.ambiguous) { anyAmbiguous = true; break; }
+    if (anyAmbiguous)
+        text << "\n* stem mix ambiguous (drums < " << juce::String (gent::kThreshStems.drumsDominant, 2)
+             << " AND tonal < " << juce::String (gent::kThreshStems.tonalDominant, 2)
+             << ") — this row was classified with the kThreshNoStems thresholds, "
+                "NOT the kThreshStems preset printed above.\n";
+
+    writeAndReveal (text);
 }
 
 // ----------------------------------------------------------------------------

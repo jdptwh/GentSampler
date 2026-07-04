@@ -287,6 +287,15 @@ public:
     // Consumer is P2's doClassifyJob (worker thread); safe from any thread.
     void getFeatureFrames (std::vector<gent::FrameFeatures>& out, double& rate) const;
 
+    // P2 wiring (PHASE3_SPEC.md PART 2 "Wiring + gate deliverable"): read-only
+    // classification of the CURRENTLY assigned slices into a text report —
+    // never reslices, never touches cues, never pushes undo. Mirrors
+    // requestStemSeparation()'s fire-and-forget shape exactly; doClassifyJob
+    // runs on the existing worker thread (run()'s serial dispatch loop), same
+    // as doAnalysisJob/doStemJob. Message thread only calls this + shows the
+    // resulting file via MessageManager::callAsync.
+    void requestClassifyReport();
+
     // edit history (cue/end + stem-source + grain state, 0.3). Message thread
     // only: undo()/redo() now also write APVTS grain params via
     // getParameterAsValue (see applySnap), which is a message-thread-only API;
@@ -316,6 +325,7 @@ private:
     void doPadRenderJobs();
     void doAnalysisJob();
     void doStemJob();
+    void doClassifyJob();       // P2 wiring: read-only slice classification -> report file
     void doTranscriptionJob();                              // Basic Pitch: slice -> notes -> .mid
     bool writeTranscribedMidi (const std::vector<BasicPitchTranscriber::Note>& notes,
                                const juce::File& midFile);
@@ -452,6 +462,7 @@ private:
     mutable juce::SpinLock stemLock;
     StemSet::Ptr        stemSet;                           // worker writes, UI reads
     std::atomic<bool>   wantStems { false };
+    std::atomic<bool>   wantClassify { false };   // P2 wiring: requestClassifyReport() sets this
     std::atomic<bool>   separating { false };
     std::atomic<bool>   downloadingModels { false };  // true during first-run weight download
     std::atomic<float>  stemProgress { 0.0f };

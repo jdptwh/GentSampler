@@ -559,6 +559,11 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         m.addItem (50, "Clear selected pad");
         m.addItem (51, "Reset all region ends to auto");
         m.addItem (52, "Clear ALL pads (blank slate)");
+        m.addSeparator();
+        // P2 wiring (PHASE3_SPEC.md PART 2): dev-only classify-report trigger.
+        // Classifies CURRENT slices — does NOT reslice, does NOT touch cues,
+        // does NOT pushUndo (read-only, see the r == 60 dispatch below).
+        m.addItem (60, "Classify slices -> report (dev)");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sliceMenu),
             [this] (int r)
             {
@@ -569,6 +574,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                 if (r >= 20 && r <= 22) { p.pushUndo(); p.setSliceSensitivity (r - 20);  p.autoSliceMusical(); return; }
                 if (r >= 30 && r <= 32) { p.pushUndo(); p.setSliceSnap (r - 30);         p.autoSliceMusical(); return; }
                 if (r >= 40 && r <= 43) { sliceMode.setSelectedId (r - 39, juce::sendNotification); return; }
+                if (r == 60) { p.requestClassifyReport(); return; }
                 p.pushUndo();
                 if (r == 50)      p.clearCue (p.selectedPad.load());
                 else if (r == 51) for (int i = 0; i < 16; ++i) p.setCueEnd (i, -1);
