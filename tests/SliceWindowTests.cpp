@@ -58,6 +58,20 @@ TEST_CASE ("T2.3 effectiveCueEnd: OPEN / clamp / slice-mode scan / sentinels")
         CHECK (gent::effectiveCueEnd (500, -1, len, true, cues) == 800);
     }
 
+    // POINT-CUE guarantee (bare tap on an unassigned pad): an OPEN end is never
+    // given a derived boundary by the global scan, even in slice mode with a
+    // nearer neighbor cue present. This is what lets a tapped point-cue play to
+    // the sample end under GATE (held = sound, release = cut), never stopping at
+    // a neighbor. Contrast the auto (-1) case just above, which DOES scan to 800.
+    {
+        std::array<int, 16> cues {};
+        cues.fill (-1);
+        cues[0] = 500;     // this pad's own OPEN point-cue
+        cues[3] = 800;     // a nearer neighbor cue that MUST be ignored
+        cues[7] = 900;
+        CHECK (gent::effectiveCueEnd (500, gent::kOpenSlice, len, true, cues) == len - 1);
+    }
+
     // auto + sliceMode + no later cue -> len-1
     {
         std::array<int, 16> cues {};

@@ -481,6 +481,13 @@ void GentSamplerAudioProcessor::assignPadCue (int pad, bool snap)
         return;
     pushUndo();
     setCue (pad, pos, snap);
+    // Bare POINT cue: a tapped unassigned pad gets a cue ONLY — no window, no
+    // end. Mark the end OPEN (kOpenSlice) so neither effectiveCueEnd nor the
+    // audio path ever derive a boundary for it from the global cue scan; it
+    // plays from the cue under the pad's GATE default (held = sound, release =
+    // stop) until the user drags a real end in the slice-detail strip. Only this
+    // pad's cue/end are written; nothing here reads or touches another pad.
+    cueEnds[(size_t) pad] = kOpenSlice;
     selectedPad = pad;
     lastTriggerPad = pad;
     ++lastTriggerCount;
