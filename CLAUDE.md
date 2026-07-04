@@ -41,6 +41,13 @@ clean, passes pluginval, and runs stable inside FL Studio.
   ambiguous stems-present rows are marked "*" (classified w/ kThreshNoStems).
 - Next up (post-gate): P3 KIT mapping, P4 SLICE split-chip dropdown.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
+- 2026-07-04 session: base re-verified GREEN this tip (build/ctest/pluginval-5,
+  cold). Fixed a pre-existing cold-open pluginval hang (CUDA preload on
+  construct — see landmine below); committed on its own. Still AT THE EAR-GATE —
+  no P3/P4 code started. In flight this session, gated behind the ear-gate: a
+  filesDropped self-drop guard (reject our own tempDir() exports) and an
+  INVESTIGATE-ONLY writeup of the live cue-on-unassigned-pad reference-frame bug
+  (source-vs-rendered cue domain) going into PHASE3_SPEC.md.
 
 ## Conventions
 - Language/stack: C++17, JUCE 8.0.4 (FetchContent), CMake ≥3.22,
@@ -151,5 +158,25 @@ Running list of past failures and their fixes, so they never recur.
 - 2026-06 — GPU inference crashes FL Studio's process (works standalone) →
   CUDA gated off; the thread/context + `cudaSetDevice(0)` fix is ALREADY
   implemented and did not fix it — don't re-try it as step 1.
+- 2026-07-04 — Cold-open hang: `ensureOrtLoaded()` (StemSeparator.cpp) preloaded
+  the ~2.6 GB CUDA/cuDNN pack via `LoadLibraryExW` on the worker thread the
+  ctor starts, ON THE CONSTRUCT PATH. CUDA DllMain init blocks/faults inside a
+  host process, so plugin construction stalled indefinitely — pluginval "Open
+  plugin (cold)" timed out at 30s (3/3) and the stem-engine-check log was never
+  written. Fixed: the whole preload (+ `g_cudaSetDevice` resolve) is now gated
+  behind `if (kEnableCuda)` (const false) so construct does ZERO CUDA DLL
+  loading; the CPU `onnxruntime.dll` load + `Ort::InitApi` are independent and
+  untouched. Pre-existing since the initial commit — dead GPU groundwork that
+  should have been gated when CUDA was shelved; NOT a Phase 3 change.
+  MECHANISM (why it hid): cold vs warm OS file cache. The first cold load of
+  2.6 GB is slow/hangs; once Windows has the DLLs cached (e.g. right after a
+  standalone/FL/stem session) the same load finishes under 30s and pluginval
+  "passes." **The documented "transient pluginval flake" that gate.sh's
+  retry-once was built around WAS THIS EXACT HANG hitting warm cache** — it was
+  never a flake. DO NOT re-add a retry to paper over a cold-open stall, and DO
+  NOT dismiss an "Open plugin (cold)" timeout as noise: it means real blocking
+  work is on the construct path (CUDA/model/ORT probe, or a synchronous file
+  load — see the applyStateTree restore item in BACKLOG.md). Diagnose it; the
+  engine-check log NOT updating after a run is the tell that the probe hung.
 - Unicode in UI strings requires MSVC `/utf-8` (already set) — don't remove it
   or middots/arrows mojibake.
