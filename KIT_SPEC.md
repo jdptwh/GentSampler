@@ -142,5 +142,5 @@ kit browser UI, migrating v1 kits, stem re-separation on load.
 ## Record
 | Part | Commit | Joe verdict |
 |---|---|---|
-| A | | |
-| B | | |
+| A | `93b88c4` | **"seems to be working as intended. proceed"** — FL-validated 2026-07-05. No kKitThresh tuning requested. |
+| B | | (stems-embed design not vetoed — proceeding per spec) |
