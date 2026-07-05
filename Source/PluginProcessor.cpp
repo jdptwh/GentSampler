@@ -615,6 +615,39 @@ void GentSamplerAudioProcessor::sliceSections (int bars)
     applySlices (s, len);
 }
 
+// KIT_SPEC.md PART A: every hit gets its own pad, in time order. Message
+// thread; caller pushes undo. sliceTransients() precedent for the
+// deferred-until-analyzed path (onsets don't exist yet).
+void GentSamplerAudioProcessor::sliceKit (int sensitivity)
+{
+    auto src = getSource();
+    if (src == nullptr) return;
+
+    std::vector<std::pair<int, float>> onsets;
+    getOnsetPeaks (onsets);
+
+    if (onsets.empty())
+    {
+        kitSensPending = sensitivity;
+        kitPending = true;
+        analysisKeepCues = false;
+        wantAnalysis = true;
+        notify();
+        return;
+    }
+
+    const auto hits = gent::kitHits (onsets, src->sampleRate, sensitivity);
+
+    if ((int) hits.size() > 16)
+        DBG ("KIT: " << hits.size() << " hits, first 16 laid");
+
+    std::vector<int> s (16, -1);
+    for (int i = 0; i < 16 && i < (int) hits.size(); ++i)
+        s[(size_t) i] = hits[(size_t) i];
+
+    applySlices (s, src->buffer.getNumSamples());
+}
+
 // ---- music-aware auto-slice (2A): transients reconciled to the beat grid --------
 double GentSamplerAudioProcessor::samplesPerBeat() const
 {
@@ -669,6 +702,14 @@ std::vector<int> GentSamplerAudioProcessor::getOnsetPositions() const
     out.reserve (on.size());
     for (auto& o : on) out.push_back (o.first);
     return out;
+}
+
+// KIT_SPEC.md PART A: strengths-preserving copy accessor, mirroring
+// getOnsetPositions() above.
+void GentSamplerAudioProcessor::getOnsetPeaks (std::vector<std::pair<int, float>>& out) const
+{
+    const juce::SpinLock::ScopedLockType sl (infoLock);
+    out = transientOnsets;
 }
 
 // P1 (PHASE3_SPEC.md PART 1): copy-under-lock accessor for the cached
@@ -1076,6 +1117,17 @@ void GentSamplerAudioProcessor::doAnalysisJob()
     }
     else if (! analysisKeepCues.load())
         applySlices (res.slices, src->buffer.getNumSamples());
+
+    // KIT_SPEC.md PART A: sliceKit() was called before onsets existed (set
+    // kitPending + analysisKeepCues=false, so res.slices above already
+    // applied first) — onsets now exist, so lay the kit immediately,
+    // overwriting that auto-apply. No pushUndo here: the one CueSnap for
+    // this whole chain was already pushed at the original menu click
+    // (sliceKit's caller), and neither this worker nor sliceKit() itself
+    // ever calls pushUndo() (grep-verified: pushUndo() has exactly one call
+    // site, the message-thread menu dispatch).
+    if (kitPending.exchange (false))
+        sliceKit (kitSensPending.load());
 
     analyzing = false;
     ++uiDirty;
@@ -2811,6 +2863,8 @@ bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
     extra.setProperty ("slBars", sectionBars.load(), nullptr);
     extra.setProperty ("slSens", sectionSens.load(), nullptr);
     extra.setProperty ("slEven", gridEvenSel.load(), nullptr);
+    // KIT_SPEC.md PART A: mode 5's persisted sub-option (three-spot pattern).
+    extra.setProperty ("slKSens", kitSens.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
     extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request
@@ -2881,6 +2935,7 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     setSectionBars  ((int) extra.getProperty ("slBars", (int) sectionBars.load()));
     setSectionSens  ((int) extra.getProperty ("slSens", (int) sectionSens.load()));
     setGridEvenSel  ((int) extra.getProperty ("slEven", (int) gridEvenSel.load()));
+    setKitSens      ((int) extra.getProperty ("slKSens", (int) kitSens.load()));
     snapEnabled = (bool) extra.getProperty ("snap", snapEnabled.load());
     velToLevel  = (bool) extra.getProperty ("vel2l", true);
     // D2: restore hero view sticky request through the sanitizer (garbage-stored-int
@@ -3457,6 +3512,8 @@ void GentSamplerAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
     extra.setProperty ("slBars", sectionBars.load(), nullptr);
     extra.setProperty ("slSens", sectionSens.load(), nullptr);
     extra.setProperty ("slEven", gridEvenSel.load(), nullptr);
+    // KIT_SPEC.md PART A: mode 5's persisted sub-option (three-spot pattern).
+    extra.setProperty ("slKSens", kitSens.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
     extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request

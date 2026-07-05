@@ -1403,4 +1403,58 @@ inline std::vector<int> noveltyBoundaries (const std::vector<FrameFeatures>& fra
     return boundaries;
 }
 
+// ---------------------------------------------------------------------------
+//  KIT — Part A: hit isolation + time-order layout.
+//  See KIT_SPEC.md PART A ("Pure core") for the full normative text this
+//  comment mirrors. kitHits is pure and deterministic.
+//
+//  Contrast with Analyzer::analyze's `slices` (Analysis.h:198-241): `slices`
+//  selects the top-16 transients by STRENGTH with an 80 ms min-gap — it
+//  drops/merges hits and caps at 16, which is exactly what a "get every hit"
+//  kit must NOT do. kitHits instead takes ALL onsets (`onsets`, every peak,
+//  no cap), keeps every one at/above the sensitivity's strength floor, then
+//  applies only a 30 ms anti-double-trigger min-spacing pass that drops the
+//  LATER of two too-close onsets (never strength-based — that's what loses
+//  a real hit). Time-ordered output; no 16-cap here (the caller lays the
+//  first 16 and reports overflow, `sectionCount`/barSectionSlices precedent).
+// ---------------------------------------------------------------------------
+struct KitThresholds
+{
+    float sFew = 0.45f, sMedium = 0.25f, sMany = 0.12f;
+    float minSpacingSec = 0.03f;
+};
+
+constexpr KitThresholds kKitThresh {};
+
+// onsets: ascending (samplePos, strength 0..1) pairs, by construction (the
+// analyzer's own onset list). sensitivity: 0 few, 1 medium, 2 many. Empty
+// onsets or sampleRate<=0 -> empty.
+inline std::vector<int> kitHits (const std::vector<std::pair<int, float>>& onsets,
+                                  double sampleRate, int sensitivity)
+{
+    if (onsets.empty() || sampleRate <= 0.0)
+        return {};
+
+    const float sThresh = sensitivity <= 0 ? kKitThresh.sFew
+                        : sensitivity == 1 ? kKitThresh.sMedium
+                                           : kKitThresh.sMany;
+
+    std::vector<int> kept;
+    for (const auto& o : onsets)
+        if (o.second >= sThresh)
+            kept.push_back (o.first);
+
+    const int minSpacing = (int) (sampleRate * (double) kKitThresh.minSpacingSec);
+
+    std::vector<int> result;
+    for (int pos : kept)
+    {
+        if (! result.empty() && (pos - result.back()) < minSpacing)
+            continue;   // too close to the previously-kept (earlier) hit: drop the LATER one
+        result.push_back (pos);
+    }
+
+    return result;
+}
+
 } // namespace gent

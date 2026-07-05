@@ -550,6 +550,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                     default: break;
                 }
                 break;
+            case 5: p.pushUndo(); p.sliceKit (p.getKitSens()); break;
             default: break;
         }
     };
@@ -558,6 +559,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         const int gd = p.getSliceGridDiv(), sn = p.getSliceSensitivity(), sp = p.getSliceSnap();
         const int mode = p.getSliceModeSel(), bars = p.getSectionBars();
         const int sens = p.getSectionSens(), even = p.getGridEvenSel();
+        const int kitSens = p.getKitSens();
         juce::PopupMenu m;
         m.addItem (1, "SMART (transients + grid)", true, mode == 2);
         m.addItem (2, "TRANSIENTS only", true, mode == 3);
@@ -598,6 +600,12 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         sections.addItem (71, "Novelty: medium", true, mode == 1 && sens == 1);
         sections.addItem (72, "Novelty: many",   true, mode == 1 && sens == 2);
         m.addSubMenu ("SECTIONS (flip)", sections);
+        // KIT_SPEC.md PART A: mode 5 — every hit gets its own pad, in time order.
+        juce::PopupMenu kit;
+        kit.addItem (80, "Few hits",    true, mode == 5 && kitSens == 0);
+        kit.addItem (81, "Medium",      true, mode == 5 && kitSens == 1);
+        kit.addItem (82, "Many hits",   true, mode == 5 && kitSens == 2);
+        m.addSubMenu ("KIT (every hit)", kit);
         m.addSeparator();
         m.addItem (50, "Clear selected pad");
         m.addItem (51, "Reset all region ends to auto");
@@ -666,6 +674,14 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                     p.setSectionSens (s);
                     p.pushUndo();
                     p.requestSectionApply (s);   // ONE CueSnap at click (worker-deferred)
+                    return;
+                }
+                if (r >= 80 && r <= 82)
+                {
+                    p.setSliceModeSel (5);
+                    p.setKitSens (r - 80);
+                    p.pushUndo();
+                    p.sliceKit (r - 80);
                     return;
                 }
                 if (r == 60) { p.requestClassifyReport(); return; }
@@ -1705,6 +1721,7 @@ void GentSamplerAudioProcessorEditor::timerCallback()
                 case 2:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 SMART"));
                 case 3:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 TRANS"));
                 case 4:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 GRID"));
+                case 5:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 KIT"));
                 default: return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 SECTIONS"));
             }
         }();

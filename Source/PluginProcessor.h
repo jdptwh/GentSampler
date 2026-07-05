@@ -149,6 +149,13 @@ public:
     void sliceBeats (double beatsPerSlice);                // 1, 2, 4 beats per pad (uses source BPM)
     void sliceSections (int bars);                         // N-bar sections from start (uses source BPM)
 
+    // KIT_SPEC.md PART A: every hit gets its own pad, in time order (message
+    // thread; caller pushes undo before calling, sliceTransients precedent).
+    // If onsets haven't been analyzed yet, defers via kitPending/kitSensPending
+    // (analysisKeepCues=false + wantAnalysis=true + notify(), sliceTransients
+    // precedent) and applies synchronously once doAnalysisJob's onsets exist.
+    void sliceKit (int sensitivity);
+
     // music-aware auto-slice: transients reconciled to the beat grid (2A)
     void autoSliceMusical();                               // blend of transients + grid + snap
     int  getSliceGridDiv()    const { return sliceGridDiv.load(); }    // 0 Bar,1 Beat,2 1/8,3 1/16
@@ -161,11 +168,14 @@ public:
     // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model, persisted alongside
     // sliceGridDiv/sliceSensitivity/sliceSnap above (three-spot pattern: saveKit,
     // getStateInformation, applyStateTree). No APVTS params.
-    int  getSliceModeSel()  const { return sliceModeSel.load(); }   // 0 SECTIONS-BARS,1 SECTIONS-NOVELTY,2 SMART,3 TRANSIENT,4 GRID-EVEN
+    int  getSliceModeSel()  const { return sliceModeSel.load(); }   // 0 SECTIONS-BARS,1 SECTIONS-NOVELTY,2 SMART,3 TRANSIENT,4 GRID-EVEN,5 KIT
     int  getSectionBars()   const { return sectionBars.load(); }    // {1,2,4,8}
     int  getSectionSens()   const { return sectionSens.load(); }    // 0 few,1 medium,2 many
     int  getGridEvenSel()   const { return gridEvenSel.load(); }    // 0 16-equal,1 beat,2 2-beats,3 every bar
-    void setSliceModeSel (int v)  { sliceModeSel.store (juce::jlimit (0, 4, v)); }
+    // KIT_SPEC.md PART A: 0 few,1 medium,2 many, default 1 — same clamped
+    // three-spot-persisted pattern as sectionSens above.
+    int  getKitSens()       const { return kitSens.load(); }
+    void setSliceModeSel (int v)  { sliceModeSel.store (juce::jlimit (0, 5, v)); }
     void setSectionBars  (int v)                                    // snap to nearest of {1,2,4,8} — jlimit alone is not enough
     {
         static const int valid[4] = { 1, 2, 4, 8 };
@@ -180,6 +190,7 @@ public:
     }
     void setSectionSens   (int v) { sectionSens.store   (juce::jlimit (0, 2, v)); }
     void setGridEvenSel   (int v) { gridEvenSel.store   (juce::jlimit (0, 3, v)); }
+    void setKitSens       (int v) { kitSens.store       (juce::jlimit (0, 2, v)); }
 
     double samplesPerBeat() const;                         // 0 if no reliable BPM
     double gridStepSamples() const;                        // current grid division in samples (0 if none)
@@ -306,6 +317,12 @@ public:
     // Detail strip's transient ticks. Same infoLock-guarded copy pattern as every
     // other transientOnsets/transientSlices reader in this class.
     std::vector<int> getOnsetPositions() const;
+
+    // KIT_SPEC.md PART A: strengths-preserving copy accessor, mirroring
+    // getOnsetPositions() above (same infoLock-guarded copy pattern) but
+    // keeping each onset's (samplePos, strength) pair — gent::kitHits needs
+    // the strength to apply its sensitivity floor.
+    void getOnsetPeaks (std::vector<std::pair<int, float>>& out) const;
 
     // P1 (PHASE3_SPEC.md PART 1): copy-under-lock accessor for the cached
     // per-frame analysis features, mirroring getOnsetPositions()'s pattern.
@@ -500,6 +517,8 @@ private:
     std::atomic<int>  sectionBars  { 4 };           // {1,2,4,8}, default 4
     std::atomic<int>  sectionSens  { 1 };           // 0 few,1 medium,2 many, default 1
     std::atomic<int>  gridEvenSel  { 3 };           // 0 16-equal,1 beat,2 2-beats,3 every bar, default 3
+    // KIT_SPEC.md PART A: mode 5's persisted sub-option, same pattern.
+    std::atomic<int>  kitSens      { 1 };           // 0 few,1 medium,2 many, default 1
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<bool>   wantRender { false }, wantAnalysis { false }, analysisKeepCues { false };
@@ -516,6 +535,12 @@ private:
     std::atomic<bool>   wantSectionReport { false };
     std::atomic<bool>   wantSectionApply  { false };
     std::atomic<int>    sectionSensitivity { 1 };
+    // KIT_SPEC.md PART A: sliceKit()'s deferred-until-analyzed flag (set when
+    // onsets don't exist yet, sliceTransients precedent) — consumed inside
+    // doAnalysisJob's completion block, NOT run()'s dispatch loop (onsets are
+    // only available once that job has written them).
+    std::atomic<bool>   kitPending { false };
+    std::atomic<int>    kitSensPending { 1 };
     std::atomic<bool>   separating { false };
     std::atomic<bool>   downloadingModels { false };  // true during first-run weight download
     std::atomic<float>  stemProgress { 0.0f };
