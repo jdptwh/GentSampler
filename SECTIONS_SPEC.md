@@ -186,7 +186,12 @@ submenus, clear items 50-52, dev section 60-66. Free ids used: 70-72.
   save/reload (three-spot).
 - [ ] Old projects without the new keys load with defaults; no behavior change
   to any existing menu item semantics.
-- [ ] gate.sh green; Joe FL-validates on a real track.
+- [x] gate.sh green; Joe FL-validates on a real track.
+
+**Part 3 record:** committed `37b6c06` (gate+deploy green, doctest 104). Joe
+validated by continuation ("continue", 2026-07-05) — no issues reported.
+**SECTIONS task COMPLETE** (spec → BARS → NOVELTY → ear gate → dropdown).
+Next task: KIT v1 (KIT_SPEC.md).
 
 ## Out of scope (all parts)
 KIT changes, classifier code (parked v2), stem engine, granular, Theme.h,
