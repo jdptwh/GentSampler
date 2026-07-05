@@ -70,7 +70,7 @@ session but the tool sandbox denied `rm -rf` outside the working directory —
 `C:/gswave` may still exist on disk and is safe to delete manually (build
 artifacts only, no repo content).
 
-## HIGH — synchronous loadFile-on-construct in state restore (Pad12-ghost family) (found 2026-07-04)
+## RESOLVED 2026-07-05 (`2ee2f53`, DATA_INTEGRITY_SPEC.md) — was: HIGH — synchronous loadFile-on-construct in state restore (Pad12-ghost family) (found 2026-07-04)
 `applyStateTree()` (PluginProcessor.cpp:2594-2599) restores the persisted source
 by calling `loadFile(f, false)` **synchronously on the calling thread** whenever
 the stored `path` still `existsAsFile()`. That path runs from
@@ -110,7 +110,7 @@ payload), and confirm the pluginval/CI artefact folder doesn't carry it either
 (it was the trigger for the cold-open hang). No runtime dependency on these DLLs
 exists while CUDA is shelved. Packaging concern only — no code change implied.
 
-## HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
+## RESOLVED 2026-07-05 (`2ee2f53`, DATA_INTEGRITY_SPEC.md) — was: HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
 Data-integrity race on the state-restore path (paired with the sync-loadFile
 item above — same reopen path, fix them together). `setStateInformation()` ->
 `applyStateTree()` (PluginProcessor.cpp:2585-2636) restores `cues[]`/`cueEnds[]`/
