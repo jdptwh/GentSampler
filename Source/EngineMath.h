@@ -1168,4 +1168,239 @@ inline BarSections barSectionSlices (int len, double samplesPerBar, int bars)
     return result;
 }
 
+// ---------------------------------------------------------------------------
+//  SECTIONS — Part 2: NOVELTY (spectral-change) boundary detection.
+//  See SECTIONS_SPEC.md PART 2 + AMENDMENT P2-A for the full normative text
+//  these comments mirror. Pure, JUCE-free, deterministic. Consumes only the
+//  cached P1 FrameFeatures — no new FFT, no analyzer changes.
+// ---------------------------------------------------------------------------
+
+// One frame's novelty (spectral-change) readout vs the PREVIOUS frame:
+//  - combined   — cosine distance over the concat of L2-normalized band[4]
+//                 and L2-normalized chroma[12] (each part normalized
+//                 SEPARATELY, then concatenated, so band and chroma weight
+//                 equally regardless of their raw magnitude).
+//  - bandDist   — cosine distance over band[4] alone.
+//  - chromaDist — cosine distance over chroma[12] alone.
+// Cosine distance = 1 - cosine similarity. If either frame's vector (for the
+// given part -- band, chroma, or the band+chroma concat for `combined`) is
+// all-zero/silent, that distance is defined as 0 (no NaN, no divide-by-zero).
+struct NoveltyPoint
+{
+    float combined;
+    float bandDist;
+    float chromaDist;
+};
+
+namespace detail
+{
+    // Cosine distance between two equal-length raw vectors. Either vector
+    // all-zero -> 0 (silent frame convention, SECTIONS_SPEC.md PART 2).
+    inline float cosineDistanceRaw (const float* a, const float* b, int n)
+    {
+        double dot = 0.0, na = 0.0, nb = 0.0;
+        for (int i = 0; i < n; ++i)
+        {
+            dot += (double) a[i] * (double) b[i];
+            na  += (double) a[i] * (double) a[i];
+            nb  += (double) b[i] * (double) b[i];
+        }
+        if (na <= 0.0 || nb <= 0.0)
+            return 0.0f;
+        const double sim = dot / (std::sqrt (na) * std::sqrt (nb));
+        return (float) (1.0 - std::clamp (sim, -1.0, 1.0));
+    }
+
+    // L2-normalize `src[n]` into `dst[n]`; leaves dst all-zero if src is
+    // all-zero/silent (never divides by zero).
+    inline void l2Normalize (const float* src, float* dst, int n)
+    {
+        double sumSq = 0.0;
+        for (int i = 0; i < n; ++i)
+            sumSq += (double) src[i] * (double) src[i];
+        if (sumSq <= 0.0)
+        {
+            for (int i = 0; i < n; ++i) dst[i] = 0.0f;
+            return;
+        }
+        const double invNorm = 1.0 / std::sqrt (sumSq);
+        for (int i = 0; i < n; ++i)
+            dst[i] = (float) ((double) src[i] * invNorm);
+    }
+}
+
+inline std::vector<NoveltyPoint> noveltyCurve (const std::vector<FrameFeatures>& frames)
+{
+    std::vector<NoveltyPoint> out (frames.size(), NoveltyPoint { 0.0f, 0.0f, 0.0f });
+    if (frames.size() < 2)
+        return out;
+
+    for (size_t f = 1; f < frames.size(); ++f)
+    {
+        const auto& prev = frames[f - 1];
+        const auto& cur  = frames[f];
+
+        // combined: concat of separately-L2-normalized band[4] + chroma[12]
+        float prevN[16], curN[16];
+        detail::l2Normalize (prev.band, prevN, 4);
+        detail::l2Normalize (prev.chroma, prevN + 4, 12);
+        detail::l2Normalize (cur.band, curN, 4);
+        detail::l2Normalize (cur.chroma, curN + 4, 12);
+
+        NoveltyPoint p;
+        p.combined   = detail::cosineDistanceRaw (prevN, curN, 16);
+        p.bandDist   = detail::cosineDistanceRaw (prev.band, cur.band, 4);
+        p.chromaDist = detail::cosineDistanceRaw (prev.chroma, cur.chroma, 12);
+        out[f] = p;
+    }
+
+    return out;
+}
+
+// Centered moving average of NoveltyPoint::combined over window `w` (clamped
+// >= 1; even w forced to the next odd via w|1). Edges average only the
+// in-range portion (no zero-padding bias).
+inline std::vector<float> smoothCurve (const std::vector<NoveltyPoint>& curve, int w)
+{
+    std::vector<float> out (curve.size(), 0.0f);
+    if (curve.empty())
+        return out;
+
+    w = std::max (1, w) | 1;   // clamp >=1, force odd
+    const int half = w / 2;
+    const int n = (int) curve.size();
+
+    for (int i = 0; i < n; ++i)
+    {
+        const int lo = std::max (0, i - half);
+        const int hi = std::min (n - 1, i + half);
+        double sum = 0.0;
+        for (int j = lo; j <= hi; ++j)
+            sum += (double) curve[(size_t) j].combined;
+        out[(size_t) i] = (float) (sum / (double) (hi - lo + 1));
+    }
+
+    return out;
+}
+
+// ALL novelty tunables live in this ONE struct (SECTIONS_SPEC.md PART 2 +
+// AMENDMENT P2-A) — the Joe ear-gate tunes these values only, same
+// discipline as ClassifierThresholds.
+struct NoveltyThresholds
+{
+    float kFew = 1.5f;
+    float kMedium = 1.0f;
+    float kMany = 0.6f;
+    float smoothBars = 0.75f;
+    float minSectionBars = 1.0f;
+};
+
+constexpr NoveltyThresholds kNoveltyThresh {};
+
+// Local maxima of `smoothed` (strictly greater than both neighbors) whose
+// value exceeds mean + k*stddev of the WHOLE smoothed curve. Peaks closer
+// than minGapFrames have the weaker one dropped (greedy strongest-first).
+// Returns ascending frame indices. Degenerate (size<3, zero variance) ->
+// empty.
+inline std::vector<int> pickNoveltyPeaks (const std::vector<float>& smoothed, float k, int minGapFrames)
+{
+    std::vector<int> result;
+    const int n = (int) smoothed.size();
+    if (n < 3)
+        return result;
+
+    double mean = 0.0;
+    for (float v : smoothed) mean += (double) v;
+    mean /= (double) n;
+
+    double var = 0.0;
+    for (float v : smoothed) var += ((double) v - mean) * ((double) v - mean);
+    var /= (double) n;
+    const double stddev = std::sqrt (var);
+
+    if (stddev <= 0.0)
+        return result;   // flat curve -> no meaningful peaks
+
+    const double threshold = mean + (double) k * stddev;
+
+    struct Peak { int idx; float value; };
+    std::vector<Peak> candidates;
+    for (int i = 1; i < n - 1; ++i)
+    {
+        if (smoothed[(size_t) i] > smoothed[(size_t) (i - 1)]
+            && smoothed[(size_t) i] > smoothed[(size_t) (i + 1)]
+            && (double) smoothed[(size_t) i] > threshold)
+        {
+            candidates.push_back ({ i, smoothed[(size_t) i] });
+        }
+    }
+    if (candidates.empty())
+        return result;
+
+    // Greedy strongest-first: sort by value descending, keep a peak only if
+    // it is farther than minGapFrames from every already-kept peak.
+    std::vector<Peak> byStrength = candidates;
+    std::sort (byStrength.begin(), byStrength.end(),
+               [] (const Peak& a, const Peak& b) { return a.value > b.value; });
+
+    std::vector<int> kept;
+    const int gap = std::max (1, minGapFrames);
+    for (const auto& c : byStrength)
+    {
+        bool tooClose = false;
+        for (int k2 : kept)
+            if (std::abs (c.idx - k2) < gap) { tooClose = true; break; }
+        if (! tooClose)
+            kept.push_back (c.idx);
+    }
+
+    std::sort (kept.begin(), kept.end());
+    return kept;
+}
+
+// Top-level chain: FrameFeatures -> boundary sample positions, snapped to the
+// nearest beat, boundary 0 always present, deduped, capped by the caller at
+// 16 (this function returns the full set; callers cap for pad assignment and
+// report the overflow — SECTIONS_SPEC.md PART 2 point 4).
+// sensitivity: 0 few, 1 medium, 2 many.
+inline std::vector<int> noveltyBoundaries (const std::vector<FrameFeatures>& frames,
+                                            double frameRate, double samplesPerBar,
+                                            double sampleRate, int sensitivity)
+{
+    if (frames.empty())
+        return {};
+    if (frameRate <= 0.0 || samplesPerBar <= 0.0 || sampleRate <= 0.0)
+        return { 0 };
+
+    const double framesPerBar = frameRate * (samplesPerBar / sampleRate);
+    const int w = std::max (3, (int) std::round (kNoveltyThresh.smoothBars * framesPerBar));
+    const int minGap = std::max (1, (int) std::round (kNoveltyThresh.minSectionBars * framesPerBar));
+
+    const float k = sensitivity <= 0 ? kNoveltyThresh.kFew
+                  : sensitivity == 1 ? kNoveltyThresh.kMedium
+                                     : kNoveltyThresh.kMany;
+
+    const auto curve    = noveltyCurve (frames);
+    const auto smoothed = smoothCurve (curve, w);
+    const auto peaks    = pickNoveltyPeaks (smoothed, k, minGap);
+
+    const double spb = samplesPerBar / 4.0;   // beat = bar / 4 (assume 4/4)
+
+    std::vector<int> boundaries;
+    boundaries.push_back (0);
+    for (int peakFrame : peaks)
+    {
+        const double pos = (double) peakFrame / frameRate * sampleRate;
+        long long snapped = spb > 0.0 ? std::llround (std::round (pos / spb) * spb)
+                                      : std::llround (pos);
+        snapped = std::max ((long long) 0, snapped);
+        boundaries.push_back ((int) snapped);
+    }
+
+    std::sort (boundaries.begin(), boundaries.end());
+    boundaries.erase (std::unique (boundaries.begin(), boundaries.end()), boundaries.end());
+
+    return boundaries;
+}
+
 } // namespace gent

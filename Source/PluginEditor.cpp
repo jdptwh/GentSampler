@@ -570,6 +570,21 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         // Classifies CURRENT slices — does NOT reslice, does NOT touch cues,
         // does NOT pushUndo (read-only, see the r == 60 dispatch below).
         m.addItem (60, "Classify slices -> report (dev)");
+        // SECTIONS Part 2 (SECTIONS_SPEC.md PART 2 + AMENDMENT P2-A): dev-only
+        // NOVELTY detection submenu, pre-ear-gate. Report items (61-63) are
+        // read-only (no pushUndo, see the dispatch below); APPLY items
+        // (64-66) DO reslice (one CueSnap: pushUndo() at the click here, the
+        // worker thread does the actual slicing — same worker-deferred
+        // pattern as every other auto-slice action in this menu).
+        juce::PopupMenu novelty;
+        novelty.addItem (61, "Report @ few");
+        novelty.addItem (62, "Report @ medium");
+        novelty.addItem (63, "Report @ many");
+        novelty.addSeparator();
+        novelty.addItem (64, "APPLY @ few");
+        novelty.addItem (65, "APPLY @ medium");
+        novelty.addItem (66, "APPLY @ many");
+        m.addSubMenu ("Sections novelty (dev)", novelty);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sliceMenu),
             [this] (int r)
             {
@@ -582,6 +597,8 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                 if (r >= 40 && r <= 43) { sliceMode.setSelectedId (r - 39, juce::sendNotification); return; }
                 if (r >= 45 && r <= 48) { p.pushUndo(); p.sliceSections (1 << (r - 45)); return; }
                 if (r == 60) { p.requestClassifyReport(); return; }
+                if (r >= 61 && r <= 63) { p.requestSectionReport (r - 61); return; }   // NO pushUndo — read-only
+                if (r >= 64 && r <= 66) { p.pushUndo(); p.requestSectionApply (r - 64); return; }   // ONE CueSnap at click
                 p.pushUndo();
                 if (r == 50)      p.clearCue (p.selectedPad.load());
                 else if (r == 51) for (int i = 0; i < 16; ++i) p.setCueEnd (i, -1);

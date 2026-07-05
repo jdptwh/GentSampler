@@ -297,6 +297,19 @@ public:
     // resulting file via MessageManager::callAsync.
     void requestClassifyReport();
 
+    // SECTIONS Part 2 (SECTIONS_SPEC.md PART 2 + AMENDMENT P2-A): NOVELTY
+    // (spectral-change) section detection, dev-only pre-gate wiring. Mirrors
+    // requestClassifyReport()'s fire-and-forget shape exactly: set the
+    // sensitivity atomic, set the request flag, notify() — the worker thread
+    // (run()'s dispatch loop) does the actual work. Message thread only.
+    // requestSectionReport() is read-only (never reslices, never touches
+    // cues, never pushes undo — like requestClassifyReport()).
+    // requestSectionApply() DOES reslice (one CueSnap, pushUndo() happens at
+    // the menu click on the message thread, NOT inside the worker job).
+    // sensitivity: 0 few, 1 medium, 2 many.
+    void requestSectionReport (int sensitivity);
+    void requestSectionApply (int sensitivity);
+
     // edit history (cue/end + stem-source + grain state, 0.3). Message thread
     // only: undo()/redo() now also write APVTS grain params via
     // getParameterAsValue (see applySnap), which is a message-thread-only API;
@@ -327,6 +340,8 @@ private:
     void doAnalysisJob();
     void doStemJob();
     void doClassifyJob();       // P2 wiring: read-only slice classification -> report file
+    void doSectionReportJob();  // SECTIONS Part 2: NOVELTY report file (read-only, dev)
+    void doSectionApplyJob();   // SECTIONS Part 2: NOVELTY apply (worker-deferred slicing, dev)
     void doTranscriptionJob();                              // Basic Pitch: slice -> notes -> .mid
     bool writeTranscribedMidi (const std::vector<BasicPitchTranscriber::Note>& notes,
                                const juce::File& midFile);
@@ -464,6 +479,12 @@ private:
     StemSet::Ptr        stemSet;                           // worker writes, UI reads
     std::atomic<bool>   wantStems { false };
     std::atomic<bool>   wantClassify { false };   // P2 wiring: requestClassifyReport() sets this
+    // SECTIONS Part 2 (NOVELTY) dev wiring: requestSectionReport()/
+    // requestSectionApply() set these; sectionSensitivity is read by
+    // whichever job fires (0 few, 1 medium, 2 many).
+    std::atomic<bool>   wantSectionReport { false };
+    std::atomic<bool>   wantSectionApply  { false };
+    std::atomic<int>    sectionSensitivity { 1 };
     std::atomic<bool>   separating { false };
     std::atomic<bool>   downloadingModels { false };  // true during first-run weight download
     std::atomic<float>  stemProgress { 0.0f };

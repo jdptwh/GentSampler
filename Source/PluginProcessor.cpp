@@ -845,6 +845,10 @@ void GentSamplerAudioProcessor::run()
             doAnalysisJob();
         if (wantClassify.exchange (false))
             doClassifyJob();
+        if (wantSectionReport.exchange (false))
+            doSectionReportJob();
+        if (wantSectionApply.exchange (false))
+            doSectionApplyJob();
         if (wantRender.exchange (false))
             doRenderJob();
         doPadRenderJobs();      // cheap staleness scan; rebuilds only what changed
@@ -1096,6 +1100,22 @@ void GentSamplerAudioProcessor::requestStemSeparation()
 void GentSamplerAudioProcessor::requestClassifyReport()
 {
     wantClassify = true;
+    notify();
+}
+
+// SECTIONS Part 2 (SECTIONS_SPEC.md PART 2 + AMENDMENT P2-A): mirror of
+// requestClassifyReport() above.
+void GentSamplerAudioProcessor::requestSectionReport (int sensitivity)
+{
+    sectionSensitivity = sensitivity;
+    wantSectionReport = true;
+    notify();
+}
+
+void GentSamplerAudioProcessor::requestSectionApply (int sensitivity)
+{
+    sectionSensitivity = sensitivity;
+    wantSectionApply = true;
     notify();
 }
 
@@ -1607,6 +1627,216 @@ void GentSamplerAudioProcessor::doClassifyJob()
                 "NOT the kThreshStems preset printed above.\n";
 
     writeAndReveal (text);
+}
+
+// ----------------------------------------------------------------------------
+//  SECTIONS Part 2 (SECTIONS_SPEC.md PART 2 + AMENDMENT P2-A): NOVELTY
+//  (spectral-change) section boundary detection, dev-only pre-gate wiring.
+//  Runs entirely on the worker thread (run()'s wantSectionReport/
+//  wantSectionApply dispatch), mirroring doClassifyJob's report-file idiom.
+// ----------------------------------------------------------------------------
+namespace
+{
+juce::String gentSectionsSensitivityName (int sensitivity)
+{
+    return sensitivity <= 0 ? "few" : (sensitivity == 1 ? "medium" : "many");
+}
+}
+
+void GentSamplerAudioProcessor::doSectionReportJob()
+{
+    const auto gentDir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                            .getChildFile ("GentSampler");
+    gentDir.createDirectory();
+    const auto reportFile = gentDir.getChildFile ("GentSampler_sections_report.txt");
+
+    auto writeAndReveal = [reportFile] (const juce::String& text)
+    {
+        reportFile.replaceWithText (text);
+        juce::MessageManager::callAsync ([reportFile]
+        {
+            reportFile.revealToUser();
+        });
+    };
+
+    const int sensitivity = sectionSensitivity.load();
+    const juce::String sensName = gentSectionsSensitivityName (sensitivity);
+
+    std::vector<gent::FrameFeatures> frames;
+    double frameRate = 0.0;
+    getFeatureFrames (frames, frameRate);
+
+    if (frames.empty() || frameRate <= 0.0)
+    {
+        writeAndReveal ("GentSampler sections (novelty) report\n\n"
+                         "no analysis features — load/analyze a source first\n");
+        return;
+    }
+
+    const double spBeat = samplesPerBeat();
+    if (spBeat <= 0.0)
+    {
+        writeAndReveal ("GentSampler sections (novelty) report\n\n"
+                         "no reliable BPM\n");
+        return;
+    }
+    const double samplesPerBar = spBeat * 4.0;
+
+    auto src = getSource();
+    if (src == nullptr)
+    {
+        writeAndReveal ("GentSampler sections (novelty) report\n\n"
+                         "no source loaded — nothing to detect.\n");
+        return;
+    }
+    const double sr = src->sampleRate;
+    const int sourceLen = src->buffer.getNumSamples();
+
+    // ---- run the pure chain once (this is the ground truth for boundaries) ----
+    const auto boundaries = gent::noveltyBoundaries (frames, frameRate, samplesPerBar, sr, sensitivity);
+
+    // ---- recompute stages a/b + mean/std locally to report per-boundary
+    //      score/threshold and per-part {bandDist, chromaDist} at the peak ----
+    const auto curve = gent::noveltyCurve (frames);
+    const double framesPerBar = frameRate * (samplesPerBar / sr);
+    const int w = std::max (3, (int) std::round (gent::kNoveltyThresh.smoothBars * framesPerBar));
+    const int minGap = std::max (1, (int) std::round (gent::kNoveltyThresh.minSectionBars * framesPerBar));
+    const float k = sensitivity <= 0 ? gent::kNoveltyThresh.kFew
+                  : sensitivity == 1 ? gent::kNoveltyThresh.kMedium
+                                     : gent::kNoveltyThresh.kMany;
+    const auto smoothed = gent::smoothCurve (curve, w);
+
+    double mean = 0.0;
+    for (float v : smoothed) mean += (double) v;
+    if (! smoothed.empty()) mean /= (double) smoothed.size();
+    double var = 0.0;
+    for (float v : smoothed) var += ((double) v - mean) * ((double) v - mean);
+    if (! smoothed.empty()) var /= (double) smoothed.size();
+    const double stddev = std::sqrt (var);
+    const double threshold = mean + (double) k * stddev;
+
+    // sample position -> nearest frame index (for looking up smoothed/curve
+    // values at a reported boundary; boundary 0 has no associated peak).
+    auto sampleToFrame = [frameRate, sr] (int samplePos) -> int
+    {
+        return (int) std::llround ((double) samplePos * frameRate / sr);
+    };
+
+    auto formatTime = [sr] (int samplePos) -> juce::String
+    {
+        const double totalSec = sr > 0.0 ? (double) samplePos / sr : 0.0;
+        const int mins = (int) (totalSec / 60.0);
+        const double secs = totalSec - mins * 60.0;
+        return juce::String (mins) + ":" + juce::String (secs, 3).paddedLeft ('0', 6);
+    };
+
+    juce::String text;
+    text << "GentSampler sections (novelty) report\n";
+    text << "source:       " << getFileName() << "\n";
+    text << "bpm:          " << juce::String (getEffectiveSourceBpm(), 1) << "\n";
+    text << "sensitivity:  " << sensName << "\n";
+    text << "smooth w:     " << w << " frames\n";
+    text << "k:            " << juce::String (k, 2) << "\n";
+    text << "framesPerBar: " << juce::String (framesPerBar, 2) << "\n";
+    text << "\n";
+
+    const int frameCount = (int) frames.size();
+    const int totalBoundaries = (int) boundaries.size();
+    const int rowCap = 64;
+    const int rowCount = std::min (totalBoundaries, rowCap);
+
+    text << juce::String ("idx").paddedRight (' ', 5)
+         << juce::String ("sample").paddedRight (' ', 10)
+         << juce::String ("time").paddedRight (' ', 11)
+         << juce::String ("bar").paddedRight (' ', 8)
+         << juce::String ("score").paddedRight (' ', 9)
+         << juce::String ("thresh").paddedRight (' ', 9)
+         << juce::String ("bandD").paddedRight (' ', 9)
+         << juce::String ("chromaD").paddedRight (' ', 9)
+         << "led" << "\n";
+
+    for (int i = 0; i < rowCount; ++i)
+    {
+        const int pos = boundaries[(size_t) i];
+        const double barNum = samplesPerBar > 0.0 ? (double) pos / samplesPerBar + 1.0 : 1.0;
+
+        juce::String scoreStr = "-", threshStr = "-", bandStr = "-", chromaStr = "-", ledStr = "-";
+        if (pos != 0 || i != 0)   // boundary 0 (the mandatory first section start) has no peak
+        {
+            const int frameIdx = juce::jlimit (0, frameCount - 1, sampleToFrame (pos));
+            const float score = (frameIdx >= 0 && frameIdx < (int) smoothed.size()) ? smoothed[(size_t) frameIdx] : 0.0f;
+            const float bandD = (frameIdx >= 0 && frameIdx < (int) curve.size()) ? curve[(size_t) frameIdx].bandDist : 0.0f;
+            const float chromaD = (frameIdx >= 0 && frameIdx < (int) curve.size()) ? curve[(size_t) frameIdx].chromaDist : 0.0f;
+            scoreStr = juce::String (score, 5);
+            threshStr = juce::String (threshold, 5);
+            bandStr = juce::String (bandD, 4);
+            chromaStr = juce::String (chromaD, 4);
+            const float loBig = std::max (bandD, chromaD);
+            const float loSmall = std::min (bandD, chromaD);
+            if (loSmall <= 0.0f || loBig > loSmall * 1.5f)
+                ledStr = (bandD >= chromaD) ? "band-led" : "chroma-led";
+            else
+                ledStr = "both";
+        }
+
+        text << juce::String (i).paddedRight (' ', 5)
+             << juce::String (pos).paddedRight (' ', 10)
+             << formatTime (pos).paddedRight (' ', 11)
+             << juce::String (barNum, 1).paddedRight (' ', 8)
+             << scoreStr.paddedRight (' ', 9)
+             << threshStr.paddedRight (' ', 9)
+             << bandStr.paddedRight (' ', 9)
+             << chromaStr.paddedRight (' ', 9)
+             << ledStr << "\n";
+    }
+
+    text << "\nsection count: " << totalBoundaries << "\n";
+    if (totalBoundaries > 16)
+        text << "OVERFLOW: " << totalBoundaries << " sections, first 16 laid on APPLY\n";
+    if (totalBoundaries > rowCap)
+        text << "(capped at " << rowCap << " listed rows; " << (totalBoundaries - rowCap)
+             << " more boundaries not shown)\n";
+
+    writeAndReveal (text);
+}
+
+void GentSamplerAudioProcessor::doSectionApplyJob()
+{
+    const int sensitivity = sectionSensitivity.load();
+
+    std::vector<gent::FrameFeatures> frames;
+    double frameRate = 0.0;
+    getFeatureFrames (frames, frameRate);
+    if (frames.empty() || frameRate <= 0.0)
+        return;
+
+    const double spBeat = samplesPerBeat();
+    if (spBeat <= 0.0)
+        return;
+    const double samplesPerBar = spBeat * 4.0;
+
+    auto src = getSource();
+    if (src == nullptr)
+        return;
+    const double sr = src->sampleRate;
+    const int len = src->buffer.getNumSamples();
+
+    auto boundaries = gent::noveltyBoundaries (frames, frameRate, samplesPerBar, sr, sensitivity);
+
+    // Drop any boundary >= len before assigning (cues < len enforced).
+    boundaries.erase (std::remove_if (boundaries.begin(), boundaries.end(),
+                                       [len] (int b) { return b >= len; }),
+                       boundaries.end());
+
+    if ((int) boundaries.size() > 16)
+        DBG ("SECTIONS (novelty): " << boundaries.size() << " sections at sensitivity "
+             << gentSectionsSensitivityName (sensitivity) << ", first 16 laid");
+
+    std::vector<int> s (16, -1);
+    for (int i = 0; i < 16 && i < (int) boundaries.size(); ++i)
+        s[(size_t) i] = boundaries[(size_t) i];
+
+    applySlices (s, len);
 }
 
 // ----------------------------------------------------------------------------
