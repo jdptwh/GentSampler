@@ -443,8 +443,14 @@ private:
     // stemSet/stemStatus reset, cue defaults, analysis-flag logic. Used by
     // BOTH loadFile() (behavior-identical) and the v2 .gentkit load (which
     // decodes source.flac itself, no on-disk source file required).
+    // DATA_INTEGRITY_SPEC.md Change 2: keepCues (default false) skips the
+    // 16-equal default-cue loop (cues[i]=len*i/16, cueEnds[i]=-1) — everything
+    // else is byte-identical. Used ONLY by the async restore-load path
+    // (doRestoreLoadJob), which decodes AFTER applyStateTree has already
+    // written the restored cues and must not stomp them.
     bool adoptSourceBuffer (juce::AudioBuffer<float>&& buf, double sampleRate,
-                             const juce::String& displayPath, bool runAnalysis);
+                             const juce::String& displayPath, bool runAnalysis,
+                             bool keepCues = false);
     // KIT_SPEC.md PART B: v2 (.gentkit-as-ZIP) load, called by loadKit() once
     // it sniffs a "PK" magic. See its definition comment for the restore order.
     bool loadKitV2 (const juce::File& kitFile);
@@ -452,7 +458,16 @@ private:
     // shared by loadKitV2() and loadFile()'s ZIP-sniff route, which handles a
     // host-project restore whose stored source path IS a .gentkit (the
     // project's own state must stay in charge there, not the kit's).
-    bool loadKitV2Audio (const juce::File& kitFile, bool runAnalysis);
+    // DATA_INTEGRITY_SPEC.md Change 2: keepCues forwards to adoptSourceBuffer
+    // (see its comment above); default false keeps every existing caller
+    // behavior-identical.
+    bool loadKitV2Audio (const juce::File& kitFile, bool runAnalysis, bool keepCues = false);
+    // DATA_INTEGRITY_SPEC.md Change 2: worker-thread decode for the async
+    // restore-load path. Reads restoreLoadPath under infoLock, PK-sniffs
+    // exactly like loadFile(), validates (reader/length) BEFORE adopting so a
+    // bad/blank decode is never adopted, then adoptSourceBuffer(..., keepCues
+    // =true) so the cues applyStateTree already wrote survive.
+    void doRestoreLoadJob();
 
     // --- voices ---
     struct Voice
@@ -624,6 +639,22 @@ private:
     // work.
     juce::String         stemCacheKey;           // guarded by infoLock
     std::atomic<bool>    wantStemCacheLoad { false };
+
+    // DATA_INTEGRITY_SPEC.md Change 1: restore authority. Bumped FIRST inside
+    // applyStateTree (before any other work), so any worker job that snapshots
+    // this at its own entry can tell whether a project restore has landed
+    // since it started — if so, its cue-writing apply (NOT its analysis-data
+    // storage) is a no-op: restore is authoritative, and whatever slicing was
+    // queued before it belongs to the pre-restore world.
+    std::atomic<int>     restoreGen { 0 };
+
+    // DATA_INTEGRITY_SPEC.md Change 2: async, validated restore decode. The
+    // message thread validates the stored path (temp-export guard, existence)
+    // and stashes it here (infoLock-guarded, kitSaveDest precedent) instead of
+    // decoding inline; doRestoreLoadJob() (worker) does the actual decode so a
+    // project reopen never blocks the message thread on file IO.
+    juce::File           restoreLoadPath;         // guarded by infoLock
+    std::atomic<bool>    wantRestoreLoad { false };
 
     // ---- audio-to-MIDI transcription (Basic Pitch) ----
     BasicPitchTranscriber transcriber;

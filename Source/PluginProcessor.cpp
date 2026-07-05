@@ -229,13 +229,16 @@ void GentSamplerAudioProcessor::prepareToPlay (double, int)
 bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
 {
     // KIT_SPEC.md PART B (review fix): a v2 kit load sets filePath to the
-    // .gentkit itself, so a HOST-PROJECT restore hands this function that ZIP
-    // (applyStateTree -> loadFile(path)). The WAV/FLAC reader below can't open
-    // a ZIP -> the project would silently restore an EMPTY source (the
-    // Pad12-ghost family). Route ZIP-sniffed files to the audio-only v2
-    // loader: audio (+stems) adopted, but the KIT's saved state is NOT
-    // applied — the caller (the project's own applyStateTree) stays in
-    // charge of cues/masks/params, exactly like any other restored source.
+    // .gentkit itself, so any caller of this synchronous, user-initiated
+    // function (drag-drop, file-browser) may hand it that ZIP. The WAV/FLAC
+    // reader below can't open a ZIP -> the load would silently adopt an EMPTY
+    // source (the Pad12-ghost family). Route ZIP-sniffed files to the
+    // audio-only v2 loader: audio (+stems) adopted, but the KIT's saved state
+    // is NOT applied here.
+    // DATA_INTEGRITY_SPEC.md Change 2: a host-project restore no longer calls
+    // this function at all — applyStateTree validates the stored path and
+    // hands it to doRestoreLoadJob() (worker), which does its own PK sniff and
+    // calls loadKitV2Audio()/decodes directly, off the message thread.
     {
         juce::FileInputStream sniff (f);
         char magic[2] = { 0, 0 };
@@ -264,7 +267,8 @@ bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
 // getFileName()/filePath() will show afterwards (the source file's path for
 // loadFile(), the kit file's own path for a v2 kit load).
 bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& buf, double sampleRate,
-                                                    const juce::String& displayPath, bool runAnalysis)
+                                                    const juce::String& displayPath, bool runAnalysis,
+                                                    bool keepCues)
 {
     auto* s = new SourceSample();
     s->buffer = std::move (buf);
@@ -291,12 +295,14 @@ bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& bu
     // file's stemSet so hasStems() correctly reports false for the new source
     // (otherwise the STEMS view would keep showing yesterday's song's stems
     // under today's song's flags -- SS1's finding, DECISION-6's gap). The
-    // applyStateTree restore path calls loadFile(f, false) and must NOT clear --
-    // it unconditionally restores padStemMask from the "src"+i keys immediately
-    // after (cpp ~2178), which depends on today's stemSet-survives-a-load
-    // behavior; runAnalysis is exactly the existing boolean that separates the
-    // two cases (true only at the two direct-load call sites, false only at the
-    // sole restore call site, cpp ~2171 -- confirmed by grep, no fourth caller).
+    // The restore path (DATA_INTEGRITY_SPEC.md Change 2: doRestoreLoadJob, the
+    // worker-thread decode applyStateTree hands off to) calls this with
+    // runAnalysis=false and must NOT clear -- applyStateTree unconditionally
+    // restores padStemMask from the "src"+i keys BEFORE the decode lands,
+    // which depends on today's stemSet-survives-a-load behavior; runAnalysis
+    // is exactly the existing boolean that separates the two cases (true only
+    // at the two direct-load call sites, false only at the sole restore call
+    // site -- confirmed by grep, no fourth caller).
     // Same stemLock discipline as the separation-completion write (cpp ~1099-
     // 1101): mute/solo (stemMuted/stemSoloed) and padStemMask are NOT touched --
     // they carry forward per DECISION-6 Option 2, not reset to defaults.
@@ -316,10 +322,18 @@ bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& bu
         stemStatus.clear();
     }
 
-    for (int i = 0; i < 16; ++i)
+    // DATA_INTEGRITY_SPEC.md Change 2: the async restore-load path (worker,
+    // doRestoreLoadJob) decodes AFTER applyStateTree has already written the
+    // restored cues — keepCues=true skips this default-cue loop entirely so
+    // the restored cues survive untouched. Every other caller passes
+    // keepCues=false (the default) and this loop runs exactly as before.
+    if (! keepCues)
     {
-        cues[(size_t) i] = (int) ((juce::int64) len * i / 16);
-        cueEnds[(size_t) i] = -1;
+        for (int i = 0; i < 16; ++i)
+        {
+            cues[(size_t) i] = (int) ((juce::int64) len * i / 16);
+            cueEnds[(size_t) i] = -1;
+        }
     }
 
     if (runAnalysis)
@@ -922,6 +936,13 @@ void GentSamplerAudioProcessor::run()
             doSectionApplyJob();
         if (wantKitSave.exchange (false))
             doKitSaveJob();
+        // DATA_INTEGRITY_SPEC.md Change 2: the async restore-load decode must
+        // land BEFORE render/stem-cache in the same wait-cycle, so a same-cycle
+        // wake handles the new source first (cosmetic ordering vs stem cache —
+        // stems don't reference source samples — but render legitimately needs
+        // the freshly adopted source).
+        if (wantRestoreLoad.exchange (false))
+            doRestoreLoadJob();
         if (wantRender.exchange (false))
             doRenderJob();
         doPadRenderJobs();      // cheap staleness scan; rebuilds only what changed
@@ -1129,6 +1150,14 @@ void GentSamplerAudioProcessor::doAnalysisJob()
     if (src == nullptr)
         return;
 
+    // DATA_INTEGRITY_SPEC.md Change 1: snapshot restore authority at entry. A
+    // project restore that lands mid-analysis (applyStateTree bumps restoreGen
+    // and writes its own cues) must not have this job's slice-apply clobber
+    // those restored cues afterwards — analysis DATA (onsets/features/bpm,
+    // just below) still stores unconditionally; only the cue-writing applies
+    // are suppressed.
+    const int genAtEntry = restoreGen.load();
+
     analyzing = true;
     ++uiDirty;
 
@@ -1144,14 +1173,26 @@ void GentSamplerAudioProcessor::doAnalysisJob()
     }
     detectedBpm = res.bpm;
 
+    bool suppressed = false;
+
     if (analysisThenSlice.exchange (false))
     {
-        // a music-aware auto-slice was requested before onsets existed: do it now
-        auto s = computeBlendedSlices();
-        applySlices (! s.empty() ? s : res.slices, src->buffer.getNumSamples());
+        if (restoreGen.load() == genAtEntry)
+        {
+            // a music-aware auto-slice was requested before onsets existed: do it now
+            auto s = computeBlendedSlices();
+            applySlices (! s.empty() ? s : res.slices, src->buffer.getNumSamples());
+        }
+        else
+            suppressed = true;
     }
     else if (! analysisKeepCues.load())
-        applySlices (res.slices, src->buffer.getNumSamples());
+    {
+        if (restoreGen.load() == genAtEntry)
+            applySlices (res.slices, src->buffer.getNumSamples());
+        else
+            suppressed = true;
+    }
 
     // KIT_SPEC.md PART A: sliceKit() was called before onsets existed (set
     // kitPending + analysisKeepCues=false, so res.slices above already
@@ -1162,7 +1203,15 @@ void GentSamplerAudioProcessor::doAnalysisJob()
     // ever calls pushUndo() (grep-verified: pushUndo() has exactly one call
     // site, the message-thread menu dispatch).
     if (kitPending.exchange (false))
-        sliceKit (kitSensPending.load());
+    {
+        if (restoreGen.load() == genAtEntry)
+            sliceKit (kitSensPending.load());
+        else
+            suppressed = true;
+    }
+
+    if (suppressed)
+        DBG ("doAnalysisJob: slice apply suppressed (state restore landed mid-analysis)");
 
     analyzing = false;
     ++uiDirty;
@@ -1938,6 +1987,11 @@ void GentSamplerAudioProcessor::doSectionReportJob()
 
 void GentSamplerAudioProcessor::doSectionApplyJob()
 {
+    // DATA_INTEGRITY_SPEC.md Change 1: same restore-authority guard as
+    // doAnalysisJob — a restore landing mid-job must not have this job's
+    // slice-apply clobber the restored cues.
+    const int genAtEntry = restoreGen.load();
+
     const int sensitivity = sectionSensitivity.load();
 
     std::vector<gent::FrameFeatures> frames;
@@ -1972,7 +2026,10 @@ void GentSamplerAudioProcessor::doSectionApplyJob()
     for (int i = 0; i < 16 && i < (int) boundaries.size(); ++i)
         s[(size_t) i] = boundaries[(size_t) i];
 
-    applySlices (s, len);
+    if (restoreGen.load() == genAtEntry)
+        applySlices (s, len);
+    else
+        DBG ("doSectionApplyJob: slice apply suppressed (state restore landed mid-job)");
 }
 
 // ----------------------------------------------------------------------------
@@ -3248,7 +3305,7 @@ bool GentSamplerAudioProcessor::loadKitV2 (const juce::File& kitFile)
 // (a HOST-PROJECT restore whose applyStateTree stored the .gentkit as the
 // source path — there the PROJECT's state must stay in charge, so only the
 // audio may be adopted).
-bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool runAnalysis)
+bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool runAnalysis, bool keepCues)
 {
     juce::ZipFile zip (kitFile);
 
@@ -3266,7 +3323,7 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
         const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
         juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
         reader->read (&buf, 0, len, 0, true, true);
-        if (! adoptSourceBuffer (std::move (buf), reader->sampleRate, kitFile.getFullPathName(), runAnalysis))
+        if (! adoptSourceBuffer (std::move (buf), reader->sampleRate, kitFile.getFullPathName(), runAnalysis, keepCues))
             return false;
     }
 
@@ -3293,6 +3350,63 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
     adoptStemSet (set, anyStem);
 
     return true;
+}
+
+// DATA_INTEGRITY_SPEC.md Change 2: worker-thread decode for the async restore
+// path. applyStateTree() has already validated the stored path (not our own
+// temp export, exists) and written the restored cues/masks/params; this job's
+// ONLY responsibility is to decode the source (and, for a v2 kit, its stems)
+// WITHOUT touching those already-restored cues (keepCues=true throughout) —
+// and to never adopt a blank/invalid source (the ghost's other door: reader
+// null or decoded length <= 0 both bail out with no adoptSourceBuffer call).
+void GentSamplerAudioProcessor::doRestoreLoadJob()
+{
+    juce::File f;
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        f = restoreLoadPath;
+    }
+    if (f == juce::File())
+        return;
+
+    // PK-sniff, loadFile()'s exact idiom: a host-project's stored path may be
+    // a .gentkit (v2 kit's own audio, project state stays in charge — same
+    // split as loadFile()'s ZIP-sniff route, just off the message thread now).
+    {
+        juce::FileInputStream sniff (f);
+        char magic[2] = { 0, 0 };
+        if (sniff.openedOk() && sniff.read (magic, 2) == 2 && magic[0] == 'P' && magic[1] == 'K')
+        {
+            if (! loadKitV2Audio (f, /*runAnalysis*/ false, /*keepCues*/ true))
+                DBG ("doRestoreLoadJob: loadKitV2Audio failed for " << f.getFullPathName());
+            return;
+        }
+    }
+
+    juce::AudioFormatManager fm;
+    fm.registerBasicFormats();
+    std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (f));
+    if (reader == nullptr)
+    {
+        DBG ("doRestoreLoadJob: no reader for " << f.getFullPathName());
+        return;
+    }
+
+    const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);   // cap at 10 minutes (loadFile precedent)
+    const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
+    if (len <= 0)
+    {
+        DBG ("doRestoreLoadJob: decoded length <= 0 for " << f.getFullPathName() << " -- not adopting");
+        return;
+    }
+
+    juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
+    reader->read (&buf, 0, len, 0, true, true);
+
+    adoptSourceBuffer (std::move (buf), reader->sampleRate, f.getFullPathName(),
+                        /*runAnalysis*/ false, /*keepCues*/ true);
+    wantRender = true;
+    notify();
 }
 
 // KIT_SPEC.md PART C: shared stem-adoption tail, factored out of
@@ -3371,17 +3485,51 @@ void GentSamplerAudioProcessor::doStemCacheLoadJob()
 void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
 {
     apvts.replaceState (state);
+    // DATA_INTEGRITY_SPEC.md Change 1: bump restore authority FIRST, before any
+    // other work, and cancel every pending derive-then-apply intent — restore
+    // is authoritative: whatever slicing was queued belongs to the pre-restore
+    // world.
+    ++restoreGen;
+    analysisThenSlice = false;
+    kitPending = false;
+    analysisKeepCues = true;
 
     auto extra = state.getChildWithName ("EXTRA");
     if (! extra.isValid())
         return;
 
+    // DATA_INTEGRITY_SPEC.md Change 2: async, validated restore decode. The
+    // message thread does ZERO decoding now — it only validates the stored
+    // path and hands it to the worker (doRestoreLoadJob) via restoreLoadPath/
+    // wantRestoreLoad.
     const juce::String path = extra.getProperty ("path", "");
     if (path.isNotEmpty())
     {
-        const juce::File f (path);
-        if (f.existsAsFile())
-            loadFile (f, false);
+        if (gent::pathIsWithin (path.toStdString(),
+                                 juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                     .getFullPathName().toStdString()))
+        {
+            DBG ("applyStateTree: refusing our own temp export " << path);
+        }
+        else if (! juce::File (path).existsAsFile())
+        {
+            // today's behavior: missing file -> skip, rest of restore proceeds
+        }
+        else
+        {
+            // Save-before-decode correctness: write the display path now, under
+            // infoLock, so a save that happens before the worker's decode lands
+            // still persists the right path (getStateInformation reads filePath
+            // under infoLock).
+            const juce::File f (path);
+            {
+                const juce::SpinLock::ScopedLockType sl (infoLock);
+                fileName = f.getFileName();
+                filePath = path;
+                restoreLoadPath = f;
+            }
+            wantRestoreLoad = true;
+        }
     }
 
     for (int i = 0; i < 16; ++i)
@@ -3433,9 +3581,13 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     // KIT_SPEC.md PART C restore: a host-project reopen (or an old .gentkit
     // that never carried stems) may have a cache key but no stems loaded yet —
     // defer the FLAC decode to the worker (kitPending/wantAnalysis precedent).
-    // loadFile() above (if any) already ran synchronously, so hasStems() here
-    // reflects whatever that load adopted (e.g. a v2 kit's own embedded stems,
-    // which must NOT be clobbered by the cache).
+    // DATA_INTEGRITY_SPEC.md Change 2: a v2 kit's own embedded stems are
+    // adopted synchronously by loadKitV2()/loadKitV2Audio() BEFORE this
+    // applyStateTree call (see loadKitV2's definition comment), so hasStems()
+    // here still correctly reflects that load and must NOT be clobbered by the
+    // cache. A host-project path restore (the wantRestoreLoad branch above) is
+    // async and has NOT adopted anything yet at this point — hasStems() is
+    // false in that case, same effective ordering as before this change.
     if (restoredStemKey.isNotEmpty() && ! hasStems())
         wantStemCacheLoad = true;
 
