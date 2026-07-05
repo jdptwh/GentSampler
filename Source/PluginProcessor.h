@@ -398,6 +398,31 @@ private:
     // Shared by saveKit() (v1, synchronous) and doKitSaveJob() (v2, worker) so
     // the two XML bodies never drift — pure snapshot-to-ValueTree, no I/O.
     juce::ValueTree buildKitStateXml();
+    // KIT_SPEC.md PART C: FLAC-encode helper, refactored out of doKitSaveJob()'s
+    // former encodeFlac lambda so the stem-cache write (doStemJob) can reuse it
+    // without duplicating the writer setup. dest is the EXACT output file (no
+    // name-mangling here — callers choose the path). 24-bit, same writer logic
+    // as before; behavior-identical to the old lambda.
+    juce::File encodeFlacTo (const juce::File& dest, const juce::AudioBuffer<float>& buf,
+                              double sr, juce::String& errOut);
+    // KIT_SPEC.md PART C: content-hash cache key for the disk stem cache —
+    // chunked juce::SHA256 over the source buffer's raw float bytes (channel 0,
+    // then channel 1 if present) + "_q" + stemQuality, so the key is stable
+    // across file moves/renames and changes if the quality dial changes.
+    juce::String computeStemKey (const SourceSample::Ptr& src) const;
+    // KIT_SPEC.md PART C: worker-thread stem-cache restore, mirrors
+    // loadKitV2Audio's stem block. Reads stemCacheKey (under infoLock), decodes
+    // Documents\GentSampler\stemcache\<key>\stemN.flac into a StemSet via
+    // adoptStemSet() below. Cache miss (folder missing/deleted) is a silent
+    // no-op + one DBG line, exactly like today's "no stems" state.
+    void doStemCacheLoadJob();
+    // KIT_SPEC.md PART C: shared stem-adoption tail — the generation bump +
+    // stemLock write + wantStemRender + notify() that both loadKitV2Audio()
+    // and doStemCacheLoadJob() need after decoding stem buffers, so that
+    // stemLock/generation/wantStemRender logic isn't duplicated. Takes
+    // ownership of `set` (deletes it if `anyStem` is false, i.e. nothing was
+    // actually decoded into it).
+    void adoptStemSet (StemSet* set, bool anyStem);
     void doTranscriptionJob();                              // Basic Pitch: slice -> notes -> .mid
     bool writeTranscribedMidi (const std::vector<BasicPitchTranscriber::Note>& notes,
                                const juce::File& midFile);
@@ -588,6 +613,17 @@ private:
     std::atomic<int>    stemQuality { 1 };         // 0 FAST(6s/.25), 1 HQ(6s/.5), 2 MAX(hybrid/.5)
     int                 stemEngineMode = -1;   // -1 none, 0 CPU, 1 GPU (sessions currently loaded)
     juce::String        stemStatus;            // guarded by infoLock
+
+    // KIT_SPEC.md PART C: disk stem cache (Documents\GentSampler\stemcache\<key>\),
+    // fixes host-project reopen dropping separated stems (masks persist, audio
+    // didn't). stemCacheKey is set in two places: doStemJob() on a successful
+    // separation (best-effort cache write), and applyStateTree() reading the
+    // persisted "stemKey" property back. wantStemCacheLoad is applyStateTree's
+    // deferred-restore flag (kitPending/wantAnalysis precedent) — consumed in
+    // run()'s dispatch loop, not inline, because decoding FLACs is worker-only
+    // work.
+    juce::String         stemCacheKey;           // guarded by infoLock
+    std::atomic<bool>    wantStemCacheLoad { false };
 
     // ---- audio-to-MIDI transcription (Basic Pitch) ----
     BasicPitchTranscriber transcriber;

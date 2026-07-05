@@ -953,6 +953,9 @@ void GentSamplerAudioProcessor::run()
         if (wantStemRender.exchange (false))
             doStemRenderJob();
 
+        if (wantStemCacheLoad.exchange (false))
+            doStemCacheLoadJob();
+
         if (wantTranscription.exchange (false))
             doTranscriptionJob();
     }
@@ -1363,6 +1366,55 @@ void GentSamplerAudioProcessor::doStemJob()
     {
         const juce::SpinLock::ScopedLockType sl (stemLock);
         stemSet = set;
+    }
+
+    // ---- KIT_SPEC.md PART C: disk stem cache (best-effort, never fails the
+    // separation) — FLAC-encode the 6 stems to Documents\GentSampler\stemcache\
+    // <key>\stemN.flac so a later host-project reopen can restore them without
+    // re-separating. Any encode failure deletes the partial <key> dir and
+    // leaves stemCacheKey empty (cache miss, same as never having cached).
+    {
+        const juce::String key = computeStemKey (src);
+        if (key.isNotEmpty())
+        {
+            const auto cacheRoot = gentDir.getChildFile ("stemcache");
+            const auto readme = cacheRoot.getChildFile ("README.txt");
+            if (! readme.existsAsFile())
+            {
+                cacheRoot.createDirectory();
+                readme.replaceWithText ("GentSampler stem cache — safe to delete; stems re-separate on demand.");
+            }
+
+            const auto keyDir = cacheRoot.getChildFile (key);
+            keyDir.createDirectory();
+
+            bool cacheOk = true;
+            for (int i = 0; i < 6 && cacheOk; ++i)
+            {
+                auto& buf = set->buffers[(size_t) i];
+                if (buf.getNumSamples() == 0)
+                    continue;   // skip empty stems, mirrors doKitSaveJob
+                juce::String cacheErr;
+                const auto dest = keyDir.getChildFile ("stem" + juce::String (i) + ".flac");
+                if (encodeFlacTo (dest, buf, set->sampleRate, cacheErr) == juce::File())
+                {
+                    DBG ("doStemJob: stem cache encode failed: " << cacheErr);
+                    cacheOk = false;
+                }
+            }
+
+            if (cacheOk)
+            {
+                const juce::SpinLock::ScopedLockType sl (infoLock);
+                stemCacheKey = key;
+            }
+            else
+            {
+                keyDir.deleteRecursively();
+                const juce::SpinLock::ScopedLockType sl (infoLock);
+                stemCacheKey.clear();
+            }
+        }
     }
 
     // ---- proof: write the 6 stems as WAVs so they can be A/B'd vs run_onnx.py ----
@@ -2886,6 +2938,9 @@ juce::ValueTree GentSamplerAudioProcessor::buildKitStateXml()
         const juce::SpinLock::ScopedLockType sl (infoLock);
         extra.setProperty ("path", filePath, nullptr);
         extra.setProperty ("key", detectedKey, nullptr);
+        // KIT_SPEC.md PART C: disk stem-cache key (three-spot pattern) — lets a
+        // reopened project/kit restore separated stems without re-separating.
+        extra.setProperty ("stemKey", stemCacheKey, nullptr);
     }
     extra.setProperty ("bpm", detectedBpm.load(), nullptr);
     extra.setProperty ("ubpm", bpmOverride.load(), nullptr);
@@ -2942,6 +2997,61 @@ void GentSamplerAudioProcessor::requestKitSave (const juce::File& dest)
     notify();
 }
 
+// KIT_SPEC.md PART C: FLAC-encode helper, refactored out of doKitSaveJob()'s
+// former encodeFlac lambda so the stem-cache write (doStemJob) can share it —
+// behavior-identical to the old lambda (24-bit, same writer logic), just with
+// the destination file supplied by the caller instead of built from a
+// tmpDir/stamp/tag triple internally.
+juce::File GentSamplerAudioProcessor::encodeFlacTo (const juce::File& dest, const juce::AudioBuffer<float>& buf,
+                                                     double sr, juce::String& errOut)
+{
+    dest.deleteFile();
+
+    juce::FlacAudioFormat flac;
+    std::unique_ptr<juce::FileOutputStream> os (dest.createOutputStream());
+    if (os == nullptr) { errOut = "could not open " + dest.getFullPathName(); return {}; }
+
+    std::unique_ptr<juce::AudioFormatWriter> writer (
+        flac.createWriterFor (os.get(), sr, (unsigned int) juce::jmax (1, buf.getNumChannels()), 24, {}, 0));
+    if (writer == nullptr) { errOut = "FLAC writer unavailable for " + dest.getFullPathName(); return {}; }
+    os.release();   // writer owns the stream now
+
+    if (! writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
+    { errOut = "FLAC encode failed for " + dest.getFullPathName(); return {}; }
+    writer.reset();
+    return dest;
+}
+
+// KIT_SPEC.md PART C: content-hash cache key for the disk stem cache. Chunked
+// juce::SHA256 over the source buffer's raw float bytes: channel 0, then
+// channel 1 if present, concatenated into one MemoryBlock and hashed once
+// (SHA256 has no incremental/streaming API in this JUCE version — the
+// simplest correct form is to build the block once rather than juggle two
+// separate hashes). "_q" + stemQuality is appended so a quality-dial change
+// invalidates the cached stems. Content-based (no file paths) so the key
+// survives the source file being moved or renamed.
+juce::String GentSamplerAudioProcessor::computeStemKey (const SourceSample::Ptr& src) const
+{
+    if (src == nullptr || src->buffer.getNumSamples() <= 0)
+        return {};
+
+    const auto& buf = src->buffer;
+    const size_t bytesPerChan = (size_t) buf.getNumSamples() * sizeof (float);
+    const int numChans = juce::jmin (2, buf.getNumChannels());
+
+    // review fix: NO ensureSize() before append() — ensureSize SETS the block's
+    // size (leaving those bytes uninitialized) and append() adds AFTER them, so
+    // the hash would cover garbage + data => a DIFFERENT key every run => the
+    // cache writes under one key and restores under another (permanent silent
+    // miss). append() grows the block itself; start empty.
+    juce::MemoryBlock mb;
+    for (int ch = 0; ch < numChans; ++ch)
+        mb.append (buf.getReadPointer (ch), bytesPerChan);
+
+    juce::SHA256 hash (mb);
+    return hash.toHexString() + "_q" + juce::String (stemQuality.load());
+}
+
 // KIT_SPEC.md PART B: .gentkit v2 = a ZIP containing kit.xml + source.flac +
 // stem0..5.flac (iff stems exist at save time). Runs entirely on the worker
 // thread: source/stems are taken via their refcounted Ptr getters (no lock
@@ -2981,30 +3091,16 @@ void GentSamplerAudioProcessor::doKitSaveJob()
             f.deleteFile();
     };
 
-    auto encodeFlac = [&tempFiles, &tmpDir, &stamp] (const juce::AudioBuffer<float>& buf, double sr,
-                                                       const juce::String& tag, juce::String& errOut) -> juce::File
+    auto tempFlac = [&tempFiles, &tmpDir, &stamp] (const juce::String& tag) -> juce::File
     {
         const auto f = tmpDir.getChildFile ("GentSamplerKit_" + stamp + "_" + tag + ".flac");
         f.deleteFile();
         tempFiles.add (f);
-
-        juce::FlacAudioFormat flac;
-        std::unique_ptr<juce::FileOutputStream> os (f.createOutputStream());
-        if (os == nullptr) { errOut = "could not open temp file for " + tag; return {}; }
-
-        std::unique_ptr<juce::AudioFormatWriter> writer (
-            flac.createWriterFor (os.get(), sr, (unsigned int) juce::jmax (1, buf.getNumChannels()), 24, {}, 0));
-        if (writer == nullptr) { errOut = "FLAC writer unavailable for " + tag; return {}; }
-        os.release();   // writer owns the stream now
-
-        if (! writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
-        { errOut = "FLAC encode failed for " + tag; return {}; }
-        writer.reset();
         return f;
     };
 
     juce::String err;
-    const auto sourceFlac = encodeFlac (src->buffer, src->sampleRate, "source", err);
+    const auto sourceFlac = encodeFlacTo (tempFlac ("source"), src->buffer, src->sampleRate, err);
     if (sourceFlac == juce::File())
     {
         DBG ("doKitSaveJob: " << err);
@@ -3022,7 +3118,7 @@ void GentSamplerAudioProcessor::doKitSaveJob()
             if (buf.getNumSamples() == 0)
                 continue;   // write only non-empty stem buffers
             juce::String stemErr;
-            stemFlacs[(size_t) i] = encodeFlac (buf, stems->sampleRate, "stem" + juce::String (i), stemErr);
+            stemFlacs[(size_t) i] = encodeFlacTo (tempFlac ("stem" + juce::String (i)), buf, stems->sampleRate, stemErr);
             if (stemFlacs[(size_t) i] == juce::File())
             {
                 DBG ("doKitSaveJob: " << stemErr);
@@ -3194,6 +3290,19 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
         set->sampleRate = reader->sampleRate;
         anyStem = true;
     }
+    adoptStemSet (set, anyStem);
+
+    return true;
+}
+
+// KIT_SPEC.md PART C: shared stem-adoption tail, factored out of
+// loadKitV2Audio()'s stem block so doStemCacheLoadJob() doesn't duplicate the
+// stemLock/generation/wantStemRender logic. Takes ownership of `set`: deletes
+// it if `anyStem` is false (nothing was actually decoded), else bumps
+// stemGeneration, publishes it under stemLock, and requests a stem re-render —
+// exactly doStemJob's own stemSet write + doStemRenderJob invalidation.
+void GentSamplerAudioProcessor::adoptStemSet (StemSet* set, bool anyStem)
+{
     if (anyStem)
     {
         set->generation = ++stemGeneration;
@@ -3208,8 +3317,55 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
     {
         delete set;
     }
+}
 
-    return true;
+// KIT_SPEC.md PART C: worker-thread stem-cache restore. Reads stemCacheKey
+// (set by applyStateTree()'s "stemKey" restore) and decodes
+// Documents\GentSampler\stemcache\<key>\stemN.flac into a StemSet exactly
+// like loadKitV2Audio's stem block, then shares adoptStemSet() for the
+// generation/stemLock/wantStemRender tail (no duplicated logic). A missing
+// cache dir (user deleted it, or the key never got a successful write) is a
+// silent degrade to today's inert-mask behavior — one DBG line, no error UI.
+void GentSamplerAudioProcessor::doStemCacheLoadJob()
+{
+    juce::String key;
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        key = stemCacheKey;
+    }
+    if (key.isEmpty())
+        return;
+
+    const auto dir = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                        .getChildFile ("GentSampler").getChildFile ("stemcache").getChildFile (key);
+    if (! dir.isDirectory())
+    {
+        DBG ("doStemCacheLoadJob: stem cache miss for " << key);
+        return;
+    }
+
+    juce::FlacAudioFormat flac;
+    bool anyStem = false;
+    auto* set = new StemSet();
+    for (int i = 0; i < 6; ++i)
+    {
+        const auto f = dir.getChildFile ("stem" + juce::String (i) + ".flac");
+        if (! f.existsAsFile())
+            continue;
+        std::unique_ptr<juce::AudioFormatReader> reader (flac.createReaderFor (f.createInputStream().release(), true));
+        if (reader == nullptr)
+            continue;
+        const int len = (int) reader->lengthInSamples;
+        set->buffers[(size_t) i].setSize ((int) reader->numChannels, len);
+        reader->read (&set->buffers[(size_t) i], 0, len, 0, true, true);
+        set->sampleRate = reader->sampleRate;
+        anyStem = true;
+    }
+
+    if (! anyStem)
+        DBG ("doStemCacheLoadJob: stem cache dir present but no stemN.flac decoded for " << key);
+
+    adoptStemSet (set, anyStem);
 }
 
 void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
@@ -3262,10 +3418,26 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
         stemMuted[(size_t) k]  = (bool) extra.getProperty ("smute" + juce::String (k), false);
         stemSoloed[(size_t) k] = (bool) extra.getProperty ("ssolo" + juce::String (k), false);
     }
+    juce::String restoredStemKey;
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
         detectedKey = extra.getProperty ("key", "").toString();
+        // KIT_SPEC.md PART C: read the persisted stem-cache key back; stash it
+        // under infoLock now (stemCacheKey) so doStemCacheLoadJob() can read it
+        // once it runs on the worker. Keep a local copy too for the emptiness
+        // check just below (avoids re-locking).
+        restoredStemKey = extra.getProperty ("stemKey", "").toString();
+        stemCacheKey = restoredStemKey;
     }
+
+    // KIT_SPEC.md PART C restore: a host-project reopen (or an old .gentkit
+    // that never carried stems) may have a cache key but no stems loaded yet —
+    // defer the FLAC decode to the worker (kitPending/wantAnalysis precedent).
+    // loadFile() above (if any) already ran synchronously, so hasStems() here
+    // reflects whatever that load adopted (e.g. a v2 kit's own embedded stems,
+    // which must NOT be clobbered by the cache).
+    if (restoredStemKey.isNotEmpty() && ! hasStems())
+        wantStemCacheLoad = true;
 
     wantRender = true;
     notify();
@@ -3812,6 +3984,11 @@ void GentSamplerAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
         const juce::SpinLock::ScopedLockType sl (infoLock);
         extra.setProperty ("path", filePath, nullptr);
         extra.setProperty ("key", detectedKey, nullptr);
+        // KIT_SPEC.md PART C: disk stem-cache key (three-spot pattern) — this
+        // is the host-project save path (getStateInformation builds its own
+        // EXTRA tree rather than sharing buildKitStateXml), the exact gap Part
+        // C fixes: without this, a project reopen restores masks but no audio.
+        extra.setProperty ("stemKey", stemCacheKey, nullptr);
     }
     extra.setProperty ("bpm", detectedBpm.load(), nullptr);
     extra.setProperty ("ubpm", bpmOverride.load(), nullptr);
