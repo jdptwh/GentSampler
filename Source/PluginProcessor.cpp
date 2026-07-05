@@ -104,7 +104,13 @@ GentSamplerAudioProcessor::GentSamplerAudioProcessor()
 
 GentSamplerAudioProcessor::~GentSamplerAudioProcessor()
 {
-    stopThread (3000);
+    // DATA_INTEGRITY_SPEC.md ADDENDUM T: with the FLAC encodes/separation now
+    // abortable (chunked writes + StemSeparator::shouldAbort, all polling
+    // threadShouldExit()), the real exit latency is chunk-sized (well under
+    // 1 s). The raised cap is pure headroom, not a wait -- it exists so
+    // JUCE's force-kill-after-timeout (the actual heap-corruption source: a
+    // worker torn down mid-encode/mid-inference) is effectively unreachable.
+    stopThread (10000);
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout GentSamplerAudioProcessor::makeLayout()
@@ -1387,7 +1393,12 @@ void GentSamplerAudioProcessor::doStemJob()
     std::map<juce::String, juce::AudioBuffer<float>> stems;
     try
     {
-        stems = stemEngine.separate (src->buffer, src->sampleRate, mode, sepOverlap, progressFn, err);
+        // ADDENDUM T: abort mid-separation on a teardown request (destructor's
+        // stopThread) so the worker exits promptly instead of running to
+        // completion; a partial result is discarded exactly like any other
+        // separation failure (stems.empty() below).
+        stems = stemEngine.separate (src->buffer, src->sampleRate, mode, sepOverlap, progressFn, err,
+                                     [this] { return threadShouldExit(); });
     }
     catch (const std::exception& e) { err = juce::String ("exception: ") + e.what(); }
     catch (...)                     { err = "unknown exception during separation"; }
@@ -1440,6 +1451,14 @@ void GentSamplerAudioProcessor::doStemJob()
             bool cacheOk = true;
             for (int i = 0; i < 6 && cacheOk; ++i)
             {
+                // ADDENDUM T: teardown request mid cache-write -> treat like
+                // any other cache-write failure (partial keyDir removed below).
+                if (threadShouldExit())
+                {
+                    DBG ("doStemJob: stem cache aborted (teardown) before stem " << i);
+                    cacheOk = false;
+                    break;
+                }
                 auto& buf = set->buffers[(size_t) i];
                 if (buf.getNumSamples() == 0)
                     continue;   // skip empty stems, mirrors doKitSaveJob
@@ -3059,6 +3078,15 @@ void GentSamplerAudioProcessor::requestKitSave (const juce::File& dest)
 // behavior-identical to the old lambda (24-bit, same writer logic), just with
 // the destination file supplied by the caller instead of built from a
 // tmpDir/stamp/tag triple internally.
+//
+// DATA_INTEGRITY_SPEC.md ADDENDUM T: the encode is now chunked (~1 second of
+// samples per writeFromAudioSampleBuffer call) with a threadShouldExit() poll
+// between chunks, instead of one whole-buffer write. This is called only from
+// the worker thread (doKitSaveJob/doStemJob), and GentSamplerAudioProcessor
+// IS a juce::Thread, so threadShouldExit() is callable directly. On an
+// exit-request the partial file is left on disk and {} is returned exactly
+// like any other encode failure — every existing caller already deletes its
+// temps / partial cache dir on a {} return, so no new cleanup path is needed.
 juce::File GentSamplerAudioProcessor::encodeFlacTo (const juce::File& dest, const juce::AudioBuffer<float>& buf,
                                                      double sr, juce::String& errOut)
 {
@@ -3073,8 +3101,17 @@ juce::File GentSamplerAudioProcessor::encodeFlacTo (const juce::File& dest, cons
     if (writer == nullptr) { errOut = "FLAC writer unavailable for " + dest.getFullPathName(); return {}; }
     os.release();   // writer owns the stream now
 
-    if (! writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
-    { errOut = "FLAC encode failed for " + dest.getFullPathName(); return {}; }
+    const int total     = buf.getNumSamples();
+    const int chunkLen  = juce::jlimit (1, juce::jmax (1, total), (int) sr);   // ~1 s per chunk, sane-clamped
+    for (int offset = 0; offset < total; offset += chunkLen)
+    {
+        if (threadShouldExit())
+        { errOut = "FLAC encode aborted (teardown) for " + dest.getFullPathName(); return {}; }
+
+        const int n = juce::jmin (chunkLen, total - offset);
+        if (! writer->writeFromAudioSampleBuffer (buf, offset, n))
+        { errOut = "FLAC encode failed for " + dest.getFullPathName(); return {}; }
+    }
     writer.reset();
     return dest;
 }
@@ -3171,6 +3208,15 @@ void GentSamplerAudioProcessor::doKitSaveJob()
     {
         for (int i = 0; i < 6; ++i)
         {
+            // ADDENDUM T: bail between stems on a teardown request, same
+            // cleanup path as any other encode failure (temps deleted, dest
+            // untouched — the atomic .tmp swap below never runs).
+            if (threadShouldExit())
+            {
+                DBG ("doKitSaveJob: aborted (teardown) before stem " << i);
+                cleanup();
+                return;
+            }
             auto& buf = stems->buffers[(size_t) i];
             if (buf.getNumSamples() == 0)
                 continue;   // write only non-empty stem buffers
@@ -3400,8 +3446,23 @@ void GentSamplerAudioProcessor::doRestoreLoadJob()
         return;
     }
 
+    // ADDENDUM T: read in ~1-second chunks with a threadShouldExit() poll
+    // between reads, so a teardown request mid-decode returns promptly
+    // instead of blocking on a single whole-file read. On abort we return
+    // WITHOUT adopting -- a partially-filled buffer must never reach
+    // adoptSourceBuffer().
     juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
-    reader->read (&buf, 0, len, 0, true, true);
+    const int chunkLen = juce::jlimit (1, juce::jmax (1, len), (int) reader->sampleRate);
+    for (int offset = 0; offset < len; offset += chunkLen)
+    {
+        if (threadShouldExit())
+        {
+            DBG ("doRestoreLoadJob: aborted (teardown) mid-decode for " << f.getFullPathName());
+            return;
+        }
+        const int n = juce::jmin (chunkLen, len - offset);
+        reader->read (&buf, offset, n, offset, true, true);
+    }
 
     adoptSourceBuffer (std::move (buf), reader->sampleRate, f.getFullPathName(),
                         /*runAnalysis*/ false, /*keepCues*/ true);

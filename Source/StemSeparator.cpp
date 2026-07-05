@@ -267,9 +267,14 @@ struct StemSeparator::Impl
 
     // run one .onnx session over the whole (normalized) mix with centered
     // segmenting + center-trim + triangular overlap-add  (== run_onnx.run_one_model)
+    // ADDENDUM T: shouldAbort is polled once per segment iteration (the
+    // coarsest existing loop); on true, returns whatever partial Stems has
+    // been accumulated so far -- callers treat a shouldAbort-triggered return
+    // as a failure (see runModelFile/runBag/separate) and never adopt it.
     Stems runOneModel (Ort::Session& sess, const float* mix, int C, int N,
                        float overlap, int chunkBase, int chunkTotal,
-                       const juce::String& label, const ProgressFn& progress);
+                       const juce::String& label, const ProgressFn& progress,
+                       const std::function<bool()>& shouldAbort, bool& aborted);
 
     // load one .onnx file and run it, automatically rebuilding on CPU if a DirectML
     // session/inference fails (e.g. DXGI_ERROR_DEVICE_HUNG 0x887A0006). Never throws;
@@ -277,12 +282,12 @@ struct StemSeparator::Impl
     Stems runModelFile (const juce::File& onnxFile, const float* mix, int C, int N,
                         float overlap, int chunkBase, int chunkTotal,
                         const juce::String& label, const ProgressFn& progress,
-                        juce::String& errorOut);
+                        juce::String& errorOut, const std::function<bool()>& shouldAbort);
 
     // run all submodels of a bag (one resident at a time) and combine by weights
     Stems runBag (ModelInfo& mi, const float* mix, int C, int N, float overlap,
                   Mode /*mode*/, int& chunkBase, int chunkTotal,
-                  const ProgressFn& progress);
+                  const ProgressFn& progress, const std::function<bool()>& shouldAbort);
 };
 
 // -----------------------------------------------------------------------------
@@ -432,8 +437,10 @@ bool StemSeparator::Impl::parseManifest (const juce::File& dir, const juce::var&
 // -----------------------------------------------------------------------------
 Stems StemSeparator::Impl::runOneModel (Ort::Session& sess, const float* mix, int C, int N,
                                         float overlap, int chunkBase, int chunkTotal,
-                                        const juce::String& label, const ProgressFn& progress)
+                                        const juce::String& label, const ProgressFn& progress,
+                                        const std::function<bool()>& shouldAbort, bool& aborted)
 {
+    aborted = false;
     const int SEG = segmentSamples;
     const int stride = juce::jmax (1, (int) ((1.0f - overlap) * (float) SEG));
 
@@ -461,6 +468,15 @@ Stems StemSeparator::Impl::runOneModel (Ort::Session& sess, const float* mix, in
 
     for (int off = 0; off < N; off += stride)
     {
+        // ADDENDUM T: coarsest existing loop -- poll once per segment so a
+        // mid-separation teardown request aborts within one segment's worth
+        // of inference instead of running to completion.
+        if (shouldAbort && shouldAbort())
+        {
+            aborted = true;
+            return out;
+        }
+
         const int length = juce::jmin (SEG, N - off);
         const int delta  = SEG - length;
         const int start  = off - delta / 2;
@@ -530,7 +546,7 @@ Stems StemSeparator::Impl::runOneModel (Ort::Session& sess, const float* mix, in
 Stems StemSeparator::Impl::runModelFile (const juce::File& onnxFile, const float* mix, int C, int N,
                                          float overlap, int chunkBase, int chunkTotal,
                                          const juce::String& label, const ProgressFn& progress,
-                                         juce::String& errorOut)
+                                         juce::String& errorOut, const std::function<bool()>& shouldAbort)
 {
     for (int attempt = 0; attempt < 2; ++attempt)   // 0 = preferred (GPU if enabled), 1 = forced CPU
     {
@@ -552,8 +568,17 @@ Stems StemSeparator::Impl::runModelFile (const juce::File& onnxFile, const float
 
         try
         {
-            Stems s = runOneModel (*sess, mix, C, N, overlap, chunkBase, chunkTotal, label, progress);
+            bool aborted = false;
+            Stems s = runOneModel (*sess, mix, C, N, overlap, chunkBase, chunkTotal, label, progress,
+                                   shouldAbort, aborted);
             sess.reset();                             // free this model before the next
+            if (aborted)
+            {
+                // ADDENDUM T: teardown mid-run -- treat exactly like any
+                // other hard failure so no caller adopts the partial Stems.
+                errorOut = "aborted";
+                return {};
+            }
             return s;
         }
         catch (const Ort::Exception& e)
@@ -580,7 +605,8 @@ Stems StemSeparator::Impl::runModelFile (const juce::File& onnxFile, const float
 // run_bag  (combine submodel outputs per source by bagWeights)
 // -----------------------------------------------------------------------------
 Stems StemSeparator::Impl::runBag (ModelInfo& mi, const float* mix, int C, int N, float overlap,
-                                   Mode, int& chunkBase, int chunkTotal, const ProgressFn& progress)
+                                   Mode, int& chunkBase, int chunkTotal, const ProgressFn& progress,
+                                   const std::function<bool()>& shouldAbort)
 {
     Stems totals;
     std::vector<float> wsum;
@@ -592,10 +618,18 @@ Stems StemSeparator::Impl::runBag (ModelInfo& mi, const float* mix, int C, int N
 
     for (int i = 0; i < nSub; ++i)
     {
+        // ADDENDUM T: outer per-submodel loop -- bail before starting another
+        // whole submodel run once a teardown request has landed.
+        if (shouldAbort && shouldAbort())
+        {
+            DBG ("runBag: aborted (teardown) before submodel " << i);
+            return {};
+        }
+
         const juce::String label = mi.name + " (" + juce::String (i + 1) + "/" + juce::String (nSub) + ")";
         juce::String err;
         Stems est = runModelFile (juce::File (mi.onnxFiles[i]), mix, C, N, overlap,
-                                  chunkBase, chunkTotal, label, progress, err);
+                                  chunkBase, chunkTotal, label, progress, err, shouldAbort);
         chunkBase += chunksPerModel;
         if (est.numSources == 0)
         {
@@ -738,7 +772,8 @@ namespace
 
 std::map<juce::String, juce::AudioBuffer<float>>
 StemSeparator::separate (const juce::AudioBuffer<float>& input, double inputSampleRate,
-                         Mode mode, float overlap, ProgressFn progress, juce::String& errorOut)
+                         Mode mode, float overlap, ProgressFn progress, juce::String& errorOut,
+                         std::function<bool()> shouldAbort)
 {
     std::map<juce::String, juce::AudioBuffer<float>> result;
     if (! initialised) { errorOut = "StemSeparator not initialised"; return result; }
@@ -798,15 +833,15 @@ StemSeparator::separate (const juce::AudioBuffer<float>& input, double inputSamp
     Stems ftOut, s6Out;
     if (needFt)
     {
-        ftOut = impl->runBag (*ft, mix.data(), C, N, overlap, mode, chunkBase, chunkTotal, progress);
-        if (ftOut.numSources == 0)   // all ft submodels failed -> bail cleanly (don't read empty buffers)
+        ftOut = impl->runBag (*ft, mix.data(), C, N, overlap, mode, chunkBase, chunkTotal, progress, shouldAbort);
+        if (ftOut.numSources == 0)   // all ft submodels failed (or aborted) -> bail cleanly (don't read empty buffers)
         { errorOut = "htdemucs_ft failed (separation produced no output)"; return result; }
     }
     if (need6s)
     {
         juce::String err6;
         s6Out = impl->runModelFile (juce::File (s6->onnxFiles[0]), mix.data(), C, N, overlap,
-                                    chunkBase, chunkTotal, "htdemucs_6s (1/1)", progress, err6);
+                                    chunkBase, chunkTotal, "htdemucs_6s (1/1)", progress, err6, shouldAbort);
         chunkBase += chunksPerModel;
         if (s6Out.numSources == 0) { errorOut = "htdemucs_6s: " + err6; return result; }
     }

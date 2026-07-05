@@ -73,13 +73,21 @@ public:
     // inputSampleRate. Returns stemName -> stereo AudioBuffer at 44100 Hz.
     // Stems are returned at true amplitude (un-normalized, no peak limiting).
     // On failure returns an empty map and fills errorOut.
+    //
+    // DATA_INTEGRITY_SPEC.md ADDENDUM T: shouldAbort (default {}, i.e. never
+    // aborts) is polled between segment iterations of the inference loop
+    // (the coarsest existing loop) so a caller can request early termination
+    // (e.g. plugin teardown) without restructuring the DSP. On an abort,
+    // returns an empty map + errorOut exactly like any other failure path --
+    // the caller must not adopt partial stems either way.
     std::map<juce::String, juce::AudioBuffer<float>>
         separate (const juce::AudioBuffer<float>& input,
                   double inputSampleRate,
                   Mode mode,
                   float overlap,            // 0.25 = balanced (matches PoC)
                   ProgressFn progress,
-                  juce::String& errorOut);
+                  juce::String& errorOut,
+                  std::function<bool()> shouldAbort = {});
 
     static constexpr int   kModelSampleRate = 44100;
     static constexpr int   kSegmentSamples  = 343980; // 7.8 s @ 44100
