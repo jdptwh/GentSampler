@@ -41,15 +41,19 @@ clean, passes pluginval, and runs stable inside FL Studio.
   from the P1 FrameFeatures cache; dev submenu "Sections novelty (dev)"
   (61-63 Report / 64-66 APPLY @ few/medium/many); report file =
   Documents\GentSampler\GentSampler_sections_report.txt.
-  NOVELTY EAR GATE: **APPROVED** by Joe 2026-07-04 ("works well") — recorded
-  in SECTIONS_SPEC.md's Gate record; no kNoveltyThresh tuning needed.
-  Part 3 SLICE split-chip: DONE (`37b6c06`, gate+deploy green) — persisted
-  mode model (slMode/slBars/slSens/slEven three-spot), SplitChip (main zone
-  re-runs current mode as one CueSnap, caret opens the ticked mode menu,
-  Novelty first-class ids 70-72), GRID-EVEN re-run calls processor actions
-  directly (setSelectedId no-ops on same id). Awaiting Joe's FL validation
-  of Part 3; then SECTIONS is done — next task: KIT v1 (isolate every hit,
-  time-order, NO classification — PHASE3_RESCOPE.md).
+  NOVELTY EAR GATE: **APPROVED** by Joe 2026-07-04 ("works well"). Part 3
+  SLICE split-chip: DONE (`37b6c06`), Joe-validated 2026-07-05 —
+  **SECTIONS task COMPLETE** (record in SECTIONS_SPEC.md).
+- In progress: **KIT v1** (KIT_SPEC.md — Fable-specced from PHASE3_RESCOPE.md
+  §KIT; no separate Joe task file, flagged). Part A hit isolation: DONE
+  (`93b88c4`, doctest 110, gate+deploy green) — gent::kitHits feeds the FULL
+  onset list (never the top-16/80ms `slices` selection), kKitThresh table +
+  30ms drop-the-LATER anti-double-trigger, time-order first-16 + overflow,
+  kitPending analysis deferral, split-chip mode 5 "SLICE · KIT" (ids 80-82,
+  "slKSens" three-spot). AWAITING Joe's FL check on a real drum break
+  (completeness: every hit a pad, close hits stay separate). Part B next:
+  .gentkit v2 portable save (ZIP + FLAC, source embedded, v1 back-compat) —
+  spec written, NOT started.
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
