@@ -62,11 +62,19 @@ clean, passes pluginval, and runs stable inside FL Studio.
   can no longer clobber restored cues; restore cancels queued derive-intents)
   + async validated restore decode (zero message-thread decoding on project
   reopen; keepCues protects restored cues from the late decode's default-cue
-  loop; tempDir-export paths refused; empty decodes never adopted). AWAITING
-  Joe's FL check (reopen mid-analysis → cues survive; big-source project
-  loads without stalling). NEXT: full pre-packaging audit/debug of the
-  entire tool (Joe-directed; multi-agent workflow proposed, needs Joe's
-  explicit go), then the packaging pass (CUDA-pack exclusion, BACKLOG).
+  loop; tempDir-export paths refused; empty decodes never adopted).
+  Joe-validated 2026-07-05 ("everything seems to be good"). ADDENDUM T
+  teardown hardening: DONE (`b088fa0`) — Joe's crash-on-close diagnosed via
+  Event Log (pre-07-04 = the already-fixed CUDA-preload teardown fault;
+  remaining signature = worker force-killed by stopThread(3000) mid-FLAC-
+  encode/mid-separation → heap corruption). All long worker jobs now
+  abortable (chunked encodes/reads polling threadShouldExit; StemSeparator
+  shouldAbort per segment + per bag submodel, abort = existing failure
+  shape, partials never adopted); dtor stopThread(10000) headroom. AWAITING
+  Joe's close-during-separation / close-during-cache-write check. NEXT: full
+  pre-packaging audit/debug of the entire tool (Joe-directed; multi-agent
+  workflow proposed, needs Joe's explicit "run the audit workflow"), then
+  the packaging pass (CUDA-pack exclusion, BACKLOG).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
