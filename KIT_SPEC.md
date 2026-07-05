@@ -144,6 +144,7 @@ kit browser UI, migrating v1 kits, stem re-separation on load.
 |---|---|---|
 | A | `93b88c4` | **"seems to be working as intended. proceed"** — FL-validated 2026-07-05. No kKitThresh tuning requested. |
 | B | `cd44957` | FL-validated 2026-07-05: "saved the kit with the stems separated and loaded the kit back in a fresh session then the stems persisted." Same session surfaced the HOST-PROJECT stem gap → Part C below. |
+| C | `f0941d4` | **"seems to be working"** — FL-validated 2026-07-05 (project-reopen stem restore). **KIT v1 COMPLETE.** |
 
 ---
 
