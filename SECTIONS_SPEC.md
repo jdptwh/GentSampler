@@ -148,4 +148,4 @@ new doctests included. FL validation = Joe, per part.
 ## Gate record (NOVELTY ear gate — append at the Part-2 STOP)
 | Track | Sensitivity | Boundaries land on real changes? | Joe verdict | Notes |
 |---|---|---|---|---|
-| | | | | |
+| Joe's real material (FL pass) | few/medium/many available; judged live | Yes | **"works well. proceed"** — APPROVED 2026-07-04 | No kNoveltyThresh tuning requested; pre-snap min-gap watch item not reported as audible. Part 3 UNLOCKED. |
