@@ -2670,6 +2670,101 @@ struct HeroViewSeg : juce::Component
 };
 
 // ---------------------------------------------------------------------------
+// SECTIONS_SPEC.md PART 3: the SLICE split-chip. Replaces the old plain
+// sliceMenu TextButton with a chip that has two click zones: the main body
+// (label) re-runs the CURRENTLY selected slice mode, and a narrow caret zone
+// on the right opens the existing styled PopupMenu (mode picker + params).
+// Built entirely from established primitives — Theme::paintChip for the face
+// (same hover/down handling as GentLNF::drawButtonBackground), Theme::chipFont()
+// for the label, and the exact caret-triangle idiom from
+// GentLNF::drawComboBox (h:2338-2342 at spec-authoring time) for the caret —
+// no new visual language.
+struct SplitChip : juce::Component, public juce::SettableTooltipClient
+{
+    juce::String label;                 // synced by the editor's 15 Hz timer
+    std::function<void()> onRun;        // main-zone click
+    std::function<void()> onMenu;       // caret-zone click
+
+    SplitChip() { setMouseCursor (juce::MouseCursor::PointingHandCursor); }
+
+    static constexpr float kCaretZoneW = 18.0f;
+
+    void setLabel (const juce::String& l) { if (label != l) { label = l; repaint(); } }
+
+    // HeroViewSeg::preferredWidth() precedent — measure the current label with
+    // the chip font, add the caret zone + the same side margins paintChip's
+    // face inset already accounts for.
+    int preferredWidth() const
+    {
+        juce::GlyphArrangement ga;
+        ga.addLineOfText (Theme::chipFont(), label.toUpperCase(), 0.0f, 0.0f);
+        return (int) std::ceil (ga.getBoundingBox (0, -1, true).getWidth())
+               + (int) kCaretZoneW + 20;
+    }
+
+    juce::Rectangle<float> caretZone() const
+    {
+        auto r = getLocalBounds().toFloat();
+        return r.removeFromRight (kCaretZoneW);
+    }
+
+    void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+    void mouseExit  (const juce::MouseEvent&) override { repaint(); }
+    void mouseMove  (const juce::MouseEvent&) override { repaint(); }
+    void mouseDown  (const juce::MouseEvent&) override { down = true; repaint(); }
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        down = false;
+        repaint();
+        if (! contains (e.getPosition()))
+            return;
+        if (caretZone().contains (e.position))
+        {
+            if (onMenu) onMenu();
+        }
+        else
+        {
+            if (onRun) onRun();
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const bool hover = isMouseOver();
+        const auto r = getLocalBounds().toFloat().reduced (1.5f);
+        // GentLookAndFeel::chipKind() reads the same "chip" property convention
+        // (e.g. "overlay" for the hero .ov chips) other chips use — this keeps
+        // the existing cpp:681 property-set wiring working unchanged.
+        Theme::paintChip (g, r, false, hover, down, GentLookAndFeel::chipKind (*this));
+
+        auto face = Theme::chipFace (r);
+        auto textZone = face;
+        auto caretR = textZone.removeFromRight (kCaretZoneW);
+
+        // thin divider before the caret zone (low-alpha hairline, matches the
+        // other faint separators already in this LnF's chip language)
+        g.setColour (Theme::t3.withAlpha (0.25f));
+        g.drawLine (caretR.getX(), face.getY() + 3.0f, caretR.getX(), face.getBottom() - 3.0f, 1.0f);
+
+        g.setColour (hover ? Theme::t1 : Theme::t2);
+        g.setFont (Theme::chipFont());
+        g.drawText (label.toUpperCase(), textZone.reduced (6.0f, 0.0f), juce::Justification::centredLeft);
+
+        // caret triangle — exact idiom from GentLNF::drawComboBox
+        const float cx = r.getRight() - Theme::kChipGlowMargin - 9.0f, cy = r.getCentreY();
+        juce::Path caret;
+        caret.addTriangle (cx - 3.5f, cy - 2.0f, cx + 3.5f, cy - 2.0f, cx, cy + 2.5f);
+        g.setColour (Theme::t3);
+        g.fillPath (caret);
+    }
+
+private:
+    bool down = false;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SplitChip)
+};
+
+// ---------------------------------------------------------------------------
 // A plain container that holds the whole UI at a FIXED design size; the editor
 // applies an AffineTransform to scale it as one unit (aspect-locked proportional
 // zoom), so every child scales together and no layout reflows on resize. Its
@@ -2723,7 +2818,8 @@ private:
     juce::TextButton saveKitBtn { "SAVE KIT" }, loadKitBtn { "LOAD KIT" }, exportKitBtn { "EXPORT KIT" };
     juce::TextButton recBtn { "REC MIDI" }, halfBtn { "/2" }, dblBtn { "x2" };
     // toolbar dropdown triggers (replace the old left panel)
-    juce::TextButton sliceMenu { "SLICE" }, kitMenu { "KIT" }, exportMenu { "EXPORT" };
+    SplitChip sliceMenu;   // SECTIONS_SPEC.md PART 3: split chip (main zone runs, caret opens the menu)
+    juce::TextButton kitMenu { "KIT" }, exportMenu { "EXPORT" };
     juce::TextButton previewBtn { "PREVIEW" }, clearBtn { "CLEAR..." }, undoBtn { juce::CharPointer_UTF8 ("\xe2\x86\xb6") }, redoBtn { juce::CharPointer_UTF8 ("\xe2\x86\xb7") };
     juce::TextButton fullBtn { "FULL VIEW" };   // map-tools: zoom waveform to whole sample
     juce::ComboBox sliceMode, tempoMode, keyPick, playMode, chokeBox, ftypeBox, qualityBox;

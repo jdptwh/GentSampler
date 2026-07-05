@@ -525,12 +525,42 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     kitMenu.setTooltip ("Kits save / recall a whole flip.");
     exportMenu.setTooltip ("Export the kit's samples, or the selected pad as a WAV.");
 
-    sliceMenu.onClick = [this]
+    // SECTIONS_SPEC.md PART 3: main-zone click re-runs whichever mode is
+    // currently persisted on the processor (sliceModeSel) — one undoable
+    // action each. GRID-EVEN mirrors the sliceMode combo's onChange handler
+    // (above) verbatim per index, called directly (NOT via setSelectedId,
+    // which silently no-ops when the id is unchanged and would make re-run
+    // dead on a repeat same-selection run).
+    sliceMenu.onRun = [this]
+    {
+        switch (p.getSliceModeSel())
+        {
+            case 0: p.pushUndo(); p.sliceSections (p.getSectionBars()); break;
+            case 1: p.pushUndo(); p.requestSectionApply (p.getSectionSens()); break;
+            case 2: p.pushUndo(); p.autoSliceMusical(); break;
+            case 3: if (sliceBtn.onClick) sliceBtn.onClick(); break;
+            case 4:
+                p.pushUndo();
+                switch (p.getGridEvenSel())
+                {
+                    case 0: p.sliceGrid(); break;
+                    case 1: p.sliceBeats (1.0); break;
+                    case 2: p.sliceBeats (2.0); break;
+                    case 3: p.sliceBeats (4.0); break;
+                    default: break;
+                }
+                break;
+            default: break;
+        }
+    };
+    sliceMenu.onMenu = [this]
     {
         const int gd = p.getSliceGridDiv(), sn = p.getSliceSensitivity(), sp = p.getSliceSnap();
+        const int mode = p.getSliceModeSel(), bars = p.getSectionBars();
+        const int sens = p.getSectionSens(), even = p.getGridEvenSel();
         juce::PopupMenu m;
-        m.addItem (1, "Auto-slice: musical (transients + grid)");
-        m.addItem (2, "Auto-slice: transients only");
+        m.addItem (1, "SMART (transients + grid)", true, mode == 2);
+        m.addItem (2, "TRANSIENTS only", true, mode == 3);
         m.addSeparator();
         juce::PopupMenu grid;
         grid.addItem (10, "Bar",  true, gd == 0);
@@ -538,28 +568,35 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         grid.addItem (12, "1/8",  true, gd == 2);
         grid.addItem (13, "1/16", true, gd == 3);
         m.addSubMenu ("Grid", grid);
-        juce::PopupMenu sens;
-        sens.addItem (20, "Low",    true, sn == 0);
-        sens.addItem (21, "Medium", true, sn == 1);
-        sens.addItem (22, "High",   true, sn == 2);
-        m.addSubMenu ("Sensitivity", sens);
+        juce::PopupMenu sens_;
+        sens_.addItem (20, "Low",    true, sn == 0);
+        sens_.addItem (21, "Medium", true, sn == 1);
+        sens_.addItem (22, "High",   true, sn == 2);
+        m.addSubMenu ("Sensitivity", sens_);
         juce::PopupMenu snap;
         snap.addItem (30, "Loose",  true, sp == 0);
         snap.addItem (31, "Medium", true, sp == 1);
         snap.addItem (32, "Tight",  true, sp == 2);
         m.addSubMenu ("Snap to grid", snap);
         m.addSeparator();
-        juce::PopupMenu even;
-        even.addItem (40, "16 equal");
-        even.addItem (41, "Every beat");
-        even.addItem (42, "Every 2 beats");
-        even.addItem (43, "Every bar");
-        m.addSubMenu ("Even grid (ignore audio)", even);
+        juce::PopupMenu even_;
+        even_.addItem (40, "16 equal",      true, mode == 4 && even == 0);
+        even_.addItem (41, "Every beat",    true, mode == 4 && even == 1);
+        even_.addItem (42, "Every 2 beats", true, mode == 4 && even == 2);
+        even_.addItem (43, "Every bar",     true, mode == 4 && even == 3);
+        m.addSubMenu ("GRID (even divisions)", even_);
         juce::PopupMenu sections;
-        sections.addItem (45, "Every 1 bar");
-        sections.addItem (46, "Every 2 bars");
-        sections.addItem (47, "Every 4 bars");
-        sections.addItem (48, "Every 8 bars");
+        sections.addItem (45, "Every 1 bar", true, mode == 0 && bars == 1);
+        sections.addItem (46, "Every 2 bars", true, mode == 0 && bars == 2);
+        sections.addItem (47, "Every 4 bars", true, mode == 0 && bars == 4);
+        sections.addItem (48, "Every 8 bars", true, mode == 0 && bars == 8);
+        sections.addSeparator();
+        // SECTIONS_SPEC.md PART 3 menu restructure: NEW ids 70-72 — set mode 1
+        // + sectionSens, then pushUndo + requestSectionApply (worker-deferred,
+        // one CueSnap at the click — same as the dev APPLY items 64-66).
+        sections.addItem (70, "Novelty: few",    true, mode == 1 && sens == 0);
+        sections.addItem (71, "Novelty: medium", true, mode == 1 && sens == 1);
+        sections.addItem (72, "Novelty: many",   true, mode == 1 && sens == 2);
         m.addSubMenu ("SECTIONS (flip)", sections);
         m.addSeparator();
         m.addItem (50, "Clear selected pad");
@@ -589,13 +626,48 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
             [this] (int r)
             {
                 if (r <= 0) return;
-                if (r == 1) { p.pushUndo(); p.autoSliceMusical(); return; }
-                if (r == 2) { if (sliceBtn.onClick) sliceBtn.onClick(); return; }
+                if (r == 1) { p.setSliceModeSel (2); p.pushUndo(); p.autoSliceMusical(); return; }
+                if (r == 2) { p.setSliceModeSel (3); if (sliceBtn.onClick) sliceBtn.onClick(); return; }
                 if (r >= 10 && r <= 13) { p.pushUndo(); p.setSliceGridDiv (r - 10);      p.autoSliceMusical(); return; }
                 if (r >= 20 && r <= 22) { p.pushUndo(); p.setSliceSensitivity (r - 20);  p.autoSliceMusical(); return; }
                 if (r >= 30 && r <= 32) { p.pushUndo(); p.setSliceSnap (r - 30);         p.autoSliceMusical(); return; }
-                if (r >= 40 && r <= 43) { sliceMode.setSelectedId (r - 39, juce::sendNotification); return; }
-                if (r >= 45 && r <= 48) { p.pushUndo(); p.sliceSections (1 << (r - 45)); return; }
+                if (r >= 40 && r <= 43)
+                {
+                    // SECTIONS_SPEC.md PART 3: set mode 4 + gridEvenSel, then call the
+                    // PROCESSOR action directly (mirrors the sliceMode combo's onChange
+                    // handler above verbatim) — NOT via ComboBox::setSelectedId, which
+                    // silently no-ops when the id is unchanged.
+                    p.setSliceModeSel (4);
+                    p.setGridEvenSel (r - 40);
+                    p.pushUndo();
+                    switch (r - 40)
+                    {
+                        case 0: p.sliceGrid(); break;
+                        case 1: p.sliceBeats (1.0); break;
+                        case 2: p.sliceBeats (2.0); break;
+                        case 3: p.sliceBeats (4.0); break;
+                        default: break;
+                    }
+                    return;
+                }
+                if (r >= 45 && r <= 48)
+                {
+                    const int b = 1 << (r - 45);
+                    p.setSliceModeSel (0);
+                    p.setSectionBars (b);
+                    p.pushUndo();
+                    p.sliceSections (b);
+                    return;
+                }
+                if (r >= 70 && r <= 72)
+                {
+                    const int s = r - 70;
+                    p.setSliceModeSel (1);
+                    p.setSectionSens (s);
+                    p.pushUndo();
+                    p.requestSectionApply (s);   // ONE CueSnap at click (worker-deferred)
+                    return;
+                }
                 if (r == 60) { p.requestClassifyReport(); return; }
                 if (r >= 61 && r <= 63) { p.requestSectionReport (r - 61); return; }   // NO pushUndo — read-only
                 if (r >= 64 && r <= 66) { p.pushUndo(); p.requestSectionApply (r - 64); return; }   // ONE CueSnap at click
@@ -987,7 +1059,10 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         previewBtn.setBounds (bx, by, 68, 24); bx += 72;
         snapBtn.setBounds    (bx, by, 48, 24); bx += 52;
         followBtn.setBounds  (bx, by, 58, 24); bx += 62;
-        sliceMenu.setBounds  (bx, by, 52, 24);
+        // SECTIONS_SPEC.md PART 3: split chip is text-sized (HeroViewSeg precedent)
+        // since its label now varies with the selected mode ("SLICE · SECTIONS" is
+        // wider than the old fixed "SLICE").
+        sliceMenu.setBounds  (bx, by, sliceMenu.preferredWidth(), 24);
         // bottom-right: FULL VIEW ghost
         fullBtn.setBounds (in.getRight() - 78, by, 78, 24);
 
@@ -1618,6 +1693,27 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         padReso.setEnabled   (enable && filtOn);
         if (velBtn.getToggleState() != p.getVelToLevel())
             velBtn.setToggleState (p.getVelToLevel(), juce::dontSendNotification);
+    }
+
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip label follows the persisted
+    // mode (qualityBox precedent above — write-if-changed via setLabel()).
+    {
+        const juce::String lbl = [this]
+        {
+            switch (p.getSliceModeSel())
+            {
+                case 2:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 SMART"));
+                case 3:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 TRANS"));
+                case 4:  return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 GRID"));
+                default: return juce::String (juce::CharPointer_UTF8 ("SLICE \xc2\xb7 SECTIONS"));
+            }
+        }();
+        sliceMenu.setLabel (lbl);
+        // the label drives the chip's width (preferredWidth) but layoutContent
+        // only runs on resize — re-layout when a mode change alters the width,
+        // else the chip clips until the next window resize.
+        if (sliceMenu.getWidth() != sliceMenu.preferredWidth())
+            layoutContent();
     }
 
     // active-state tint: the LnF paints a filled chip whenever buttonColourId is

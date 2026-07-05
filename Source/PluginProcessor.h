@@ -157,6 +157,30 @@ public:
     void setSliceGridDiv (int v)    { sliceGridDiv.store    (juce::jlimit (0, 3, v)); }
     void setSliceSensitivity (int v){ sliceSensitivity.store(juce::jlimit (0, 2, v)); }
     void setSliceSnap (int v)       { sliceSnap.store       (juce::jlimit (0, 2, v)); }
+
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model, persisted alongside
+    // sliceGridDiv/sliceSensitivity/sliceSnap above (three-spot pattern: saveKit,
+    // getStateInformation, applyStateTree). No APVTS params.
+    int  getSliceModeSel()  const { return sliceModeSel.load(); }   // 0 SECTIONS-BARS,1 SECTIONS-NOVELTY,2 SMART,3 TRANSIENT,4 GRID-EVEN
+    int  getSectionBars()   const { return sectionBars.load(); }    // {1,2,4,8}
+    int  getSectionSens()   const { return sectionSens.load(); }    // 0 few,1 medium,2 many
+    int  getGridEvenSel()   const { return gridEvenSel.load(); }    // 0 16-equal,1 beat,2 2-beats,3 every bar
+    void setSliceModeSel (int v)  { sliceModeSel.store (juce::jlimit (0, 4, v)); }
+    void setSectionBars  (int v)                                    // snap to nearest of {1,2,4,8} — jlimit alone is not enough
+    {
+        static const int valid[4] = { 1, 2, 4, 8 };
+        auto distOf = [] (int a, int b) { return a > b ? a - b : b - a; };
+        int best = valid[0], bestDist = distOf (v, valid[0]);
+        for (int i = 1; i < 4; ++i)
+        {
+            const int d = distOf (v, valid[i]);
+            if (d < bestDist) { bestDist = d; best = valid[i]; }
+        }
+        sectionBars.store (best);
+    }
+    void setSectionSens   (int v) { sectionSens.store   (juce::jlimit (0, 2, v)); }
+    void setGridEvenSel   (int v) { gridEvenSel.store   (juce::jlimit (0, 3, v)); }
+
     double samplesPerBeat() const;                         // 0 if no reliable BPM
     double gridStepSamples() const;                        // current grid division in samples (0 if none)
     int  nearestGridLine (int sourcePos) const;            // nearest grid subdivision (snap target)
@@ -469,6 +493,13 @@ private:
     std::atomic<int>  sliceSensitivity { 1 };       // 0 Low, 1 Med, 2 High
     std::atomic<int>  sliceSnap        { 1 };       // 0 Loose, 1 Med, 2 Tight
     std::atomic<bool> analysisThenSlice { false };  // run music-aware slice when analysis completes
+
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model (persisted; see
+    // getSliceModeSel() etc. above for the clamped setters).
+    std::atomic<int>  sliceModeSel { 0 };           // 0 SECTIONS-BARS (default)
+    std::atomic<int>  sectionBars  { 4 };           // {1,2,4,8}, default 4
+    std::atomic<int>  sectionSens  { 1 };           // 0 few,1 medium,2 many, default 1
+    std::atomic<int>  gridEvenSel  { 3 };           // 0 16-equal,1 beat,2 2-beats,3 every bar, default 3
 
     std::atomic<double> hostBpm { 0.0 };
     std::atomic<bool>   wantRender { false }, wantAnalysis { false }, analysisKeepCues { false };

@@ -2806,6 +2806,11 @@ bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
     extra.setProperty ("slG", sliceGridDiv.load(), nullptr);
     extra.setProperty ("slS", sliceSensitivity.load(), nullptr);
     extra.setProperty ("slP", sliceSnap.load(), nullptr);
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model (three-spot pattern).
+    extra.setProperty ("slMode", sliceModeSel.load(), nullptr);
+    extra.setProperty ("slBars", sectionBars.load(), nullptr);
+    extra.setProperty ("slSens", sectionSens.load(), nullptr);
+    extra.setProperty ("slEven", gridEvenSel.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
     extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request
@@ -2870,6 +2875,12 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     setSliceGridDiv     ((int) extra.getProperty ("slG", (int) sliceGridDiv.load()));
     setSliceSensitivity ((int) extra.getProperty ("slS", (int) sliceSensitivity.load()));
     setSliceSnap        ((int) extra.getProperty ("slP", (int) sliceSnap.load()));
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model — defaults preserved
+    // for old projects/kits without these keys (getProperty fallback).
+    setSliceModeSel ((int) extra.getProperty ("slMode", (int) sliceModeSel.load()));
+    setSectionBars  ((int) extra.getProperty ("slBars", (int) sectionBars.load()));
+    setSectionSens  ((int) extra.getProperty ("slSens", (int) sectionSens.load()));
+    setGridEvenSel  ((int) extra.getProperty ("slEven", (int) gridEvenSel.load()));
     snapEnabled = (bool) extra.getProperty ("snap", snapEnabled.load());
     velToLevel  = (bool) extra.getProperty ("vel2l", true);
     // D2: restore hero view sticky request through the sanitizer (garbage-stored-int
@@ -3441,6 +3452,11 @@ void GentSamplerAudioProcessor::getStateInformation (juce::MemoryBlock& dest)
     extra.setProperty ("slG", sliceGridDiv.load(), nullptr);
     extra.setProperty ("slS", sliceSensitivity.load(), nullptr);
     extra.setProperty ("slP", sliceSnap.load(), nullptr);
+    // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model (three-spot pattern).
+    extra.setProperty ("slMode", sliceModeSel.load(), nullptr);
+    extra.setProperty ("slBars", sectionBars.load(), nullptr);
+    extra.setProperty ("slSens", sectionSens.load(), nullptr);
+    extra.setProperty ("slEven", gridEvenSel.load(), nullptr);
     extra.setProperty ("snap", snapEnabled.load(), nullptr);
     extra.setProperty ("vel2l", velToLevel.load(), nullptr);
     extra.setProperty ("heroView", heroView.load(), nullptr);   // D2: hero view sticky request
