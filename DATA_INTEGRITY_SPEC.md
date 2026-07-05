@@ -120,3 +120,40 @@ audit.
 | Change | Commit | Joe verdict |
 |---|---|---|
 | 1+2 | | |
+
+---
+
+## ADDENDUM T — teardown hardening (Joe-reported crash-on-close, 2026-07-05)
+
+**Diagnosis (Event Log, verified):** every FL close through 07-04 faulted in
+`onnxruntime_providers_cuda.dll` (same offset) — the CUDA-preload teardown
+crash, ALREADY FIXED by the kEnableCuda gate (zero occurrences since). Since
+then exactly ONE crash (07-05 17:49, surfacing in Norton's injected
+MSVCP140.dll) — timing matches closing FL while a background stem-cache FLAC
+encode was running. Ground truth: `~GentSamplerAudioProcessor` is a bare
+`stopThread(3000)` — JUCE FORCE-KILLS the worker after 3 s; the FLAC encodes
+are single whole-buffer `writeFromAudioSampleBuffer` calls (cpp:1490, 2890,
+3076) with zero abort polls, and StemSeparator has NO abort mechanism at all.
+A thread killed mid-encode/mid-inference corrupts the heap → AV during
+process teardown, surfacing in any module (e.g. Norton's shim).
+
+**Changes:**
+1. Abortable encodes: every worker FLAC encode writes in ~1-second chunks,
+   polling `threadShouldExit()` between chunks; on abort return failure (the
+   existing failure paths already clean up: cache deletes the partial key
+   dir, kit save deletes temps and never moves the .tmp).
+2. Poll `threadShouldExit()` between stems in doKitSaveJob/the cache write,
+   and between chunks in doRestoreLoadJob's read.
+3. StemSeparator::process gains a `std::function<bool()> shouldAbort`
+   (polled between its internal segment iterations — implementer reads the
+   segment loop first); doStemJob passes `[this]{ return threadShouldExit(); }`
+   and discards partial output on abort. Smallest change that makes a
+   mid-separation close abort cleanly; no other separator behavior touched.
+4. `stopThread (3000)` → `stopThread (10000)` — with 1-3, real exit latency
+   is chunk-sized (<1 s); the raised cap is headroom, not a wait.
+
+**Acceptance:** close FL immediately after triggering a separation AND during
+the post-separation cache write AND during a kit save → no crash-on-close
+event in the Application log; jobs abort cleanly (partial cache dir removed).
+gate green. If a Norton-signature crash still appears with these in, that is
+a separate investigation (WER dump), not this addendum.
