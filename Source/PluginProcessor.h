@@ -219,7 +219,13 @@ public:
     std::atomic<int>  heroView { 0 };
 
     // kits / export / capture
-    bool saveKit (const juce::File& kitFile);
+    bool saveKit (const juce::File& kitFile);          // synchronous, message-thread callers only
+    // KIT_SPEC.md PART B: worker-threaded save (FLAC-encoding minutes of audio
+    // is not message-thread work) — mirrors requestSectionReport()'s
+    // fire-and-forget shape. Message thread: stash the destination, set
+    // wantKitSave, notify(). The worker (run()'s dispatch loop) does the
+    // actual XML-build + FLAC-encode + ZIP write via doKitSaveJob().
+    void requestKitSave (const juce::File& dest);
     bool loadKit (const juce::File& kitFile);
     bool exportPad (int pad, const juce::File& wavFile);   // pad slice → WAV (pitch/level/crush applied)
     bool exportKit (const juce::File& directory);          // 16 WAVs + Kit.mid + FlipLog.txt
@@ -383,6 +389,15 @@ private:
     void doClassifyJob();       // P2 wiring: read-only slice classification -> report file
     void doSectionReportJob();  // SECTIONS Part 2: NOVELTY report file (read-only, dev)
     void doSectionApplyJob();   // SECTIONS Part 2: NOVELTY apply (worker-deferred slicing, dev)
+    // KIT_SPEC.md PART B: worker-threaded .gentkit v2 (ZIP) save. Reads the
+    // source/stems via their refcounted Ptr getters (no lock held while
+    // FLAC-encoding), builds kit.xml via buildKitStateXml(), writes temp FLAC
+    // files under tempDir(), zips them together, then replaces the
+    // destination atomically (write to a ".tmp" sibling, then moveFileTo).
+    void doKitSaveJob();
+    // Shared by saveKit() (v1, synchronous) and doKitSaveJob() (v2, worker) so
+    // the two XML bodies never drift — pure snapshot-to-ValueTree, no I/O.
+    juce::ValueTree buildKitStateXml();
     void doTranscriptionJob();                              // Basic Pitch: slice -> notes -> .mid
     bool writeTranscribedMidi (const std::vector<BasicPitchTranscriber::Note>& notes,
                                const juce::File& midFile);
@@ -398,6 +413,21 @@ private:
     static BusesProperties makeBuses();
     juce::AudioProcessorValueTreeState::ParameterLayout makeLayout();
     void applyStateTree (const juce::ValueTree& state);
+    // KIT_SPEC.md PART B: pure extraction of loadFile()'s post-decode body
+    // (everything after the reader fills the buffer) — SourceSample adoption,
+    // stemSet/stemStatus reset, cue defaults, analysis-flag logic. Used by
+    // BOTH loadFile() (behavior-identical) and the v2 .gentkit load (which
+    // decodes source.flac itself, no on-disk source file required).
+    bool adoptSourceBuffer (juce::AudioBuffer<float>&& buf, double sampleRate,
+                             const juce::String& displayPath, bool runAnalysis);
+    // KIT_SPEC.md PART B: v2 (.gentkit-as-ZIP) load, called by loadKit() once
+    // it sniffs a "PK" magic. See its definition comment for the restore order.
+    bool loadKitV2 (const juce::File& kitFile);
+    // Review fix: the audio-only half (source + stems, NO state apply) —
+    // shared by loadKitV2() and loadFile()'s ZIP-sniff route, which handles a
+    // host-project restore whose stored source path IS a .gentkit (the
+    // project's own state must stay in charge there, not the kit's).
+    bool loadKitV2Audio (const juce::File& kitFile, bool runAnalysis);
 
     // --- voices ---
     struct Voice
@@ -535,6 +565,12 @@ private:
     std::atomic<bool>   wantSectionReport { false };
     std::atomic<bool>   wantSectionApply  { false };
     std::atomic<int>    sectionSensitivity { 1 };
+    // KIT_SPEC.md PART B: requestKitSave()'s fire-and-forget shape (mirror of
+    // requestSectionReport() above). kitSaveDest is written on the message
+    // thread BEFORE wantKitSave is set, and read once by doKitSaveJob() at
+    // the top of the job — guarded by infoLock (transcribeMidi precedent).
+    std::atomic<bool>   wantKitSave { false };
+    juce::File          kitSaveDest;   // guarded by infoLock
     // KIT_SPEC.md PART A: sliceKit()'s deferred-until-analyzed flag (set when
     // onsets don't exist yet, sliceTransients precedent) — consumed inside
     // doAnalysisJob's completion block, NOT run()'s dispatch loop (onsets are

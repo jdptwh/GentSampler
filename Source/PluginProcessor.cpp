@@ -228,18 +228,48 @@ void GentSamplerAudioProcessor::prepareToPlay (double, int)
 
 bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
 {
+    // KIT_SPEC.md PART B (review fix): a v2 kit load sets filePath to the
+    // .gentkit itself, so a HOST-PROJECT restore hands this function that ZIP
+    // (applyStateTree -> loadFile(path)). The WAV/FLAC reader below can't open
+    // a ZIP -> the project would silently restore an EMPTY source (the
+    // Pad12-ghost family). Route ZIP-sniffed files to the audio-only v2
+    // loader: audio (+stems) adopted, but the KIT's saved state is NOT
+    // applied — the caller (the project's own applyStateTree) stays in
+    // charge of cues/masks/params, exactly like any other restored source.
+    {
+        juce::FileInputStream sniff (f);
+        char magic[2] = { 0, 0 };
+        if (sniff.openedOk() && sniff.read (magic, 2) == 2 && magic[0] == 'P' && magic[1] == 'K')
+            return loadKitV2Audio (f, runAnalysis);
+    }
+
     juce::AudioFormatManager fm;
     fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (f));
     if (reader == nullptr)
         return false;
 
-    auto* s = new SourceSample();
     const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);   // cap at 10 minutes
     const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
-    s->buffer.setSize ((int) reader->numChannels, len);
-    reader->read (&s->buffer, 0, len, 0, true, true);
-    s->sampleRate = reader->sampleRate;
+    juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
+    reader->read (&buf, 0, len, 0, true, true);
+
+    return adoptSourceBuffer (std::move (buf), reader->sampleRate, f.getFullPathName(), runAnalysis);
+}
+
+// KIT_SPEC.md PART B: pure extraction of loadFile()'s post-decode body (see
+// this function's declaration comment in the header for the callers). Takes
+// an already-decoded buffer so the v2 kit-load path (FLAC decoded from a ZIP
+// entry, no on-disk source file) can reuse it verbatim; displayPath is what
+// getFileName()/filePath() will show afterwards (the source file's path for
+// loadFile(), the kit file's own path for a v2 kit load).
+bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& buf, double sampleRate,
+                                                    const juce::String& displayPath, bool runAnalysis)
+{
+    auto* s = new SourceSample();
+    s->buffer = std::move (buf);
+    s->sampleRate = sampleRate;
+    const int len = s->buffer.getNumSamples();
 
     {
         const juce::SpinLock::ScopedLockType sl (srcLock);
@@ -247,8 +277,8 @@ bool GentSamplerAudioProcessor::loadFile (const juce::File& f, bool runAnalysis)
     }
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
-        fileName = f.getFileName();
-        filePath = f.getFullPathName();
+        fileName = juce::File (displayPath).getFileName();
+        filePath = displayPath;
         transientOnsets.clear();   // always: stale onsets must never drive a new file's auto-slice
         featureFrames.clear();     // always: stale features must never drive a new file's classify/KIT
         featureFrameRate = 0.0;
@@ -890,6 +920,8 @@ void GentSamplerAudioProcessor::run()
             doSectionReportJob();
         if (wantSectionApply.exchange (false))
             doSectionApplyJob();
+        if (wantKitSave.exchange (false))
+            doKitSaveJob();
         if (wantRender.exchange (false))
             doRenderJob();
         doPadRenderJobs();      // cheap staleness scan; rebuilds only what changed
@@ -2841,7 +2873,12 @@ bool GentSamplerAudioProcessor::exportKit (const juce::File& directory)
 //  Kits (presets)
 // ============================================================================
 
-bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
+// KIT_SPEC.md PART B: pure snapshot-to-ValueTree, no I/O — shared by saveKit()
+// (v1, synchronous XML write) and doKitSaveJob() (v2, worker-threaded ZIP
+// write) so the two XML bodies never drift. Safe to call from either thread:
+// every read below already goes through the same atomics/locks the rest of
+// the processor uses from arbitrary threads (infoLock, .load()).
+juce::ValueTree GentSamplerAudioProcessor::buildKitStateXml()
 {
     auto state = apvts.copyState();
     juce::ValueTree extra ("EXTRA");
@@ -2880,14 +2917,186 @@ bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
         extra.setProperty ("src" + juce::String (i), (int) padStemMask[(size_t) i].load(), nullptr);
     }
     state.appendChild (extra, nullptr);
+    return state;
+}
 
+bool GentSamplerAudioProcessor::saveKit (const juce::File& kitFile)
+{
+    auto state = buildKitStateXml();
     if (auto xml = state.createXml())
         return xml->writeTo (kitFile);
     return false;
 }
 
+// KIT_SPEC.md PART B: worker-threaded .gentkit v2 save, fire-and-forget shape
+// (requestSectionReport()/requestClassifyReport() precedent). kitSaveDest is
+// stashed under infoLock BEFORE wantKitSave is set so doKitSaveJob() always
+// sees a fully-written destination the first time it observes the flag.
+void GentSamplerAudioProcessor::requestKitSave (const juce::File& dest)
+{
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        kitSaveDest = dest;
+    }
+    wantKitSave = true;
+    notify();
+}
+
+// KIT_SPEC.md PART B: .gentkit v2 = a ZIP containing kit.xml + source.flac +
+// stem0..5.flac (iff stems exist at save time). Runs entirely on the worker
+// thread: source/stems are taken via their refcounted Ptr getters (no lock
+// held while FLAC-encoding, same discipline as doClassifyJob/doStemJob), FLAC
+// encoding of minutes of audio is worker-only work. FLAC is 24-bit (float
+// buffers quantize down — FLAC has no float mode; this is the pragmatic
+// lossless-in-practice choice, same bit depth exportPad()/exportKit() already
+// use for WAV). Completion is revealed via MessageManager::callAsync
+// (doClassifyJob's writeAndReveal idiom); temp files are always cleaned up,
+// even on a failure return.
+void GentSamplerAudioProcessor::doKitSaveJob()
+{
+    juce::File dest;
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        dest = kitSaveDest;
+    }
+
+    auto src = getSource();
+    if (src == nullptr)
+    {
+        DBG ("doKitSaveJob: no source loaded, nothing to save");
+        return;
+    }
+
+    // ---- snapshot state + stems (refcounted Ptr, lock-free afterward) -----
+    auto state = buildKitStateXml();
+    StemSet::Ptr stems = getStems();
+
+    // ---- temp files (deleted in every exit path) ---------------------------
+    const auto tmpDir = juce::File::getSpecialLocation (juce::File::tempDirectory);
+    const juce::String stamp = juce::String::toHexString (juce::Random::getSystemRandom().nextInt64());
+    juce::Array<juce::File> tempFiles;
+    auto cleanup = [&tempFiles]
+    {
+        for (auto& f : tempFiles)
+            f.deleteFile();
+    };
+
+    auto encodeFlac = [&tempFiles, &tmpDir, &stamp] (const juce::AudioBuffer<float>& buf, double sr,
+                                                       const juce::String& tag, juce::String& errOut) -> juce::File
+    {
+        const auto f = tmpDir.getChildFile ("GentSamplerKit_" + stamp + "_" + tag + ".flac");
+        f.deleteFile();
+        tempFiles.add (f);
+
+        juce::FlacAudioFormat flac;
+        std::unique_ptr<juce::FileOutputStream> os (f.createOutputStream());
+        if (os == nullptr) { errOut = "could not open temp file for " + tag; return {}; }
+
+        std::unique_ptr<juce::AudioFormatWriter> writer (
+            flac.createWriterFor (os.get(), sr, (unsigned int) juce::jmax (1, buf.getNumChannels()), 24, {}, 0));
+        if (writer == nullptr) { errOut = "FLAC writer unavailable for " + tag; return {}; }
+        os.release();   // writer owns the stream now
+
+        if (! writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples()))
+        { errOut = "FLAC encode failed for " + tag; return {}; }
+        writer.reset();
+        return f;
+    };
+
+    juce::String err;
+    const auto sourceFlac = encodeFlac (src->buffer, src->sampleRate, "source", err);
+    if (sourceFlac == juce::File())
+    {
+        DBG ("doKitSaveJob: " << err);
+        cleanup();
+        return;
+    }
+
+    std::array<juce::File, 6> stemFlacs;
+    const bool haveStems = (stems != nullptr);
+    if (haveStems)
+    {
+        for (int i = 0; i < 6; ++i)
+        {
+            auto& buf = stems->buffers[(size_t) i];
+            if (buf.getNumSamples() == 0)
+                continue;   // write only non-empty stem buffers
+            juce::String stemErr;
+            stemFlacs[(size_t) i] = encodeFlac (buf, stems->sampleRate, "stem" + juce::String (i), stemErr);
+            if (stemFlacs[(size_t) i] == juce::File())
+            {
+                DBG ("doKitSaveJob: " << stemErr);
+                cleanup();
+                return;
+            }
+        }
+    }
+
+    // kit.xml -> its own temp file (Builder::addFile needs an on-disk file)
+    const auto xmlFile = tmpDir.getChildFile ("GentSamplerKit_" + stamp + "_kit.xml");
+    tempFiles.add (xmlFile);
+    {
+        juce::ValueTree stateV2 = state;   // kitVer="2" on the root, everything else identical
+        stateV2.setProperty ("kitVer", 2, nullptr);
+        auto xml = stateV2.createXml();
+        if (xml == nullptr || ! xml->writeTo (xmlFile))
+        {
+            DBG ("doKitSaveJob: could not write kit.xml");
+            cleanup();
+            return;
+        }
+    }
+
+    // ---- zip it all up, write to a sibling temp file, then swap in --------
+    juce::ZipFile::Builder zip;
+    zip.addFile (xmlFile, 0, "kit.xml");         // XML compresses well but is tiny either way
+    zip.addFile (sourceFlac, 0, "source.flac");  // FLAC is already compressed -> store, don't re-deflate
+    if (haveStems)
+        for (int i = 0; i < 6; ++i)
+            if (stemFlacs[(size_t) i] != juce::File())
+                zip.addFile (stemFlacs[(size_t) i], 0, "stem" + juce::String (i) + ".flac");
+
+    const auto tmpDest = dest.getSiblingFile (dest.getFileName() + ".tmp");
+    tmpDest.deleteFile();
+    bool ok = false;
+    {
+        std::unique_ptr<juce::FileOutputStream> os (tmpDest.createOutputStream());
+        if (os != nullptr)
+            ok = zip.writeToStream (*os, nullptr);
+    }
+
+    cleanup();
+
+    if (! ok)
+    {
+        DBG ("doKitSaveJob: ZIP write failed");
+        tmpDest.deleteFile();
+        return;
+    }
+
+    dest.deleteFile();
+    if (! tmpDest.moveFileTo (dest))
+    {
+        DBG ("doKitSaveJob: could not move temp ZIP to destination");
+        tmpDest.deleteFile();
+        return;
+    }
+
+    juce::MessageManager::callAsync ([dest] { dest.revealToUser(); });
+}
+
 bool GentSamplerAudioProcessor::loadKit (const juce::File& kitFile)
 {
+    // KIT_SPEC.md PART B: sniff the file's first two bytes. "PK" -> v2 (ZIP)
+    // path; anything else -> the EXISTING v1 path, byte-identical (old kits
+    // keep loading).
+    {
+        juce::FileInputStream sniff (kitFile);
+        char magic[2] = { 0, 0 };
+        if (sniff.openedOk() && sniff.read (magic, 2) == 2 && magic[0] == 'P' && magic[1] == 'K')
+            return loadKitV2 (kitFile);
+    }
+
     auto xml = juce::XmlDocument::parse (kitFile);
     if (xml == nullptr)
         return false;
@@ -2895,6 +3104,111 @@ bool GentSamplerAudioProcessor::loadKit (const juce::File& kitFile)
     if (! state.isValid())
         return false;
     applyStateTree (state);
+    return true;
+}
+
+// KIT_SPEC.md PART B: .gentkit v2 load, synchronous on the message thread
+// (matches today's loadKit() behavior — the async-restore item is a separate
+// BACKLOG concern, not fixed here). Order: adoptSourceBuffer() FIRST (so the
+// source exists before anything downstream references it), then stems if
+// present, THEN applyStateTree() with "path" removed from its EXTRA child so
+// applyStateTree's own loadFile(path) branch is skipped (v2 supplies audio
+// directly, never touches/requires the stored path) — every other restore
+// (cues, ends, masks, bpm, mode model, ...) goes through the normal
+// applyStateTree code, unchanged.
+bool GentSamplerAudioProcessor::loadKitV2 (const juce::File& kitFile)
+{
+    juce::ZipFile zip (kitFile);
+
+    const int xmlIdx = zip.getIndexOfFileName ("kit.xml");
+    if (xmlIdx < 0)
+        return false;
+    std::unique_ptr<juce::InputStream> xmlStream (zip.createStreamForEntry (xmlIdx));
+    if (xmlStream == nullptr)
+        return false;
+    auto xml = juce::XmlDocument::parse (xmlStream->readEntireStreamAsString());
+    if (xml == nullptr)
+        return false;
+    auto state = juce::ValueTree::fromXml (*xml);
+    if (! state.isValid())
+        return false;
+
+    if (! loadKitV2Audio (kitFile, false))
+        return false;
+
+    // applyStateTree's "path" branch must be skipped (v2 never requires the
+    // stored path to load) — everything else in EXTRA restores normally.
+    auto extra = state.getChildWithName ("EXTRA");
+    if (extra.isValid())
+        extra.removeProperty ("path", nullptr);
+
+    applyStateTree (state);
+    return true;
+}
+
+// KIT_SPEC.md PART B (review fix): the AUDIO half of a v2 kit load — source
+// + stems adopted, NO state applied. Two callers: loadKitV2() above (which
+// applies the kit's own state afterwards), and loadFile()'s ZIP-sniff route
+// (a HOST-PROJECT restore whose applyStateTree stored the .gentkit as the
+// source path — there the PROJECT's state must stay in charge, so only the
+// audio may be adopted).
+bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool runAnalysis)
+{
+    juce::ZipFile zip (kitFile);
+
+    const int srcIdx = zip.getIndexOfFileName ("source.flac");
+    if (srcIdx < 0)
+        return false;
+
+    juce::FlacAudioFormat flac;
+    {
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            flac.createReaderFor (zip.createStreamForEntry (srcIdx), true));
+        if (reader == nullptr)
+            return false;
+        const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);   // cap at 10 minutes (loadFile precedent)
+        const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
+        juce::AudioBuffer<float> buf ((int) reader->numChannels, len);
+        reader->read (&buf, 0, len, 0, true, true);
+        if (! adoptSourceBuffer (std::move (buf), reader->sampleRate, kitFile.getFullPathName(), runAnalysis))
+            return false;
+    }
+
+    // stems, iff present (mirrors doStemJob's stemSet write + doStemRenderJob
+    // invalidation: set stemSet under stemLock, then request a stem re-render).
+    bool anyStem = false;
+    auto* set = new StemSet();
+    for (int i = 0; i < 6; ++i)
+    {
+        const juce::String name = "stem" + juce::String (i) + ".flac";
+        const int idx = zip.getIndexOfFileName (name);
+        if (idx < 0)
+            continue;
+        std::unique_ptr<juce::AudioFormatReader> reader (
+            flac.createReaderFor (zip.createStreamForEntry (idx), true));
+        if (reader == nullptr)
+            continue;
+        const int len = (int) reader->lengthInSamples;
+        set->buffers[(size_t) i].setSize ((int) reader->numChannels, len);
+        reader->read (&set->buffers[(size_t) i], 0, len, 0, true, true);
+        set->sampleRate = reader->sampleRate;
+        anyStem = true;
+    }
+    if (anyStem)
+    {
+        set->generation = ++stemGeneration;
+        {
+            const juce::SpinLock::ScopedLockType sl (stemLock);
+            stemSet = set;
+        }
+        wantStemRender = true;
+        notify();
+    }
+    else
+    {
+        delete set;
+    }
+
     return true;
 }
 

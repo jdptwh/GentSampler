@@ -359,7 +359,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                 if (f == juce::File()) return;
                 if (! f.hasFileExtension ("gentkit"))
                     f = f.withFileExtension ("gentkit");
-                p.saveKit (f);
+                p.requestKitSave (f);   // KIT_SPEC.md PART B: worker-threaded (FLAC encode + ZIP write)
             });
     };
 
