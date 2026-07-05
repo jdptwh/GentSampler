@@ -54,10 +54,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   PK-sniffs — a host-project restore whose stored path IS a .gentkit adopts
   the kit's AUDIO only (project state stays in charge); without this the
   project reopened with a silent empty source (Pad12-ghost family).
-  AWAITING Joe's FL round-trip (save kit → move source wav → load kit; plus
-  project-reopen after a v2 kit load). Then KIT v1 COMPLETE — remaining
-  post-v1 candidates: HIGH backlog items (async-clobber + sync restore),
-  packaging pass, v2 classifier (parked).
+  Part B FL-validated 2026-07-05 (kit stem round-trip confirmed). Part C stem
+  cache: DONE (`f0941d4`, gate+deploy green) — Joe-reported gap (stems gone on
+  PROJECT reopen; kits kept them): worker FLAC-caches stems to Documents\
+  GentSampler\stemcache\<content-hash>_q<quality> at separation, "stemKey"
+  persisted in project+kit state, worker restores on reopen when stems are
+  absent (v2-kit stems never clobbered; miss = today's behavior). LEAD REVIEW
+  FIX: ensureSize-before-append made the hash cover uninitialized bytes — a
+  different key every run, permanent silent cache miss; hash now covers the
+  audio only. AWAITING Joe's FL check (separate → set masks → save project →
+  reopen → masks audible, no re-separation). Then KIT v1 COMPLETE — post-v1
+  candidates: HIGH backlog items (async-clobber + sync restore), packaging
+  pass, v2 classifier (parked).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
