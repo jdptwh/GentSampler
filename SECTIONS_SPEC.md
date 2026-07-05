@@ -131,11 +131,62 @@ Joe runs 2-3 real tracks, reads the report + hears the applied sections.
 Verdict recorded in **this file's Gate record** before ANY Part 3 work. Tuning
 touches ONLY the sensitivity/threshold/smoothing table.
 
-## PART 3 — SLICE dropdown (LOCKED until gate approval)
-Not specced in detail yet (deliberately). Shape per task: split-chip + mode
-menu, SECTIONS (Bars 1/2/4/8 · Novelty sensitivity) + existing SMART/TRANSIENT/
-GRID; selected mode+sub-option persist (session; plugin state if trivial); chip
-label `SLICE · SECTIONS`. Specced after the gate.
+## PART 3 — SLICE split-chip dropdown (UNLOCKED 2026-07-04, gate approved)
+
+### Mode model (processor, persisted)
+Four clamped atomics + setters, mirroring `sliceGridDiv`/`setSliceGridDiv`:
+- `sliceModeSel` 0..4: 0 SECTIONS-BARS (default), 1 SECTIONS-NOVELTY, 2 SMART,
+  3 TRANSIENT, 4 GRID-EVEN.
+- `sectionBars` ∈ {1,2,4,8} (default 4); `sectionSens` 0..2 (default 1 medium);
+  `gridEvenSel` 0..3 (default 3 = every bar; 0 16-equal, 1 beat, 2 2-beats).
+Persist via the three-spot pattern next to `"slG"`: `saveKit` +
+`getStateInformation` write, `applyStateTree` reads (keys `slMode`/`slBars`/
+`slSens`/`slEven`, defaults preserved for old projects). No APVTS params.
+
+### Split chip (editor)
+Replace the `sliceMenu` TextButton with a small `SplitChip : juce::Component`
+built FROM the established primitives (no new visual language): face =
+`Theme::paintChip` (hover/down per zone), text = `Theme::chipFont()`, caret =
+the exact triangle idiom from `GentLNF::drawComboBox` (h:2338-2342), thin
+divider before an ~18px caret zone. Main-zone click → `onRun`; caret zone →
+`onMenu` (the existing popup). `preferredWidth()` from font measurement
+(HeroViewSeg precedent, h:2623); layoutContent uses it. Label synced by the
+15 Hz timer (qualityBox precedent): `SLICE · SECTIONS` / `SLICE · SMART` /
+`SLICE · TRANS` / `SLICE · GRID`.
+
+### Run dispatch (main-zone click; ONE undoable action each)
+- SECTIONS-BARS: `pushUndo(); sliceSections (sectionBars)`
+- SECTIONS-NOVELTY: `pushUndo(); requestSectionApply (sectionSens)` (worker-
+  deferred, CueSnap at click — the Part 2 pattern)
+- SMART: `pushUndo(); autoSliceMusical()`
+- TRANSIENT: `sliceBtn.onClick()` (it pushes its own undo, cpp:349)
+- GRID-EVEN: call the PROCESSOR actions directly (`pushUndo()` + the same
+  action the `sliceMode` combo's onChange performs for that index) — NOT via
+  `ComboBox::setSelectedId`, which silently no-ops when the id is unchanged
+  and would make re-run dead. Implementer mirrors the combo handler verbatim.
+
+### Menu restructure (caret zone; same styled PopupMenu)
+Top = mode section with radio ticks reflecting mode+sub-option; every item
+RUNS immediately AND persists the mode:
+- `SECTIONS (flip)` submenu: Bars 1/2/4/8 = existing ids 45-48 (now also set
+  mode 0 + `sectionBars`); separator; `Novelty: few/medium/many` = NEW ids
+  70-72 (set mode 1 + `sectionSens`, `pushUndo` + `requestSectionApply`).
+- `SMART (transients + grid)` = id 1 (sets mode 2); `TRANSIENTS only` = id 2
+  (sets mode 3); `GRID (even divisions)` submenu = ids 40-43 (set mode 4 +
+  `gridEvenSel`, direct processor actions per the run-dispatch note).
+Below, UNCHANGED: Grid-div 10-13 / Sensitivity 20-22 / Snap 30-32 param
+submenus, clear items 50-52, dev section 60-66. Free ids used: 70-72.
+
+### Acceptance (Part 3)
+- [ ] Both SECTIONS sub-modes reachable from the dropdown; chip label follows
+  the selected mode; main-zone click re-runs the current mode.
+- [ ] Re-running ANY mode (incl. same even-grid selection twice) re-slices as
+  one undoable action.
+- [ ] Mode + sub-options persist across editor close/reopen AND project
+  save/reload (three-spot).
+- [ ] Old projects without the new keys load with defaults; no behavior change
+  to any existing menu item semantics.
+- [ ] gate.sh green; Joe FL-validates on a real track.
 
 ## Out of scope (all parts)
 KIT changes, classifier code (parked v2), stem engine, granular, Theme.h,
