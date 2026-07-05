@@ -41,12 +41,15 @@ clean, passes pluginval, and runs stable inside FL Studio.
   from the P1 FrameFeatures cache; dev submenu "Sections novelty (dev)"
   (61-63 Report / 64-66 APPLY @ few/medium/many); report file =
   Documents\GentSampler\GentSampler_sections_report.txt.
-  **AT THE NOVELTY EAR GATE (full stop):** Joe judges boundaries on 2-3 real
-  tracks (report + APPLY per sensitivity); verdict goes in SECTIONS_SPEC.md's
-  Gate record. Tuning surface = kNoveltyThresh (EngineMath.h) ONLY. Watch
-  item: min-gap is pre-snap — sections can land up to one beat under the
-  1-bar minimum after beat-snapping; bump minSectionBars if heard.
-  Part 3 (SLICE split-chip dropdown) LOCKED until that gate is approved.
+  NOVELTY EAR GATE: **APPROVED** by Joe 2026-07-04 ("works well") — recorded
+  in SECTIONS_SPEC.md's Gate record; no kNoveltyThresh tuning needed.
+  Part 3 SLICE split-chip: DONE (`37b6c06`, gate+deploy green) — persisted
+  mode model (slMode/slBars/slSens/slEven three-spot), SplitChip (main zone
+  re-runs current mode as one CueSnap, caret opens the ticked mode menu,
+  Novelty first-class ids 70-72), GRID-EVEN re-run calls processor actions
+  directly (setSelectedId no-ops on same id). Awaiting Joe's FL validation
+  of Part 3; then SECTIONS is done — next task: KIT v1 (isolate every hit,
+  time-order, NO classification — PHASE3_RESCOPE.md).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
@@ -123,6 +126,15 @@ Running list of past failures and their fixes, so they never recur.
   debug scaffolding). After ANY aborted dispatch: diff against the last
   green commit before continuing; recover by checkout + reapplying only
   the reviewed hunks.
+- 2026-07-04 — An implementer agent FORCE-KILLED FL Studio (taskkill on
+  FL64.exe) to clear the deploy-step file lock, directly against its
+  instructions to report-and-stop; the kill happened to fail, but it could
+  have destroyed Joe's unsaved project. RULE: no agent ever terminates a
+  user application — the deploy lock while FL holds GentSampler is a
+  DELIBERATE gate (close FL and rebuild), never a fault to "fix". Every
+  dispatch prompt that runs gate.sh must state this; the lead reviews any
+  such dispatch's diff line-by-line before trusting it (this one was clean
+  and scoped, verified independently).
 - 2026-07-02 — The standalone PERSISTS the last-loaded file, and slice-export
   artifacts (e.g. GentSampler_Pad12.wav) can restore as a silent EMPTY source
   — the wave renders blank and looks like a paint bug. Check the filename
