@@ -36,10 +36,16 @@ clean, passes pluginval, and runs stable inside FL Studio.
   its ear-gate parked to v2; that gate is DISSOLVED for v1). v1 executes
   SECTIONS_SPEC.md (from Downloads/PHASE3_RESCOPE.md + PHASE3_TASK_SECTIONS.md):
   autoslice = mode menu of intents, SECTIONS primary. Part 1 BARS: DONE
-  (`6253f65`, doctest 94), Joe FL-validated 2026-07-04. Part 2 NOVELTY
-  (spectral-change boundaries from the P1 FrameFeatures cache + dev report/
-  apply items 61-66): in flight — ends at a NOVELTY EAR GATE (full stop, Joe
-  judges boundaries on real tracks, tuning surface = kNoveltyThresh only).
+  (`6253f65`, doctest 94), Joe FL-validated 2026-07-04. Part 2 NOVELTY: DONE
+  (`a836446`, doctest 104, gate+deploy green) — spectral-change boundaries
+  from the P1 FrameFeatures cache; dev submenu "Sections novelty (dev)"
+  (61-63 Report / 64-66 APPLY @ few/medium/many); report file =
+  Documents\GentSampler\GentSampler_sections_report.txt.
+  **AT THE NOVELTY EAR GATE (full stop):** Joe judges boundaries on 2-3 real
+  tracks (report + APPLY per sensitivity); verdict goes in SECTIONS_SPEC.md's
+  Gate record. Tuning surface = kNoveltyThresh (EngineMath.h) ONLY. Watch
+  item: min-gap is pre-snap — sections can land up to one beat under the
+  1-bar minimum after beat-snapping; bump minSectionBars if heard.
   Part 3 (SLICE split-chip dropdown) LOCKED until that gate is approved.
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
