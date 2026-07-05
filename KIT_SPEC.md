@@ -143,4 +143,39 @@ kit browser UI, migrating v1 kits, stem re-separation on load.
 | Part | Commit | Joe verdict |
 |---|---|---|
 | A | `93b88c4` | **"seems to be working as intended. proceed"** — FL-validated 2026-07-05. No kKitThresh tuning requested. |
-| B | | (stems-embed design not vetoed — proceeding per spec) |
+| B | `cd44957` | FL-validated 2026-07-05: "saved the kit with the stems separated and loaded the kit back in a fresh session then the stems persisted." Same session surfaced the HOST-PROJECT stem gap → Part C below. |
+
+---
+
+## PART C — stem persistence across host sessions (Joe-reported 2026-07-05)
+
+**Report:** separate stems → set pad stem filters → save FL PROJECT → reopen:
+settings restore but stems are gone (masks inert until re-separation). Kits
+(v2) persist stems; projects never did — the host chunk stores path/params/
+masks only, stems lived in RAM. Pre-existing gap, surfaced by Part B's kits
+doing it right.
+
+**Design (planner):** disk stem cache, NOT chunk-embedding (would bloat DAW
+project files by ~100+ MB).
+- Cache dir: `Documents\GentSampler\stemcache\<key>\stem0..5.flac`. Key =
+  SHA-256 of the source PCM content (chunked juce::SHA256 over the buffer —
+  content-hash survives file moves/renames) + `_q<stemQuality>`.
+- Write: at `doStemJob` completion (already on the worker), FLAC-encode the 6
+  stems into the cache (REUSE Part B's encode helper — refactor `encodeFlac`
+  out of `doKitSaveJob` into a shared private, don't duplicate). Store the
+  key in a new member + persist as `"stemKey"` (three-spot pattern).
+- Restore: `applyStateTree` reads `"stemKey"`; if non-empty and no stems are
+  loaded, set a `wantStemCacheLoad` flag + key; the WORKER loads the cached
+  FLACs into a StemSet (stemLock + wantStemRender, exactly the loadKitV2Audio
+  stem block — share it, don't duplicate) — no message-thread decode stall.
+  Cache miss (user deleted the folder) → silent no-op, masks stay inert
+  exactly as today; DBG one line.
+- v2 kit save/load unchanged (kits stay self-contained). A v2 kit load MAY
+  also populate the cache key (assess: only if free — else skip).
+- Eviction: NONE in v1 — the folder is plain files, user-deletable; note it
+  in the cache dir via a README.txt written once. Flagged to Joe: stem cache
+  grows with each separated source (~3-6x source size per track, FLAC).
+
+**Acceptance (Part C):** separate → set masks → save FL project → close FL →
+reopen project: stems present, masks audible, NO re-separation. Cache-miss
+degrades to today's behavior. Kits unchanged. gate.sh green; Joe FL-validates.
