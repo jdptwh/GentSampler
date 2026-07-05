@@ -44,16 +44,20 @@ clean, passes pluginval, and runs stable inside FL Studio.
   NOVELTY EAR GATE: **APPROVED** by Joe 2026-07-04 ("works well"). Part 3
   SLICE split-chip: DONE (`37b6c06`), Joe-validated 2026-07-05 —
   **SECTIONS task COMPLETE** (record in SECTIONS_SPEC.md).
-- In progress: **KIT v1** (KIT_SPEC.md — Fable-specced from PHASE3_RESCOPE.md
-  §KIT; no separate Joe task file, flagged). Part A hit isolation: DONE
-  (`93b88c4`, doctest 110, gate+deploy green) — gent::kitHits feeds the FULL
-  onset list (never the top-16/80ms `slices` selection), kKitThresh table +
-  30ms drop-the-LATER anti-double-trigger, time-order first-16 + overflow,
-  kitPending analysis deferral, split-chip mode 5 "SLICE · KIT" (ids 80-82,
-  "slKSens" three-spot). AWAITING Joe's FL check on a real drum break
-  (completeness: every hit a pad, close hits stay separate). Part B next:
-  .gentkit v2 portable save (ZIP + FLAC, source embedded, v1 back-compat) —
-  spec written, NOT started.
+- In progress: **KIT v1** (KIT_SPEC.md). Part A hit isolation: DONE
+  (`93b88c4`, doctest 110), Joe FL-validated 2026-07-05 ("working as
+  intended"). Part B portable .gentkit v2: DONE (`cd44957`, gate+deploy
+  green) — kit = layout + AUDIO: ZIP(kit.xml + source.flac 24-bit + stems if
+  present), worker-thread save (requestKitSave/doKitSaveJob, shared
+  buildKitStateXml so v1/v2 XML never drift), PK-sniff loader with v1
+  back-compat, adoptSourceBuffer extraction. LEAD REVIEW FIX: loadFile also
+  PK-sniffs — a host-project restore whose stored path IS a .gentkit adopts
+  the kit's AUDIO only (project state stays in charge); without this the
+  project reopened with a silent empty source (Pad12-ghost family).
+  AWAITING Joe's FL round-trip (save kit → move source wav → load kit; plus
+  project-reopen after a v2 kit load). Then KIT v1 COMPLETE — remaining
+  post-v1 candidates: HIGH backlog items (async-clobber + sync restore),
+  packaging pass, v2 classifier (parked).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
