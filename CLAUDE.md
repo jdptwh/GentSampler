@@ -92,10 +92,12 @@ clean, passes pluginval, and runs stable inside FL Studio.
 - Style: Formatter: clang-format (config in .clang-format at repo root). Match existing code style in Source/.
 - Tests: ctest unit tests (tests/, doctest, logic-only — pure functions in
   Source/EngineMath.h). Run: `ctest --test-dir build -C Release --output-on-failure`.
-  gate.sh runs them as GATE 2, after build, before pluginval.
-- Verification command: `cmake --build build --config Release --parallel`
-  (gate.sh auto-configures with `cmake -S . -B build -G "Visual Studio 17 2022" -A x64` if build/ is missing,
-  then `ctest --test-dir build -C Release --output-on-failure`, then runs pluginval at strictness 5 if it's on PATH)
+  The primary gate runs them after the build (see below).
+- Verification commands and loop budgets: defined ONCE in `.claude/agent.config`
+  (gate.sh sources it; env vars override per session — ROUTING.md Rule 10).
+  Primary = `.claude/hooks/build_test.sh` (auto-configure + Release build + ctest);
+  secondary = `.claude/hooks/pluginval_gate.sh` (pluginval strictness 5,
+  auto-skips if not installed, NO retry — see the 2026-07-04 landmine).
 
 ## Architecture (short)
 - Plugin targets: VST3 + Standalone, `IS_SYNTH`, MIDI in, 16 optional per-pad
@@ -116,16 +118,21 @@ clean, passes pluginval, and runs stable inside FL Studio.
   re-render in the background. Don't allocate or lock-contend in processBlock.
 
 ## Routing
-Follow ROUTING.md in the repo root. Summary:
-- Fable plans and gates. Sonnet implements. Haiku only does machine-verifiable work.
-- Route by verifiability: if nothing automatic catches a failure, minimum Sonnet.
-- Two failures at any tier → escalate with failure context attached.
+Follow ROUTING.md (v4) in the repo root. Summary: PLANNER (Fable) owns specs +
+arbitrates escalations; SPEC-DRAFTER (Sonnet) drafts cheaply so the planner only
+corrects; IMPLEMENTER (Sonnet) does judgment work; REVIEWER (Opus, senior)
+reviews then escalates hard calls to PLANNER; BULK (Haiku) only takes
+machine-verifiable work. Route by verifiability. Two human touchpoints: approve
+the spec, accept the result. Loop budgets (`.claude/agent.config`) bound every
+autonomous run; failed loops resume from git state, never replay (Rule 9);
+reviewer verdicts are validated JSON (`.claude/state/verdict.json`).
 
 ## Definition of done
-- [ ] Verification command passes
-- [ ] pluginval passes (when installed) — strictness 5
+- [ ] Verification gates pass (loop 3 green: build + ctest, then pluginval
+      strictness 5 when installed — commands in `.claude/agent.config`)
 - [ ] Acceptance criteria from the spec checked off
 - [ ] No files touched outside the spec
+- [ ] For interactive work: Joe's hands-on FL Studio pass complete
 - [ ] CLAUDE.md "Current state" section updated
 
 ## Do not
@@ -218,11 +225,4 @@ Running list of past failures and their fixes, so they never recur.
   2.6 GB is slow/hangs; once Windows has the DLLs cached (e.g. right after a
   standalone/FL/stem session) the same load finishes under 30s and pluginval
   "passes." **The documented "transient pluginval flake" that gate.sh's
-  retry-once was built around WAS THIS EXACT HANG hitting warm cache** — it was
-  never a flake. DO NOT re-add a retry to paper over a cold-open stall, and DO
-  NOT dismiss an "Open plugin (cold)" timeout as noise: it means real blocking
-  work is on the construct path (CUDA/model/ORT probe, or a synchronous file
-  load — see the applyStateTree restore item in BACKLOG.md). Diagnose it; the
-  engine-check log NOT updating after a run is the tell that the probe hung.
-- Unicode in UI strings requires MSVC `/utf-8` (already set) — don't remove it
-  or middots/arrows mojibake.
+  retry-once was built around WAS THIS EXACT HANG h

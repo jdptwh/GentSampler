@@ -33,3 +33,18 @@ Operating rules:
 
 6. **On failure:** report exactly what failed, what you tried, and the error
    verbatim. This context rides along on escalation — make it useful.
+
+7. **Checkpoint side effects.** Commit at the spec's checkpoint boundaries (or at
+   each completed acceptance criterion if none are declared). Every commit is a
+   resume point.
+
+8. **Resume, never replay (ROUTING.md Rule 9).** If you are resuming after an
+   interrupted or failed run, FIRST inspect state — `git status`, `git diff`,
+   `git log` — and continue from what actually exists on disk. Never re-execute
+   the task from the top as if nothing ran: side effects (edits, commits, file
+   creation) do not replay safely.
+
+9. **Respect the loop budget.** Track your attempt count against the spec's loop
+   budget (MAX_IMPL_ATTEMPTS in `.claude/agent.config`). On the final allowed
+   attempt, say so in your report; if it fails, stop — escalation is automatic,
+   not another retry.

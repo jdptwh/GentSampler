@@ -1,51 +1,27 @@
 #!/usr/bin/env bash
-# gate.sh — stacked automatic verification gates. (GentSampler)
-# Wired to Claude Code hooks (see settings.json). Runs on agent completion;
-# a non-zero exit blocks the stop and bounces the failure back to the agent.
-# No human or Fable tokens spent on machine-catchable failures.
+# gate.sh v4 — deterministic verification gate (loop 3). Runs on agent completion
+# via Claude Code hooks (settings.json). A non-zero exit blocks the stop and
+# bounces the failure back to the agent — no human or top-tier tokens spent on
+# machine-catchable failures. This is NOT a model; it is the floor under every tier.
 #
-# Gates, run in order. Each is skipped if its command is empty.
-#   GATE 1  build     — Release build of the plugin        (VERIFY_CMD)
-#   GATE 2  tests     — ctest unit tests (logic-only)      (TEST_CMD)
-#   GATE 3  pluginval — VST3 validation, auto-skipped if pluginval not on PATH
-#           (retries once on failure — transient flake, see CLAUDE.md note)
-#   GATE 4  lint      — none configured                    (LINT_CMD)
-#   GATE 5  ui        — n/a (JUCE editor, not a web UI)    (UI_VERIFY_CMD)
-# Keep these in sync with the "Verification command" section of CLAUDE.md.
+# v4: commands now live in .claude/agent.config (single source of truth).
+# Precedence: env var > agent.config > default (empty = slot skipped).
+#   GATE 1  primary   — main correctness check (code: tests/build · docs:
+#                       structure validator · data: schema check)
+#   GATE 2  secondary — second check (lint / pluginval / integration)
+#   GATE 3  surface   — UI smoke (Playwright) or another end-to-end check
 
 set -uo pipefail
 
-# ---- EDIT PER PROJECT (or export as env vars) ------------------------------
-VERIFY_CMD="${CLAUDE_VERIFY_CMD:-cmake --build build --config Release --parallel}"
-TEST_CMD="${CLAUDE_TEST_CMD:-ctest --test-dir build -C Release --output-on-failure --no-tests=error}"
-LINT_CMD="${CLAUDE_LINT_CMD:-}"                       # no linter configured for this repo
-UI_VERIFY_CMD="${CLAUDE_UI_VERIFY_CMD:-}"             # JUCE editor — no Playwright equivalent
-
-# GATE 2 — pluginval (second gate). Self-detecting: runs only when pluginval
-# is on PATH; otherwise skipped with a notice. Install: winget install pluginval
-# or drop pluginval.exe on PATH. Validates the freshly built VST3.
-# Installed 2026-07-02 to %LOCALAPPDATA%\Programs\pluginval — appended here so
-# hook shells that predate the user-PATH registry change still find it.
-PATH="$PATH:${LOCALAPPDATA:-}/Programs/pluginval"
-PLUGIN_ARTIFACT="build/GentSampler_artefacts/Release/VST3/GentSampler.vst3"
-PLUGINVAL_CMD="${CLAUDE_PLUGINVAL_CMD:-}"
-if [ -z "$PLUGINVAL_CMD" ] && command -v pluginval >/dev/null 2>&1; then
-  # timeout: pluginval has stalled indefinitely once (static memory, ~0 CPU);
-  # 10 min is ~3x a healthy strictness-5 run on this plugin.
-  PLUGINVAL_CMD="timeout 600 pluginval --strictness-level 5 --skip-gui-tests --validate \"$PLUGIN_ARTIFACT\""
-fi
-# -----------------------------------------------------------------------------
-
 [ -f CLAUDE.md ] || exit 0   # only gate repos that opted in
 
-# Configure once if the build tree is missing (first run on a clean checkout).
-if [ ! -f build/CMakeCache.txt ]; then
-  echo "[gate] no build/CMakeCache.txt — running CMake configure first" >&2
-  cmake -S . -B build -G "Visual Studio 17 2022" -A x64 >&2 || {
-    echo "[gate:configure] FAIL — CMake configure failed." >&2
-    exit 2
-  }
-fi
+# ---- Layered config: env > agent.config > default ---------------------------
+_env_verify="${CLAUDE_VERIFY_CMD-}"; _env_lint="${CLAUDE_LINT_CMD-}"; _env_ui="${CLAUDE_UI_VERIFY_CMD-}"
+[ -f .claude/agent.config ] && . .claude/agent.config
+PRIMARY_CMD="${_env_verify:-${VERIFY_CMD:-}}"
+SECONDARY_CMD="${_env_lint:-${LINT_CMD:-}}"
+SURFACE_CMD="${_env_ui:-${UI_VERIFY_CMD:-}}"
+# ------------------------------------------------------------------------------
 
 run_gate () {
   local label="$1" cmd="$2"
@@ -56,50 +32,20 @@ run_gate () {
     return 0
   else
     echo "[gate:$label] FAIL — fix before completing. Do not mark this task done." >&2
+    echo "[gate:$label] Resume protocol (ROUTING.md Rule 9): inspect git state before retrying — never replay the prompt blind." >&2
     exit 2   # exit 2 = block the stop, feed stderr back to the agent
   fi
 }
 
-# Retry-once variant — pluginval ONLY (do not generalize to other gates).
-# Two documented transient pluginval failures have passed on immediate rerun
-# (see CLAUDE.md note); this gives it exactly one automatic retry before
-# treating a failure as real.
-run_gate_retry () {
-  local label="$1" cmd="$2"
-  [ -z "$cmd" ] && return 0
-  echo "[gate:$label] running: $cmd" >&2
-  if bash -c "$cmd" >&2; then
-    echo "[gate:$label] PASS" >&2
-    return 0
-  fi
-  echo "[gate:$label] transient failure — retrying once (see CLAUDE.md pluginval-flake note)" >&2
-  taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
-  sleep 2
-  if bash -c "$cmd" >&2; then
-    echo "[gate:$label] PASS" >&2
-    return 0
-  else
-    echo "[gate:$label] FAIL — fix before completing. Do not mark this task done." >&2
-    exit 2   # exit 2 = block the stop, feed stderr back to the agent
-  fi
-}
+run_gate "primary"   "$PRIMARY_CMD"
+run_gate "secondary" "$SECONDARY_CMD"
+run_gate "surface"   "$SURFACE_CMD"
 
-# A finished/killed pluginval can linger and hold the .vst3 open, failing the
-# next link with LNK1104 — clear any strays before building.
-taskkill //F //IM pluginval.exe >/dev/null 2>&1 || true
-
-run_gate "build" "$VERIFY_CMD"
-
-run_gate "tests" "$TEST_CMD"
-
-if [ -n "$PLUGINVAL_CMD" ]; then
-  run_gate_retry "pluginval" "$PLUGINVAL_CMD"
-else
-  echo "[gate:pluginval] pluginval not on PATH — SKIPPED (install it to enable the second gate)" >&2
+# A repo with no verification surface runs on reviewer judgment alone, which
+# ROUTING.md Rule 2 calls a defect.
+if [ -z "$PRIMARY_CMD$SECONDARY_CMD$SURFACE_CMD" ]; then
+  echo "[gate] WARNING: no verification surface configured — reviewer-only. Build one (see ROUTING.md Rule 2)." >&2
 fi
-
-run_gate "lint" "$LINT_CMD"
-run_gate "ui"   "$UI_VERIFY_CMD"
 
 echo "[gate] ALL PASS" >&2
 exit 0

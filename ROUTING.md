@@ -1,104 +1,169 @@
 # ROUTING.md — Model Routing Doctrine
-# Drop this in the repo root. CLAUDE.md references it. The lead agent follows it.
 
-## The Ladder
+Drop this in the repo root. CLAUDE.md references it; the lead agent follows it.
+It is model-agnostic: it defines ROLES and a routing discipline. The specific
+models filling each role are set per install (see Tier Lineup) based on what your
+plan supports.
 
-| Tier | Model | Role | When |
-|------|-------|------|------|
-| GATE | Fable 5 (`claude-fable-5`) | Planner / Reviewer / Arbiter | Plans, decision gates, 2nd failures |
-| WORK | Sonnet 4.6 (`sonnet`) | Implementer | Everything requiring judgment |
-| BULK | Haiku 4.5 (`haiku`) | Grunt | Only machine-verifiable output |
+## Tier Lineup (set at install; substitute per your plan)
+
+| Role         | Purpose                                  | Full lineup      | If no top tier | If Sonnet-only |
+|--------------|------------------------------------------|------------------|----------------|----------------|
+| PLANNER      | Spec authority + escalation arbiter      | Fable / top Opus | Opus           | Sonnet         |
+| SPEC-DRAFTER | Cheap first-draft of the spec            | Sonnet           | Sonnet         | (skip)         |
+| IMPLEMENTER  | Judgment work — code, docs, artifacts    | Sonnet           | Sonnet         | Sonnet         |
+| REVIEWER     | Senior review over the implementer       | Opus             | Opus / Sonnet  | Sonnet         |
+| BULK         | Machine-verifiable grunt work            | Haiku            | Haiku          | Haiku          |
+
+The ROLES never change. Only the model strings in the agent files change. If your
+plan lacks a premium tier, substitute down — the method still holds, it just runs
+with less headroom. On a Sonnet-only plan the drafter collapses into the planner
+(no point drafting cheaply for a same-tier reviewer) and review becomes peer-level;
+the machine gates and the human arbiter carry correctness in that case.
+
+## The Four Loops
+
+1. **PLAN** — SPEC-DRAFTER drafts the spec from the template → PLANNER reviews,
+   corrects, and OWNS the final spec (or authors directly if no drafter). Human
+   approves the spec. *Draft-then-review exists to spend the expensive planner on
+   correction, not verbose authoring — its cost is dominated by output tokens.*
+2. **IMPLEMENT** — IMPLEMENTER does judgment work; BULK takes machine-verifiable
+   slices per the spec's tier assignments.
+3. **VERIFY** — the hooks run the verification surface (build/tests/lint/UI/
+   validator) on every completion. This is DETERMINISTIC, not a model. It runs
+   underneath every tier, every loop. Failures bounce back automatically.
+4. **REVIEW** — REVIEWER (senior, over the implementer) returns PASS/FAIL →
+   escalates hard calls to PLANNER (the appeals court: architecture, second
+   failures, unreadable correctness) → then the HUMAN is the true final arbiter
+   (hands-on testing / judgment), non-negotiable for any interactive work.
+
+The human has exactly two mandatory touchpoints: approve the SPEC (loop 1), accept
+the final result (loop 4). Everything between runs hands-off.
 
 ## Rule 1 — Route by VERIFIABILITY, not difficulty
 
-Ask one question before assigning a task: **"If this is wrong, what catches it?"**
+Before assigning a task ask: **"If this is wrong, what catches it?"**
+- A machine catches it instantly (compiler, tests, linter, schema, validator,
+  template diff) → BULK is allowed.
+- A model/human must read carefully to catch it (logic, integration, architecture,
+  structure — any judgment) → IMPLEMENTER minimum.
+- Nothing downstream catches it and blast radius is large → escalate to PLANNER.
 
-- **A machine catches it instantly** (compiler, test suite, linter, schema validator,
-  template diff) → BULK tier is allowed.
-- **A model or human must read it carefully to catch it** (logic, integration,
-  architecture, story structure, anything judgment-shaped) → WORK tier minimum.
-- **Nothing downstream catches it and the blast radius is large** → GATE tier.
+Cheap tiers on hard-to-verify work is the failure mode. Never do it.
 
-Cheap models on hard-to-verify work is the failure mode. Never do it.
+## Rule 2 — The verification surface is the precondition for everything
 
-## Rule 2 — Fable touches a task in exactly three cases
+Verifiability-based routing only works if a real machine gate EXISTS for this
+project. That gate takes the form appropriate to the artifact:
+- Code → unit/integration tests
+- Documents (bibles, SOPs, screenplays) → structure/reference validator
+- Data → schema/shape validation
+- Frontend/UI → build + lint + UI smoke
+- No machine-checkable surface possible → reviewer-only path, explicitly flagged;
+  an inadequate verification surface is a DEFECT, not a steady state.
 
-1. **Plan mode.** Producing the spec before any implementation starts.
-2. **Gates.** Architecture review, pre-merge review of high-risk changes,
-   story-structure passes, engineering failure analysis.
-3. **Second failure.** Sonnet has failed the same task twice → escalate with
-   both failed attempts attached as context.
+The surface is established at install and grown per task. Any task producing a new
+artifact type must confirm its surface exists or spec its creation first.
 
-Fable never types boilerplate, never formats, never summarizes, never writes
-code its own plan already fully specified.
+## Rule 3 — PLANNER touches a task in exactly these cases
 
-## Rule 3 — Spec quality is the first-pass lever
+Plan finalization (loop 1), and escalation arbitration (loop 4). Never routine
+review, never implementation, never boilerplate. The PLANNER is the scarcest,
+most capable tier — protect it. Draft-then-review and event-driven escalation are
+both here to keep PLANNER usage minimal without losing its judgment.
 
-Every Fable plan must be an executable spec, not a vibe. Minimum contents:
+## Rule 4 — Spec quality is the first-pass lever
 
-- **File-level plan**: which files change, created, deleted.
-- **Acceptance criteria**: concrete, checkable statements ("test X passes",
-  "endpoint returns Y shape", "scene doc contains beats A/B/C").
-- **Out of scope**: what NOT to touch.
-- **Verification command**: the exact command that proves the work is done.
+Every final spec is executable, not a vibe: file-level plan, concrete acceptance
+criteria, out-of-scope, and the exact verification commands. The implementer
+executes; it does not reinterpret. Ambiguous spec → implementer stops and asks.
 
-The implementer executes the spec. It does not reinterpret it. If the spec is
-ambiguous, the implementer stops and asks — it does not guess.
+## Rule 5 — Escalation, de-escalation, and loop budgets
 
-## Rule 4 — Escalation and de-escalation
+- BULK fails once → retry with the error attached (MAX_BULK_RETRIES). Fails
+  again → IMPLEMENTER.
+- IMPLEMENTER fails twice on the same task → PLANNER (with full failure context).
+- Never re-run the same tier, same prompt, expecting a different result.
+- After a PLANNER fix, write the corrected pattern into CLAUDE.md's landmines so
+  the failure class can't recur.
+- **Loop budgets are hard stop conditions** (`.claude/agent.config`):
+  MAX_IMPL_ATTEMPTS caps implementer attempts per task; MAX_REVIEW_CYCLES caps
+  implement→review cycles before a mandatory hard stop to the human. Budgets
+  bound the autonomy contract — an autonomous loop that can thrash indefinitely
+  is not autonomous, it is unsupervised. Budget exhaustion escalates to the
+  PLANNER as a spec-sizing problem, never as a request for more attempts.
 
-- BULK fails once → retry once with the error attached. Fails again → WORK tier.
-- WORK fails twice on the same task → GATE tier with full failure context.
-- Never re-run the same tier with the same prompt expecting a different result.
-- After a GATE fix, the corrected pattern gets written back into CLAUDE.md so
-  the failure class doesn't recur.
+## Rule 6 — Context hygiene (the silent budget killer)
 
-## Rule 5 — Context hygiene (the silent budget killer)
+- `/clear` between unrelated tasks — the whole conversation is resent every turn.
+- Keep CLAUDE.md and ROUTING.md LEAN — they are fixed overhead on every message.
+- One task per dispatch. No "and also" riders.
 
-- `/clear` between unrelated tasks. Stale history is resent every turn.
-- One task per subagent dispatch. No "and also..." riders.
-- CLAUDE.md carries durable state; the conversation carries only the live task.
+## Rule 7 — UI work gets the third gate
 
-## Gate Checklist (what the reviewer verifies before PASS)
-
-1. Verification command from the spec runs green.
-2. Every acceptance criterion is explicitly checked off.
-3. No changes outside the spec's declared file list.
-4. No new dependencies unless the spec authorized them.
-5. Diff is readable — if the reviewer can't follow it, it fails on that alone.
-
-Verdict format: `PASS` or `FAIL` + findings as `file:line — issue — one-line fix`.
-Reviewer never fixes anything itself. The lead decides what to apply.
-
-## Rule 6 — UI work gets a third gate
-
-Unit tests cannot see a broken interface. Any task with UI acceptance criteria
-must pass three stacked gates before PASS:
-
-1. **Tests** — logic (VERIFY_CMD)
-2. **Lint** — hygiene (LINT_CMD)
-3. **Playwright smoke** — the built interface actually works: core flow
-   click-through, element presence, zero console errors (UI_VERIFY_CMD)
-
-The smoke spec lives in the repo (e.g. `e2e/smoke.spec.ts`) and grows one test
-per UI acceptance criterion. If a UI task has no smoke coverage, that is a
-spec defect — the planner adds the test as a work item.
+Any task with UI acceptance criteria passes build/tests → lint → UI smoke (real
+click-through, element presence, zero console errors) before PASS. Missing smoke
+coverage on a UI task is a spec defect — the planner adds the test.
 
 Note for GentSampler: the UI is a JUCE plugin editor, not a web page —
 Playwright does not apply. The equivalent third gate here is pluginval
-(GATE 2 in gate.sh), which opens the editor and exercises the plugin
-lifecycle in a real host harness.
+(the secondary slot in `.claude/agent.config`), which opens the editor and
+exercises the plugin lifecycle in a real host harness.
 
-## Rule 7 — Autonomy contract
+## Rule 8 — Model economics (why the structure is shaped this way)
 
-The loop runs hands-off between plan approval and reviewer verdict:
+On subscription plans the top tier is capped (often a hard fraction of weekly
+usage) and everything shares one pool. Two consequences drive this doctrine:
+- The top tier (PLANNER) is your genuinely scarce resource; tiers below it are
+  comparatively abundant. Spend the scarce one only where its judgment is
+  irreplaceable — planning and appeals.
+- Frontier cost is dominated by OUTPUT tokens. Draft-then-review cuts the
+  planner's output (it edits instead of authoring), which is the single highest-
+  leverage way to stretch a capped top tier.
+REVIEWER on a strong non-top tier (e.g. Opus, drawn from the abundant pool) buys
+senior review quality without touching the scarce PLANNER budget. Verify your own
+plan's buckets with `/usage`; substitute the lineup accordingly.
 
-- Human touchpoints are exactly two: approve the SPEC, accept the PASS.
-- Permissions allowlist (settings.json) pre-approves test/build/lint/git
-  commands so agents never stall waiting for a human click. Deny list blocks
-  push, destructive deletes, network fetches, and secrets reads — the loop
-  can iterate freely but cannot leave the repo or wreck it.
-- Auto-accept edits during execution (shift+tab). Review happens at the
-  reviewer gate, not per-keystroke.
-- Design intent enters the loop as a Claude Design handoff bundle referenced
-  in the spec — never as prose descriptions of what the UI should look like.
+## Rule 9 — Resume, never replay (side-effect safety)
+
+Agent work has side effects: file edits, commits, generated artifacts. A failed
+or interrupted loop is therefore NEVER retried by re-running the original prompt
+— replay double-executes side effects and corrupts state. Instead:
+
+- Every spec declares CHECKPOINTS — commit boundaries that are safe resume points.
+- On any interruption or failure, recovery starts with STATE INSPECTION
+  (`git status` / `git diff` / `git log`), then continues from what exists on
+  disk toward the remaining acceptance criteria.
+- If state is ambiguous (uncommitted partial work of unclear intent), roll back
+  to the last checkpoint commit and resume from there. Git is the undo — this is
+  why `git init` is the mandatory first task of any repo running this system.
+- Pure read-only work (drafting, review, analysis) has no side effects and may
+  be freely re-run.
+
+## Rule 10 — One source of truth for configuration
+
+All gate commands, loop budgets, and the model lineup live in
+`.claude/agent.config`. gate.sh sources it; CLAUDE.md and specs reference it;
+nothing duplicates it. Layering, highest precedence first:
+
+1. **Environment variable** — per-session override (`CLAUDE_VERIFY_CMD=… claude`)
+2. **`.claude/agent.config`** — the repo's committed configuration
+3. **Built-in default** — empty gate slots are skipped; budgets default 3/2/1
+
+If two places ever disagree about a gate command, agent.config wins and the
+other place is a bug to fix.
+
+## Gate Checklist (REVIEWER verifies before PASS)
+
+1. Verification commands run green (re-run, don't trust the report).
+2. Every acceptance criterion explicitly satisfied.
+3. No changes outside the spec's file list.
+4. No unauthorized dependencies.
+5. Diff is readable — if the reviewer can't follow it, it fails on that alone.
+
+Verdict (v4): structured JSON written to `.claude/state/verdict.json` and
+validated by `python3 .claude/hooks/verdict_lint.py` (exit 0 = well-formed,
+1 = missing, 2 = malformed). The lead branches on validated fields —
+`verdict`, `escalate`, `review_cycle` — never on prose. A verdict that fails
+validation is not a verdict; the reviewer re-emits it. The reviewer never
+fixes anything; the lead decides what to apply.
