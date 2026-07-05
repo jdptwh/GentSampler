@@ -54,18 +54,21 @@ clean, passes pluginval, and runs stable inside FL Studio.
   PK-sniffs — a host-project restore whose stored path IS a .gentkit adopts
   the kit's AUDIO only (project state stays in charge); without this the
   project reopened with a silent empty source (Pad12-ghost family).
-  Part B FL-validated 2026-07-05 (kit stem round-trip confirmed). Part C stem
-  cache: DONE (`f0941d4`, gate+deploy green) — Joe-reported gap (stems gone on
-  PROJECT reopen; kits kept them): worker FLAC-caches stems to Documents\
-  GentSampler\stemcache\<content-hash>_q<quality> at separation, "stemKey"
-  persisted in project+kit state, worker restores on reopen when stems are
-  absent (v2-kit stems never clobbered; miss = today's behavior). LEAD REVIEW
-  FIX: ensureSize-before-append made the hash cover uninitialized bytes — a
-  different key every run, permanent silent cache miss; hash now covers the
-  audio only. AWAITING Joe's FL check (separate → set masks → save project →
-  reopen → masks audible, no re-separation). Then KIT v1 COMPLETE — post-v1
-  candidates: HIGH backlog items (async-clobber + sync restore), packaging
-  pass, v2 classifier (parked).
+  Parts B+C FL-validated 2026-07-05 — **KIT v1 COMPLETE** (isolation +
+  portable .gentkit v2 + stem cache; records in KIT_SPEC.md). With SECTIONS
+  done, the re-scoped Phase 3 v1 headline tasks are both shipped.
+- In progress: **DATA INTEGRITY** (DATA_INTEGRITY_SPEC.md, Joe-directed
+  2026-07-05) — BACKLOG's two HIGH items as one task: (1) restore-authority
+  restoreGen guard (in-flight doAnalysisJob could applySlices AFTER a host
+  restore landed → silent clobber of restored/hand-edited cues; restore now
+  cancels pending derive-intents and gen-guards every worker cue-apply);
+  (2) async validated restore decode (applyStateTree's sync message-thread
+  loadFile moves to a worker job; adoptSourceBuffer gains keepCues so the
+  late decode can't re-default restored cues; stored temp-export paths
+  REFUSED via pathIsWithin — Pad12 ghost's restore door; empty decodes never
+  adopted). Implementer dispatched; lead reviews hard (subtlest change of
+  the phase). NEXT AFTER: full pre-packaging audit/debug of the entire tool
+  (Joe-directed), then the packaging pass (CUDA-pack exclusion, BACKLOG).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
