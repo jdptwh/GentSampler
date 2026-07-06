@@ -118,12 +118,21 @@ clean, passes pluginval, and runs stable inside FL Studio.
   CLOSED; F3 restored first-tap audition ratified).** Same-day separation
   failure = box-state OOM (paged-pool leak + full C:), fixed by reboot —
   NOT a wave regression (memory: disk-and-oom-recovery). ~5.2 GB C: cleanup
-  plan pending Joe's pick. NEXT (Joe-ordered): pre-packaging UX spec
-  (PREPACK_UX_SPEC.md, in flight): (1) triggering a pad must not zoom the
-  hero back out — keep the user's zoom for in-context adjustments; (2) the
-  end-window drag of a newly auditioned slice must follow the mouse from
-  grab, not snap-then-re-drag. THEN the packaging pass (CUDA-pack exclusion
-  at the SOURCE + deployed-folder cleanup first two line items; installer
+  plan pending Joe's pick. **PREPACK_UX COMPLETE pending Joe's manual pass**
+  (PREPACK_UX_SPEC.md, planner-owned, Joe-approved): U1 `2b1ce4b` (hero
+  zoom held across same-pad re-triggers via new lastAssignCount atomic;
+  snap only on fresh assign or different pad, OQ-1 ruling (a); FOLLOW
+  contract unchanged) + U2 `083ad25` (open-slice END handle anchors at the
+  DRAWN grip, not len-1 — handleDragBegin openEndAnchor param, 3 call
+  sites, isOpenSlice-gated so non-open/cue/grain byte-identical). Opus
+  reviewer PASS cycle 1, 0 findings, gates re-run independently (116
+  ctest). Joe manual pass outstanding (BOTH MANDATORY): U1 = zoom in, re-tap
+  same pad (view holds), tap different pad (snaps — confirm wanted), tap
+  unassigned (assigns+auditions+snaps); U2 = fresh open slice, drag hero end
+  grip (follows mouse, no teleport; collapses back near cue), repeat on
+  strip. U1's gate was FL-lock-blocked ~40 min (deliberate gate; lead
+  resumed after release). THEN the packaging pass (CUDA-pack exclusion at
+  the SOURCE + deployed-folder cleanup first two line items; installer
   payload — BACKLOG). A further polish pass exists but is GATED on Joe's
   explicit instruction — do not start it.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
