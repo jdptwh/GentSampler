@@ -2221,7 +2221,7 @@ void GentSamplerAudioProcessor::doStemRenderJob()
             {
                 juce::LagrangeInterpolator interp;
                 interp.reset();
-                interp.process (ratio, stem.getReadPointer (c), atSrc.getWritePointer (c), srcLen);
+                interp.process (ratio, stem.getReadPointer (c), atSrc.getWritePointer (c), srcLen, stem.getNumSamples(), 0);
             }
         }
 

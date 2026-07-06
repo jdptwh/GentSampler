@@ -22,7 +22,7 @@ returned zero new findings — the wave 1-3 hardening held up under re-audit.
 | 3 | MED | regression-diff | WAVE1 F1 fix dropped the audition voice-start on MIDI-tapping an unassigned pad — first tap is now silent (spec accepted the deferral on a FALSE premise) | Source/PluginProcessor.cpp:2572 vs baseline :563 | FIXED WAVE4 F3 (pending Joe feel re-check) |
 | 4 | MED | build-packaging | CMake POST_BUILD deploy hard-fails the whole build (or silently writes a malformed bundle) on any machine without the pre-existing writable Program Files folder | CMakeLists.txt:141-145 | FIXED WAVE4 F4 (IS_DIRECTORY guard) |
 | 5 | MED | build-packaging | build.bat `xcopy /e` ships the ~2.6 GB dev-box CUDA/cuDNN pack verbatim into the user's VST3 folder (already mirrored on the release-cutting box) | build.bat:47 | FIXED WAVE4 F5 (robocopy /xf exclusion) |
-| 6 | LOW | persistence | doStemRenderJob resample branch OOB heap read when a kit/cache stem's sample rate differs from the source's | Source/PluginProcessor.cpp:2182 | OPEN |
+| 6 | LOW | persistence | doStemRenderJob resample branch OOB heap read when a kit/cache stem's sample rate differs from the source's | Source/PluginProcessor.cpp:2182 | FIXED WAVE4 F6 (6-arg bounds-checked overload) |
 
 Refuted (1): engine-math claim that applyCueEdit's end-collapse tolerance
 uses raw samplePos vs clamped cue — arithmetic quirk is real but the required
