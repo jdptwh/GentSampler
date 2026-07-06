@@ -885,7 +885,17 @@ StemSeparator::separate (const juce::AudioBuffer<float>& input, double inputSamp
         const int iD = idx (ft, "drums"),  iB = idx (ft, "bass"),
                   iV = idx (ft, "vocals"), iO = idx (ft, "other");
         const int gG = idx (s6, "guitar"), gP = idx (s6, "piano");
-        if (juce::jmin (iD, iB, iV, iO) < 0 || juce::jmin (gG, gP) < 0)
+        // PREPACKAGE_AUDIT.md #12: the manifest's declared source list can be
+        // longer than what the paired .onnx actually outputs at runtime (a
+        // hand-edited/corrupted manifest.json is a supported-path threat model
+        // here — see the init-failure message inviting hand-placed .onnx
+        // files). Bound every index against the ACTUAL runtime tensor source
+        // count (ftOut.numSources / s6Out.numSources), not just "found in the
+        // declared list" (>= 0), before any Stems::at() dereference below.
+        if (juce::jmin (iD, iB, iV, iO) < 0 || juce::jmin (gG, gP) < 0
+            || iD >= ftOut.numSources || iB >= ftOut.numSources
+            || iV >= ftOut.numSources || iO >= ftOut.numSources
+            || gG >= s6Out.numSources || gP >= s6Out.numSources)
         { errorOut = "source name mismatch in manifest"; return result; }
 
         finalN["drums"]  = makeBuffer (ftOut, iD);
