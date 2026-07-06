@@ -333,12 +333,14 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     loadBtn.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         chooser = std::make_unique<juce::FileChooser> (
             "Load a sample", juce::File(), "*.wav;*.mp3;*.aif;*.aiff;*.flac;*.ogg");
         chooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
+            [this, safeThis] (const juce::FileChooser& fc)
             {
+                if (safeThis == nullptr) return;
                 const auto f = fc.getResult();
                 if (f.existsAsFile())
                     p.loadFile (f);
@@ -350,11 +352,13 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     saveKitBtn.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         chooser = std::make_unique<juce::FileChooser> ("Save kit", juce::File(), "*.gentkit");
         chooser->launchAsync (
             juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
+            [this, safeThis] (const juce::FileChooser& fc)
             {
+                if (safeThis == nullptr) return;
                 auto f = fc.getResult();
                 if (f == juce::File()) return;
                 if (! f.hasFileExtension ("gentkit"))
@@ -365,11 +369,13 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     loadKitBtn.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         chooser = std::make_unique<juce::FileChooser> ("Load kit", juce::File(), "*.gentkit");
         chooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
-            [this] (const juce::FileChooser& fc)
+            [this, safeThis] (const juce::FileChooser& fc)
             {
+                if (safeThis == nullptr) return;
                 const auto f = fc.getResult();
                 if (f.existsAsFile())
                     p.loadKit (f);
@@ -378,11 +384,13 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     exportKitBtn.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         chooser = std::make_unique<juce::FileChooser> ("Choose a folder for the kit export", juce::File());
         chooser->launchAsync (
             juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
-            [this] (const juce::FileChooser& fc)
+            [this, safeThis] (const juce::FileChooser& fc)
             {
+                if (safeThis == nullptr) return;
                 const auto dir = fc.getResult();
                 if (dir != juce::File())
                     p.exportKit (dir);
@@ -405,14 +413,16 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     clearBtn.setTooltip ("Clear / reset cues.");
     clearBtn.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         juce::PopupMenu m;
         m.addItem (1, "Clear selected pad (or right-click the pad)");
         m.addItem (2, "Reset all region ends to auto");
         m.addSeparator();
         m.addItem (3, "Clear ALL pads (blank slate - then tap pads to assign)");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (clearBtn),
-            [this] (int result)
+            [this, safeThis] (int result)
             {
+                if (safeThis == nullptr) return;
                 if (result <= 0) return;
                 p.pushUndo();
                 if (result == 1)
@@ -556,6 +566,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     };
     sliceMenu.onMenu = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         const int gd = p.getSliceGridDiv(), sn = p.getSliceSensitivity(), sp = p.getSliceSnap();
         const int mode = p.getSliceModeSel(), bars = p.getSectionBars();
         const int sens = p.getSectionSens(), even = p.getGridEvenSel();
@@ -631,8 +642,9 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         novelty.addItem (66, "APPLY @ many");
         m.addSubMenu ("Sections novelty (dev)", novelty);
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sliceMenu),
-            [this] (int r)
+            [this, safeThis] (int r)
             {
+                if (safeThis == nullptr) return;
                 if (r <= 0) return;
                 if (r == 1) { p.setSliceModeSel (2); p.pushUndo(); p.autoSliceMusical(); return; }
                 if (r == 2) { p.setSliceModeSel (3); if (sliceBtn.onClick) sliceBtn.onClick(); return; }
@@ -697,12 +709,14 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     kitMenu.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         juce::PopupMenu m;
         m.addItem (1, "Save Kit: all 16 pads, cues, stems & settings");
         m.addItem (2, "Load Kit: recall a saved flip");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (kitMenu),
-            [this] (int r)
+            [this, safeThis] (int r)
             {
+                if (safeThis == nullptr) return;
                 if (r == 1 && saveKitBtn.onClick) saveKitBtn.onClick();
                 else if (r == 2 && loadKitBtn.onClick) loadKitBtn.onClick();
             });
@@ -710,12 +724,14 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     exportMenu.onClick = [this]
     {
+        juce::Component::SafePointer<GentSamplerAudioProcessorEditor> safeThis (this);
         juce::PopupMenu m;
         m.addItem (1, "Export Kit (samples to a folder)...");
         m.addItem (2, "Export selected Pad as WAV...");
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (exportMenu),
-            [this] (int r)
+            [this, safeThis] (int r)
             {
+                if (safeThis == nullptr) return;
                 if (r == 1) { if (exportKitBtn.onClick) exportKitBtn.onClick(); return; }
                 if (r == 2)
                 {
@@ -723,8 +739,9 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                     chooser = std::make_unique<juce::FileChooser> ("Export pad as WAV", juce::File(), "*.wav");
                     chooser->launchAsync (
                         juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles,
-                        [this, sel] (const juce::FileChooser& fc)
+                        [this, sel, safeThis] (const juce::FileChooser& fc)
                         {
+                            if (safeThis == nullptr) return;
                             auto f = fc.getResult();
                             if (f == juce::File()) return;
                             if (! f.hasFileExtension ("wav")) f = f.withFileExtension ("wav");

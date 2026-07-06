@@ -13,7 +13,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 | 3 | HIGH | stem-engine | Unsynchronized process-global statics in ensureOrtLoaded() raced by multiple plugin instances | Source/StemSeparator.cpp:60 | OPEN |
 | 4 | HIGH | stem-engine | No cross-instance/cross-process lock around first-run model download to the shared Documents\GentSampler\models folder | Source/ModelDownloader.cpp:94 | OPEN |
 | 5 | HIGH | threading | restoreLoadPath/wantRestoreLoad is stale-sticky across a state restore with no source path, causing a later restore to silently load the wrong file's audio under the new restore's cues | Source/PluginProcessor.cpp:3566 | OPEN |
-| 6 | HIGH | ui-wiring | FileChooser completion lambdas capture the editor `this` with no liveness guard — use-after-free if the plugin window is closed while the dialog is open | Source/PluginEditor.cpp:336 | OPEN |
+| 6 | HIGH | ui-wiring | FileChooser completion lambdas capture the editor `this` with no liveness guard — use-after-free if the plugin window is closed while the dialog is open | Source/PluginEditor.cpp:336 | FIXED WAVE1 F6 |
 | 7 | MED | engine-math | padStemMask restored from saved state without the 0x3F bit-mask clamp that gent::stemMaskWithBit always applies | Source/PluginProcessor.cpp:3600 | OPEN |
 | 8 | MED | memory | No length cap when decoding stem FLACs from a .gentkit v2 archive (loadKitV2Audio) | Source/PluginProcessor.cpp:3391 | OPEN |
 | 9 | MED | persistence | Stem-cache-load request not cancelled by a subsequent restore; stems can attach to the wrong source | Source/PluginProcessor.cpp:3652 | OPEN |
