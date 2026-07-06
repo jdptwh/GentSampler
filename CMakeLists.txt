@@ -138,11 +138,21 @@ add_custom_command(TARGET GentSampler_Standalone POST_BUILD
 # the Desktop "Fix GentSampler VST3 Access.bat"). If FL Studio is open with
 # GentSampler loaded, this step fails the build — deliberate: it means FL is
 # still auditioning a stale binary. Close FL (or unload the plugin) and rebuild.
-add_custom_command(TARGET GentSampler_VST3 POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "$<TARGET_FILE:GentSampler_VST3>"
-        "C:/Program Files/Common Files/VST3/GentSampler.vst3/Contents/x86_64-win"
-    VERBATIM)
+# Guarded at configure time (WAVE4 F4): the destination only pre-exists on this
+# prepped dev box. On a clean machine (or CI) the folder is absent, so the step
+# is skipped entirely and build.bat's own admin/no-admin install fallback is the
+# sole install path — IS_DIRECTORY (not EXISTS) also makes a leftover FILE named
+# x86_64-win (Mechanism 2 residue) select SKIP instead of writing a malformed bundle.
+if(IS_DIRECTORY "C:/Program Files/Common Files/VST3/GentSampler.vst3/Contents/x86_64-win")
+    message(STATUS "GentSampler deploy step: ENABLED (dev-box destination present)")
+    add_custom_command(TARGET GentSampler_VST3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:GentSampler_VST3>"
+            "C:/Program Files/Common Files/VST3/GentSampler.vst3/Contents/x86_64-win"
+        VERBATIM)
+else()
+    message(STATUS "GentSampler deploy step: SKIPPED (destination absent — build.bat installs)")
+endif()
 
 # ---- unit tests (logic-only; no JUCE link; see TEST_TARGET_TASK.md) ----
 option(GENT_BUILD_TESTS "Build EngineMath unit tests" ON)
