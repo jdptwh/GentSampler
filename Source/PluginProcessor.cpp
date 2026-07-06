@@ -3431,7 +3431,8 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
             flac.createReaderFor (zip.createStreamForEntry (idx), true));
         if (reader == nullptr)
             continue;
-        const int len = (int) reader->lengthInSamples;
+        const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);   // cap at 10 minutes (source.flac precedent above)
+        const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
         set->buffers[(size_t) i].setSize ((int) reader->numChannels, len);
         reader->read (&set->buffers[(size_t) i], 0, len, 0, true, true);
         set->sampleRate = reader->sampleRate;

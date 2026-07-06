@@ -15,7 +15,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 | 5 | HIGH | threading | restoreLoadPath/wantRestoreLoad is stale-sticky across a state restore with no source path, causing a later restore to silently load the wrong file's audio under the new restore's cues | Source/PluginProcessor.cpp:3566 | FIXED WAVE1 F2 |
 | 6 | HIGH | ui-wiring | FileChooser completion lambdas capture the editor `this` with no liveness guard — use-after-free if the plugin window is closed while the dialog is open | Source/PluginEditor.cpp:336 | FIXED WAVE1 F6 |
 | 7 | MED | engine-math | padStemMask restored from saved state without the 0x3F bit-mask clamp that gent::stemMaskWithBit always applies | Source/PluginProcessor.cpp:3600 | FIXED WAVE2 #7 |
-| 8 | MED | memory | No length cap when decoding stem FLACs from a .gentkit v2 archive (loadKitV2Audio) | Source/PluginProcessor.cpp:3391 | OPEN |
+| 8 | MED | memory | No length cap when decoding stem FLACs from a .gentkit v2 archive (loadKitV2Audio) | Source/PluginProcessor.cpp:3391 | FIXED WAVE2 #8 |
 | 9 | MED | persistence | Stem-cache-load request not cancelled by a subsequent restore; stems can attach to the wrong source | Source/PluginProcessor.cpp:3652 | OPEN |
 | 10 | MED | persistence | applyStateTree falls back to live in-memory value (not the declared default) for slice-mode/stem-quality settings missing from an older kit/project | Source/PluginProcessor.cpp:3607 | OPEN |
 | 11 | MED | rt-safety | Audio-thread reassignment of ReferenceCountedObjectPtr members (active/activeStems/activePads) can free large audio buffers on the audio thread | Source/PluginProcessor.cpp:3684 | OPEN |
