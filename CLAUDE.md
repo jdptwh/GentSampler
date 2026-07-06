@@ -118,7 +118,9 @@ clean, passes pluginval, and runs stable inside FL Studio.
   CLOSED; F3 restored first-tap audition ratified).** Same-day separation
   failure = box-state OOM (paged-pool leak + full C:), fixed by reboot —
   NOT a wave regression (memory: disk-and-oom-recovery). ~5.2 GB C: cleanup
-  plan pending Joe's pick. **PREPACK_UX COMPLETE pending Joe's manual pass**
+  plan CANCELLED 2026-07-06 (Joe cleared ~10 GB himself). **PREPACK_UX
+  COMPLETE — Joe manual pass GREEN 2026-07-06 (both U1+U2 PASS, task
+  CLOSED)**; details:
   (PREPACK_UX_SPEC.md, planner-owned, Joe-approved): U1 `2b1ce4b` (hero
   zoom held across same-pad re-triggers via new lastAssignCount atomic;
   snap only on fresh assign or different pad, OQ-1 ruling (a); FOLLOW
@@ -126,15 +128,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   DRAWN grip, not len-1 — handleDragBegin openEndAnchor param, 3 call
   sites, isOpenSlice-gated so non-open/cue/grain byte-identical). Opus
   reviewer PASS cycle 1, 0 findings, gates re-run independently (116
-  ctest). Joe manual pass outstanding (BOTH MANDATORY): U1 = zoom in, re-tap
-  same pad (view holds), tap different pad (snaps — confirm wanted), tap
-  unassigned (assigns+auditions+snaps); U2 = fresh open slice, drag hero end
-  grip (follows mouse, no teleport; collapses back near cue), repeat on
-  strip. U1's gate was FL-lock-blocked ~40 min (deliberate gate; lead
-  resumed after release). THEN the packaging pass (CUDA-pack exclusion at
-  the SOURCE + deployed-folder cleanup first two line items; installer
-  payload — BACKLOG). A further polish pass exists but is GATED on Joe's
-  explicit instruction — do not start it.
+  ctest). U1's gate was FL-lock-blocked ~40 min (deliberate gate; lead
+  resumed after release). **POLISH PASS NOW OPEN (Joe-ordered 2026-07-06):
+  PHASE E** — UI polish per PHASE_E_POLISH_PASS.md (doc NOT yet on disk;
+  Joe to supply). Rules: tasks E1→E6 strictly one at a time; every task
+  starts with a code-inventory audit (verify the doc against the code);
+  E1 has an HTML-mockup gate (1040px + 880px, Joe sign-off BEFORE JUCE
+  code); report-and-wait items: the two unlabeled TEMPO icons, QUANTIZE
+  toggle-vs-action; full clean files not diffs; verify each task at
+  1040×700 AND 880×592 with before/after screenshots; build with
+  `cmake --build build --config Release --parallel`. No new features, no
+  architecture changes, visual language locked per the doc header.
+  Packaging pass queued AFTER Phase E.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

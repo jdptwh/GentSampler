@@ -135,8 +135,11 @@ Order U1 → U2 (OQ-5). Interrupted work resumes from `git log`/`git status` aga
 
 | Fix | Commit | Reviewer verdict | Joe |
 |---|---|---|---|
-| U1 | `2b1ce4b` (implementer completed AC1-4; gate blocked ~40 min by the deliberate FL-lock deploy gate, lead re-ran both gates green after FL released and committed) | PASS cycle 1 (AC1-5 verified incl. clear-then-retap trace; startVoice/FOLLOW/setView byte-untouched) | **pending AC6 feel repro (MANDATORY)** |
-| U2 | `083ad25` | PASS cycle 1 (anchor≡grip math verified per surface; census 3/3; non-open/cue/grain byte-identical; 116 ctest) | **pending AC6 drag repro (MANDATORY)** |
+| U1 | `2b1ce4b` (implementer completed AC1-4; gate blocked ~40 min by the deliberate FL-lock deploy gate, lead re-ran both gates green after FL released and committed) | PASS cycle 1 (AC1-5 verified incl. clear-then-retap trace; startVoice/FOLLOW/setView byte-untouched) | **PASS 2026-07-06** |
+| U2 | `083ad25` | PASS cycle 1 (anchor≡grip math verified per surface; census 3/3; non-open/cue/grain byte-identical; 116 ctest) | **PASS 2026-07-06** |
+
+**PREPACK_UX CLOSED 2026-07-06: Joe manual pass GREEN on both fixes**
+(OQ-1 ruling (a) different-pad-snaps half implicitly accepted with the PASS).
 
 Wave verdict: **PASS cycle 1, 0 blocking, 0 nits** (verdict.json, verdict_lint
 exit 0, escalate=false). Reviewer re-ran both gates independently.
