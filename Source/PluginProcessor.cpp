@@ -105,6 +105,11 @@ GentSamplerAudioProcessor::GentSamplerAudioProcessor()
 
 GentSamplerAudioProcessor::~GentSamplerAudioProcessor()
 {
+    // WAVE1 reviewer nit (applied by the lead): neutralize any pending
+    // tap-to-cue AsyncUpdater dispatch before teardown — defense-in-depth for
+    // future destruction-order changes (JUCE's ~AsyncUpdater asserts on a
+    // pending update).
+    cancelPendingUpdate();
     // DATA_INTEGRITY_SPEC.md ADDENDUM T: with the FLAC encodes/separation now
     // abortable (chunked writes + StemSeparator::shouldAbort, all polling
     // threadShouldExit()), the real exit latency is chunk-sized (well under

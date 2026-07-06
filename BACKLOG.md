@@ -130,3 +130,14 @@ load, only on explicit user action); (3) add a pure-logic regression where
 possible (restore-then-rebuild ordering) plus a manual reopen check. SEV-HIGH —
 silent loss of user slice edits on a core save/reopen round-trip. Do not pick up
 without Joe green-lighting a spec.
+
+## Verification-surface gap: concurrency/lifecycle properties untestable (filed 2026-07-05, WAVE1 close)
+Per ROUTING.md Rule 2 ("an inadequate verification surface is a DEFECT, not a
+steady state"): WAVE1 fixes F2/F4/F5/F6 (restore races, multi-instance ORT
+init, cross-process download lock, editor-lifecycle use-after-free) have NO
+automatable regression coverage — the ctest harness is logic-only and cannot
+drive two plugin instances, host state-restore sequences, or destroy-editor-
+while-dialog-open. Accepted for WAVE1 with reviewer diff-reads + Joe manual
+repros as the gate. Candidate spec: a minimal host-harness test target
+(instantiate 2 processors, drive setStateInformation twice, open/close
+editors) — needs a spec before implementation.

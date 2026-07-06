@@ -207,9 +207,12 @@ bash .claude/hooks/pluginval_gate.sh    # LINT_CMD (deploy lock while FL open = 
 ## Record
 | Fix | Checkpoint commit | Reviewer verdict | Joe |
 |---|---|---|---|
-| F3 | | | |
-| F6 | | | |
-| F2 | | | |
-| F1 | | | |
-| F4 | | | |
-| F5 | | | |
+| F3 | `e12235e` | PASS (cycle 1) | pending manual pass |
+| F6 | `d428a67` (9 sites, W1-A) | PASS (cycle 1) | pending manual pass |
+| F2 | `6436a41` | PASS (cycle 1) | pending manual pass |
+| F1 | `647636b` | PASS (cycle 1; nit: dtor cancelPendingUpdate — APPLIED by lead) | pending manual pass |
+| F4 | `9265c9a` | PASS (cycle 1) | pending manual pass |
+| F5 | `978d376` | PASS (cycle 1; nit: wantRestoreLoad outside infoLock — accepted, not applied) | pending manual pass |
+
+Reviewer: Opus, verdict.json validated by verdict_lint (exit 0), gates_rerun=true,
+0 blocking findings, escalate=false.

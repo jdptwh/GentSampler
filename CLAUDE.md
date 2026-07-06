@@ -225,4 +225,11 @@ Running list of past failures and their fixes, so they never recur.
   2.6 GB is slow/hangs; once Windows has the DLLs cached (e.g. right after a
   standalone/FL/stem session) the same load finishes under 30s and pluginval
   "passes." **The documented "transient pluginval flake" that gate.sh's
-  retry-once was built around WAS THIS EXACT HANG h
+  retry-once was built around WAS THIS EXACT HANG hitting warm cache** — it was
+  never a flake. DO NOT re-add a retry to paper over a cold-open stall, and DO
+  NOT dismiss an "Open plugin (cold)" timeout as noise: it means real blocking
+  work is on the construct path (CUDA/model/ORT probe, or a synchronous file
+  load — see the applyStateTree restore item in BACKLOG.md). Diagnose it; the
+  engine-check log NOT updating after a run is the tell that the probe hung.
+- Unicode in UI strings requires MSVC `/utf-8` (already set) — don't remove it
+  or middots/arrows mojibake.
