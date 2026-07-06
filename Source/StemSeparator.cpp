@@ -60,6 +60,23 @@ static int          g_cudaDllsFound = 0;   // CUDA/cuDNN DLLs present beside the
 static bool ensureOrtLoaded()
 {
 #if JUCE_WINDOWS
+    // WAVE1_SPEC.md F4 (audit #3 stem-engine): every plugin instance runs its
+    // own worker thread, and each independently reaches this function (via
+    // gentCheckStemEngine() at worker-thread startup, stemEngine.initialise(),
+    // and the Basic Pitch transcriber's gentEnsureOrtLoaded()) with no
+    // cross-instance synchronization -- two instances constructing/separating
+    // around the same time could both see tried==false and race on
+    // Ort::InitApi() / the g_ort*/g_cuda* statics below (all process-wide, not
+    // per-instance). A function-local static CriticalSection (thread-safe
+    // magic-static init, C++11) held across the WHOLE body serializes that:
+    // the second thread blocks here during the first's init, then takes the
+    // tried/g_ortReady early-out below with fully-written statics. std::call_once
+    // is rejected (its retry-on-exception semantics don't match this function's
+    // existing tried-once/no-retry-on-failure contract); SpinLock is rejected
+    // (the body can hold LoadLibraryExW for 100ms+, never spin that long).
+    static juce::CriticalSection ortInitLock;
+    const juce::ScopedLock sl (ortInitLock);
+
     static bool tried = false;
     if (tried) return g_ortReady;
     tried = true;

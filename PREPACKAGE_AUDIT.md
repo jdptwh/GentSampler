@@ -10,7 +10,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 |---|-----|-----------|---------|-------|--------|
 | 1 | HIGH | file-io | exportPad() discards the WAV writer's success/failure result and always reports success, so a failed export (disk full, denied write) is reported to the user as a completed export | Source/PluginProcessor.cpp:2909 | FIXED WAVE1 F3 |
 | 2 | HIGH | rt-safety | handleNoteOn -> assignPadCue -> pushUndo() runs a heap-allocating, unsynchronized undo-history push on the audio thread | Source/PluginProcessor.cpp:2504 | FIXED WAVE1 F1 |
-| 3 | HIGH | stem-engine | Unsynchronized process-global statics in ensureOrtLoaded() raced by multiple plugin instances | Source/StemSeparator.cpp:60 | OPEN |
+| 3 | HIGH | stem-engine | Unsynchronized process-global statics in ensureOrtLoaded() raced by multiple plugin instances | Source/StemSeparator.cpp:60 | FIXED WAVE1 F4 |
 | 4 | HIGH | stem-engine | No cross-instance/cross-process lock around first-run model download to the shared Documents\GentSampler\models folder | Source/ModelDownloader.cpp:94 | OPEN |
 | 5 | HIGH | threading | restoreLoadPath/wantRestoreLoad is stale-sticky across a state restore with no source path, causing a later restore to silently load the wrong file's audio under the new restore's cues | Source/PluginProcessor.cpp:3566 | FIXED WAVE1 F2 |
 | 6 | HIGH | ui-wiring | FileChooser completion lambdas capture the editor `this` with no liveness guard — use-after-free if the plugin window is closed while the dialog is open | Source/PluginEditor.cpp:336 | FIXED WAVE1 F6 |
