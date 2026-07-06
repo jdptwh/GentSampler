@@ -282,6 +282,10 @@ bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& bu
                                                     const juce::String& displayPath, bool runAnalysis,
                                                     bool keepCues)
 {
+    // PREPACKAGE_AUDIT.md #14: serialize the whole body — see the lock-order
+    // contract at the adoptLock member declaration (PluginProcessor.h).
+    const juce::ScopedLock sl (adoptLock);
+
     auto* s = new SourceSample();
     s->buffer = std::move (buf);
     s->sampleRate = sampleRate;

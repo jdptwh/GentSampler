@@ -459,6 +459,30 @@ private:
     bool adoptSourceBuffer (juce::AudioBuffer<float>&& buf, double sampleRate,
                              const juce::String& displayPath, bool runAnalysis,
                              bool keepCues = false);
+    // PREPACKAGE_AUDIT.md #14 (WAVE2_SPEC.md): adoptSourceBuffer() can run
+    // concurrently from the message thread (user drag-drop/browser load, via
+    // loadFile()/loadKitV2Audio()) and the worker thread (async project-
+    // restore decode, via doRestoreLoadJob()) -- the body is a sequence of
+    // separately-locked assignments/bookkeeping, so an interleaving between
+    // two calls could tear source/fileName/cues across two unrelated files.
+    // adoptLock serializes the WHOLE function body (ScopedLock as the FIRST
+    // statement, spanning every line).
+    //
+    // Lock-order contract (mandatory, verified facts, re-check if the body
+    // or its callers change):
+    //  - adoptLock is strictly OUTERMOST and is ONLY ever acquired inside
+    //    adoptSourceBuffer() itself -- grep confirms no other function takes
+    //    it.
+    //  - Inside adoptSourceBuffer()'s body, srcLock/infoLock/stemLock are
+    //    each taken ONE AT A TIME in their own separate scoped blocks --
+    //    verified during implementation: none of the three is ever held
+    //    while another of the three is acquired (no nesting between them).
+    //  - No code path anywhere may take adoptLock while already holding any
+    //    other lock: trivially true since adoptSourceBuffer is adoptLock's
+    //    only acquirer, and all three call sites (loadFile():272,
+    //    loadKitV2Audio():3423, doRestoreLoadJob():3531) were verified to
+    //    hold NO lock at the point they call adoptSourceBuffer().
+    juce::CriticalSection adoptLock;
     // KIT_SPEC.md PART B: v2 (.gentkit-as-ZIP) load, called by loadKit() once
     // it sniffs a "PK" magic. See its definition comment for the restore order.
     bool loadKitV2 (const juce::File& kitFile);
