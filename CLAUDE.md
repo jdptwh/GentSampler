@@ -77,9 +77,14 @@ clean, passes pluginval, and runs stable inside FL Studio.
   planner spec (WAVE1_SPEC.md, Joe-approved) -> implementer checkpoint commits
   e12235e/d428a67/6436a41/647636b/9265c9a/978d376 (+W1-A: implementer caught a
   spec gap and stopped per protocol) -> Opus reviewer PASS (verdict.json,
-  verdict_lint, 0 blocking) -> lead applied 1 nit (adf138e). AWAITING Joe's
-  five-repro manual pass (WAVE1_SPEC.md bottom). THEN: Waves 2 (9 MED) +
-  3 (3 LOW), then the packaging pass (CUDA-pack exclusion, BACKLOG).
+  verdict_lint, 0 blocking) -> lead applied 1 nit (adf138e). Wave 1
+  Joe-validated 2026-07-05. **WAVE 2 (nine MEDs) COMPLETE** (WAVE2_SPEC.md,
+  Joe-approved): checkpoints ad75ec8..67f927a + correction 1a29d26 — the
+  Opus reviewer FAILED cycle 1 on a real catch (signed graveyard ring
+  indices -> INT_MAX UB -> OOB heap write; the spec's own overflow-horizon
+  check), lead applied the specified fix, cycle-2 PASS 0 findings. AWAITING
+  Joe's nine-repro manual pass (WAVE2_SPEC.md bottom). THEN: Wave 3 (3 LOW),
+  then the packaging pass (CUDA-pack exclusion, BACKLOG).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).

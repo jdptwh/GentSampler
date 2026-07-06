@@ -193,12 +193,15 @@ listen). #12 is smoke-only (no corrupt-pack fixture).
 ## Record
 | Fix | Checkpoint commit | Reviewer verdict | Joe |
 |---|---|---|---|
-| #7 | | | |
-| #15 | | | |
-| #8 | | | |
-| #13 | | | |
-| #12 | | | |
-| #10 | | | |
-| #9 | | | |
-| #14 | | | |
-| #11 | | | |
+| #7 | `ad75ec8` | PASS | pending manual pass |
+| #15 | `63fc62d` | PASS | pending manual pass |
+| #8 | `ced816b` | PASS | pending manual pass |
+| #13 | `278f00b` | PASS | pending manual pass |
+| #12 | `d547d96` | PASS | pending manual pass |
+| #10 | `99296ce` | PASS | pending manual pass |
+| #9 | `59887bf` | PASS | pending manual pass |
+| #14 | `c27486c` | PASS | pending manual pass |
+| #11 | `67f927a` + correction `1a29d26` | cycle-1 FAIL (signed ring-index overflow -> OOB write, reviewer catch), lead applied the specified fix, cycle-2 PASS | pending manual pass |
+
+Reviewer: Opus, two cycles (budget 2), final verdict PASS 0 findings,
+verdict_lint exit 0 both cycles, gates_rerun=true both cycles.
