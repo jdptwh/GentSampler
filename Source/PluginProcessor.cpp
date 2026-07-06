@@ -330,8 +330,15 @@ bool GentSamplerAudioProcessor::adoptSourceBuffer (juce::AudioBuffer<float>&& bu
         // fresh file's STEMS placeholder was showing the PREVIOUS file's
         // stale "separation failed"/progress text. Same runAnalysis boundary,
         // stemStatus's own lock (infoLock, matching setStatus's discipline).
+        // PREPACKAGE_AUDIT.md #9 (WAVE2_SPEC.md, part 2 of 3): a genuinely new
+        // direct user load must also invalidate any pending stem-CACHE load —
+        // otherwise a restore's still-in-flight wantStemCacheLoad request can
+        // attach a completely unrelated project's cached stems to this brand
+        // new source once the worker gets to it. Same infoLock as above.
         const juce::SpinLock::ScopedLockType sl (infoLock);
         stemStatus.clear();
+        stemCacheKey.clear();
+        wantStemCacheLoad = false;
     }
 
     // DATA_INTEGRITY_SPEC.md Change 2: the async restore-load path (worker,
@@ -3560,7 +3567,12 @@ void GentSamplerAudioProcessor::adoptStemSet (StemSet* set, bool anyStem)
 // silent degrade to today's inert-mask behavior — one DBG line, no error UI.
 void GentSamplerAudioProcessor::doStemCacheLoadJob()
 {
+    // PREPACKAGE_AUDIT.md #9 (WAVE2_SPEC.md, part 3 of 3): snapshot the key
+    // this job started with, plus restoreGen (doAnalysisJob parity), so a
+    // direct load or a fresh restore that lands WHILE this job is decoding
+    // can be detected before the result is published.
     juce::String key;
+    const int genAtEntry = restoreGen.load();
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
         key = stemCacheKey;
@@ -3597,6 +3609,37 @@ void GentSamplerAudioProcessor::doStemCacheLoadJob()
     if (! anyStem)
         DBG ("doStemCacheLoadJob: stem cache dir present but no stemN.flac decoded for " << key);
 
+    // Gen guard (uniformity with doAnalysisJob/doSectionApplyJob): a fresh
+    // restore landed mid-decode — that restore's own applyStateTree() has
+    // already cleared/re-derived stemCacheKey/wantStemCacheLoad for itself,
+    // so this stale job must not publish over it.
+    if (restoreGen.load() != genAtEntry)
+    {
+        DBG ("doStemCacheLoadJob: bail, restoreGen changed mid-job for " << key);
+        delete set;
+        return;
+    }
+
+    // Key re-check (the LOAD-BEARING guard): immediately before publishing,
+    // re-read stemCacheKey under infoLock. If a direct load or a new restore
+    // cleared it (or swapped in a different key) while this job was decoding,
+    // this result belongs to a superseded request — discard it rather than
+    // attach it to whatever is now current.
+    {
+        juce::String keyNow;
+        {
+            const juce::SpinLock::ScopedLockType sl (infoLock);
+            keyNow = stemCacheKey;
+        }
+        if (keyNow.isEmpty() || keyNow != key)
+        {
+            DBG ("doStemCacheLoadJob: bail, stemCacheKey changed/cleared mid-job (was "
+                 << key << ", now " << keyNow << ")");
+            delete set;
+            return;
+        }
+    }
+
     adoptStemSet (set, anyStem);
 }
 
@@ -3617,11 +3660,18 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     // missing-path branches below — so a restore with no source path can never
     // inherit a predecessor restore's still-pending doRestoreLoadJob() request.
     // The valid-path branch below re-stashes (path + gen) as needed.
+    // PREPACKAGE_AUDIT.md #9 (WAVE2_SPEC.md, part 1 of 3): same reasoning
+    // applies to a pending STEM-CACHE load — a prior restore's stemCacheKey/
+    // wantStemCacheLoad must not survive into a new restore (which may have
+    // no cache key of its own, or a different one); this restore's own
+    // key/flag are re-derived from THIS state further below if applicable.
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
         restoreLoadPath = juce::File();
+        stemCacheKey.clear();
     }
     wantRestoreLoad = false;
+    wantStemCacheLoad = false;
 
     auto extra = state.getChildWithName ("EXTRA");
     if (! extra.isValid())
