@@ -1255,14 +1255,14 @@ void GentSamplerAudioProcessor::requestClassifyReport()
 // requestClassifyReport() above.
 void GentSamplerAudioProcessor::requestSectionReport (int sensitivity)
 {
-    sectionSensitivity = sensitivity;
+    sectionSensitivityForReport = sensitivity;
     wantSectionReport = true;
     notify();
 }
 
 void GentSamplerAudioProcessor::requestSectionApply (int sensitivity)
 {
-    sectionSensitivity = sensitivity;
+    sectionSensitivityForApply = sensitivity;
     wantSectionApply = true;
     notify();
 }
@@ -1869,7 +1869,7 @@ void GentSamplerAudioProcessor::doSectionReportJob()
         });
     };
 
-    const int sensitivity = sectionSensitivity.load();
+    const int sensitivity = sectionSensitivityForReport.load();
     const juce::String sensName = gentSectionsSensitivityName (sensitivity);
 
     std::vector<gent::FrameFeatures> frames;
@@ -2017,7 +2017,7 @@ void GentSamplerAudioProcessor::doSectionApplyJob()
     // slice-apply clobber the restored cues.
     const int genAtEntry = restoreGen.load();
 
-    const int sensitivity = sectionSensitivity.load();
+    const int sensitivity = sectionSensitivityForApply.load();
 
     std::vector<gent::FrameFeatures> frames;
     double frameRate = 0.0;

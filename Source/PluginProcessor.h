@@ -620,11 +620,15 @@ private:
     std::atomic<bool>   wantStems { false };
     std::atomic<bool>   wantClassify { false };   // P2 wiring: requestClassifyReport() sets this
     // SECTIONS Part 2 (NOVELTY) dev wiring: requestSectionReport()/
-    // requestSectionApply() set these; sectionSensitivity is read by
-    // whichever job fires (0 few, 1 medium, 2 many).
+    // requestSectionApply() set these. PREPACKAGE_AUDIT.md #13: report and
+    // apply each write/read ONLY their own sensitivity atomic now (back-to-
+    // back menu clicks at different sensitivities used to share one atomic,
+    // so the second click's write could silently apply to the first click's
+    // job); 0 few, 1 medium, 2 many.
     std::atomic<bool>   wantSectionReport { false };
     std::atomic<bool>   wantSectionApply  { false };
-    std::atomic<int>    sectionSensitivity { 1 };
+    std::atomic<int>    sectionSensitivityForReport { 1 };
+    std::atomic<int>    sectionSensitivityForApply  { 1 };
     // KIT_SPEC.md PART B: requestKitSave()'s fire-and-forget shape (mirror of
     // requestSectionReport() above). kitSaveDest is written on the message
     // thread BEFORE wantKitSave is set, and read once by doKitSaveJob() at
