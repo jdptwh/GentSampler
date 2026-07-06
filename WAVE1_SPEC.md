@@ -42,8 +42,11 @@ one-line pattern — cover every async completion lambda in `PluginEditor.cpp`
 that captures raw `this`:
 - The five `FileChooser::launchAsync` sites (loadBtn ~334, saveKitBtn ~351,
   loadKitBtn ~366, exportKitBtn ~379, export-pad-in-menu ~723).
-- The three `PopupMenu::showMenuAsync` dispatch callbacks (sliceMenu, kitMenu,
-  exportMenu). JUCE's ModalComponentManager usually cancels these with r=0 on
+- The FOUR `PopupMenu::showMenuAsync` dispatch callbacks (sliceMenu, kitMenu,
+  exportMenu, AND clearBtn ~413 — AMENDMENT W1-A 2026-07-05: the enumeration
+  originally missed clearBtn; the implementer caught the inconsistency and
+  stopped per protocol; the general scope rule is authoritative, 9 sites
+  total). JUCE's ModalComponentManager usually cancels these with r=0 on
   target deletion, but "usually" is not a guard.
 Pattern: capture `juce::Component::SafePointer<GentSamplerAudioProcessorEditor>
 safeThis (this)`; first statement of each body: `if (safeThis == nullptr)
@@ -51,9 +54,10 @@ return;`; access members via the existing code unchanged after the guard
 (keep `this` capture alongside for zero-churn bodies, guarded by safeThis).
 Destructor stays as-is (SafePointer is the primary and sufficient guard —
 drafter's belt-and-suspenders chooser reset NOT adopted; smaller diff wins).
-**AC:** all 8 sites guarded (grep `launchAsync|showMenuAsync` finds no
-unguarded `this` deref); normal dialog/menu flows unchanged; gates green
-incl. pluginval editor lifecycle.
+**AC (amended W1-A):** all 9 sites guarded (grep `launchAsync|showMenuAsync`
+finds no unguarded `this` deref — the grep-based criterion is literal and
+authoritative); normal dialog/menu flows unchanged; gates green incl.
+pluginval editor lifecycle.
 
 ## F2 — restore stash cleared on EVERY restore + gen-guarded decode  (audit #2, 3rd)
 `Source/PluginProcessor.cpp` `applyStateTree` + `doRestoreLoadJob`:
