@@ -2716,6 +2716,9 @@ struct SplitChip : juce::Component, public juce::SettableTooltipClient
     {
         down = false;
         repaint();
+        if (! e.mods.isLeftButtonDown())   // PREPACKAGE_AUDIT.md #15: right/middle-
+            return;                        // click must not trigger the action; the
+                                            // pressed visual above always resolves.
         if (! contains (e.getPosition()))
             return;
         if (caretZone().contains (e.position))

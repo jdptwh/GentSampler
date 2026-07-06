@@ -22,7 +22,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 | 12 | MED | stem-engine | Hybrid-mode source indices from manifest.json are trusted against runtime model output size with no bounds check | Source/StemSeparator.cpp:868 | OPEN |
 | 13 | MED | threading | sectionSensitivity is a single shared atomic for both requestSectionReport and requestSectionApply, so back-to-back menu clicks at different sensitivities silently use the wrong sensitivity for one of the two jobs | Source/PluginProcessor.cpp:3252 | OPEN |
 | 14 | MED | threading | adoptSourceBuffer() can run concurrently from the message thread (user drag-drop/browser load) and the worker thread (async project-restore decode), tearing source/fileName/cues across two unrelated files | Source/PluginProcessor.cpp:275 | OPEN |
-| 15 | MED | ui-wiring | SplitChip (the SLICE toolbar chip) has no mouse-button gating — right-click on its main body silently re-runs a destructive reslice | Source/PluginEditor.h:2715 | OPEN |
+| 15 | MED | ui-wiring | SplitChip (the SLICE toolbar chip) has no mouse-button gating — right-click on its main body silently re-runs a destructive reslice | Source/PluginEditor.h:2715 | FIXED WAVE2 #15 |
 | 16 | LOW | engine-math | classifySlice's ambiguous-stem fallthrough branch (1c: hasStems true, neither drums nor tonal dominant) has zero test coverage | Source/EngineMath.h:976 | OPEN |
 | 17 | LOW | file-io | First stem-separation heartbeat write targets Documents\GentSampler before that folder is ever created, silently no-oping on a brand-new install | Source/PluginProcessor.cpp:1307 | OPEN |
 | 18 | LOW | memory | Same missing length cap on stem-cache FLAC restore (doStemCacheLoadJob) | Source/PluginProcessor.cpp:3533 | OPEN |
