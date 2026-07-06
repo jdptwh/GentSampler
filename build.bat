@@ -44,10 +44,10 @@ set "SRC=build\GentSampler_artefacts\Release\VST3\GentSampler.vst3"
 
 echo.
 echo === Installing plugin ===
-xcopy /e /i /y "%SRC%" "%CommonProgramFiles%\VST3\GentSampler.vst3\" >nul 2>nul
-if errorlevel 1 (
+robocopy "%SRC%" "%CommonProgramFiles%\VST3\GentSampler.vst3" /e /r:0 /w:0 /xf cublas*.dll cudart*.dll cudnn*.dll cufft*.dll curand*.dll nvrtc*.dll onnxruntime_providers_cuda.dll >nul 2>nul
+if errorlevel 8 (
     echo [i] No admin rights for Common Files - installing to your Documents instead.
-    xcopy /e /i /y "%SRC%" "%USERPROFILE%\Documents\VST3\GentSampler.vst3\" >nul
+    robocopy "%SRC%" "%USERPROFILE%\Documents\VST3\GentSampler.vst3" /e /r:0 /w:0 /xf cublas*.dll cudart*.dll cudnn*.dll cufft*.dll curand*.dll nvrtc*.dll onnxruntime_providers_cuda.dll >nul
     echo.
     echo [OK] Installed to: %USERPROFILE%\Documents\VST3
     echo      In FL Studio: Options, File settings, add that folder as a plugin search path.
