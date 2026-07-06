@@ -5,7 +5,8 @@
 `wf_81cf0f51-134`); reviewed, corrected and OWNED by the PLANNER (Fable,
 2026-07-05). All ten drafter open questions are RESOLVED below — the
 implementer executes, never reinterprets. **Joe approves this spec before any
-implementation** (ROUTING.md loop 1).
+implementation** (ROUTING.md loop 1). **APPROVED by Joe 2026-07-05 ("approved.
+proceed") — implementation authorized.**
 **Numbering:** the audit report's table order is authoritative. Fix N ↔ audit
 finding mapping: F1=audit#1(rt-safety pushUndo), F2=audit#2(stale restore
 stash), F3=audit#3(exportPad), F4=audit#4(ORT statics), F5=audit#5(download
