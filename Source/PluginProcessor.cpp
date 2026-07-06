@@ -2580,6 +2580,19 @@ void GentSamplerAudioProcessor::handleAsyncUpdate()
         setCue (pad, pos, /*snap*/ false);
         cueEnds[(size_t) pad] = kOpenSlice;   // 9f2ab28 point-cue semantics: bare POINT cue, open end
     }
+
+    // PREPACKAGE_AUDIT.md #11: drain the graveyard ring stashed by
+    // processBlock's swap sites. Nulling a slot here is where the actual
+    // ReferenceCountedObject free happens -- on the message thread, never on
+    // the audio thread. Coalescing is fine: one callback drains everything
+    // that has piled up since the last one.
+    for (int r = graveR.load (std::memory_order_relaxed);
+         r != graveW.load (std::memory_order_acquire);
+         ++r)
+    {
+        graveyard[(size_t) (r % (int) graveyard.size())] = nullptr;
+        graveR.store (r + 1, std::memory_order_release);
+    }
 }
 
 // ============================================================================
@@ -3822,22 +3835,65 @@ void GentSamplerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
             requestRender();
     }
 
+    // PREPACKAGE_AUDIT.md #11: each swap below stashes the OUTGOING Ptr into
+    // the graveyard ring (inside the SAME try-locked scope as the swap
+    // itself, per WAVE2_SPEC.md Q5.2) before reassigning, so the old
+    // AudioBuffer's free happens later on the message thread
+    // (handleAsyncUpdate's drain loop), never synchronously here. If the
+    // ring is full, the swap is SKIPPED ENTIRELY this block (keep playing
+    // the old render — the worker's own Ptr still references the new one,
+    // so the swap simply retries next block; clean backpressure, never an
+    // inline free, never a block, never a drop).
+    bool stashedThisBlock = false;
     {
         const juce::SpinLock::ScopedTryLockType tl (rendLock);
         if (tl.isLocked())
-            active = rendered;
+        {
+            const int w = graveW.load (std::memory_order_relaxed);
+            if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+            {
+                graveyard[(size_t) (w % (int) graveyard.size())] = active;
+                graveW.store (w + 1, std::memory_order_release);
+                active = rendered;
+                stashedThisBlock = true;
+            }
+        }
     }
     {
         const juce::SpinLock::ScopedTryLockType tl (stemRendLock);
         if (tl.isLocked())
-            activeStems = renderedStems;
+        {
+            const int w = graveW.load (std::memory_order_relaxed);
+            if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+            {
+                graveyard[(size_t) (w % (int) graveyard.size())] = activeStems;
+                graveW.store (w + 1, std::memory_order_release);
+                activeStems = renderedStems;
+                stashedThisBlock = true;
+            }
+        }
     }
     {
         const juce::SpinLock::ScopedTryLockType tl (padLock);
         if (tl.isLocked())
+        {
             for (int i = 0; i < 16; ++i)
-                activePads[(size_t) i] = padRenders[(size_t) i];
+            {
+                const int w = graveW.load (std::memory_order_relaxed);
+                if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+                {
+                    graveyard[(size_t) (w % (int) graveyard.size())] = activePads[(size_t) i];
+                    graveW.store (w + 1, std::memory_order_release);
+                    activePads[(size_t) i] = padRenders[(size_t) i];
+                    stashedThisBlock = true;
+                }
+                // ring full -> skip THIS pad's swap this block only; the other
+                // 15 pads still get a chance (independent per-pad backpressure).
+            }
+        }
     }
+    if (stashedThisBlock)
+        triggerAsyncUpdate();
 
     {
         int s1, n1, s2, n2;

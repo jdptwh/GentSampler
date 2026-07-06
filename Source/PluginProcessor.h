@@ -565,6 +565,22 @@ private:
     std::array<PadRender::Ptr, 16> activePads;   // audio-thread copies
     int padRenderCounter = 0;
 
+    // PREPACKAGE_AUDIT.md #11 (WAVE2_SPEC.md): processBlock's three swap sites
+    // (active=rendered; activeStems=renderedStems; activePads[i]=padRenders[i])
+    // used to synchronously free the OUTGOING Ptr's multi-MB AudioBuffer
+    // in-place on the audio thread whenever it held the last reference.
+    // Deferred-free graveyard: a fixed-size SPSC ring (single producer =
+    // audio thread inside processBlock, single consumer = message thread
+    // inside handleAsyncUpdate()). 64 slots is far above the 18-Ptr/block
+    // worst case (1 active + 1 activeStems + 16 activePads), giving headroom
+    // for coalesced ticks. juce::ReferenceCountedObject is the common base
+    // of RenderedSample/RenderedStems/PadRender, so one Ptr type covers all
+    // three swap sites polymorphically. No allocation on the audio-thread
+    // side: the array is a fixed member, and moving a Ptr into a slot is
+    // refcount-neutral (no new/delete).
+    std::array<juce::ReferenceCountedObjectPtr<juce::ReferenceCountedObject>, 64> graveyard;
+    std::atomic<int> graveW { 0 }, graveR { 0 };
+
     static void offlineStretchSlice (const juce::AudioBuffer<float>& in, int start, int numIn,
                                      double sampleRate, double speed, juce::AudioBuffer<float>& out);
 
