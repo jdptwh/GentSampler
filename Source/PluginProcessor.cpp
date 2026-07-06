@@ -3616,7 +3616,8 @@ void GentSamplerAudioProcessor::doStemCacheLoadJob()
         std::unique_ptr<juce::AudioFormatReader> reader (flac.createReaderFor (f.createInputStream().release(), true));
         if (reader == nullptr)
             continue;
-        const int len = (int) reader->lengthInSamples;
+        const auto maxLen = (juce::int64) (reader->sampleRate * 600.0);   // cap at 10 minutes (loadFile precedent)
+        const int len = (int) juce::jmin (reader->lengthInSamples, maxLen);
         set->buffers[(size_t) i].setSize ((int) reader->numChannels, len);
         reader->read (&set->buffers[(size_t) i], 0, len, 0, true, true);
         set->sampleRate = reader->sampleRate;
