@@ -87,6 +87,34 @@ namespace
         return f.existsAsFile() && f.getSize() == mf.size;
     }
 
+    // WAVE1_SPEC.md F5 (audit #4 stem-engine): first-run downloads to the
+    // shared Documents\GentSampler\models folder had no cross-instance/
+    // cross-process coordination -- two instances hitting Separate/Transcribe
+    // around the same time could both open independent FileOutputStreams on
+    // the identical <name>.part path (interleaved writes) and both race the
+    // finalize (delete + rename) step. One named juce::InterProcessLock
+    // (Windows named mutex; released by the OS on process death, abandoned-
+    // mutex safe) held around the whole download section serializes that;
+    // per-file locking was rejected as unneeded complexity for a first-run-
+    // only path. Blocks in a bounded enter(500) loop rather than a single
+    // unbounded wait or a spin loop: each timeout re-checks whether the OTHER
+    // instance already finished (isPresent), in which case this instance
+    // returns success without downloading, and pushes a status string so a
+    // waiting instance's UI isn't silently stalled.
+    bool acquireDownloadLock (juce::InterProcessLock& ipLock,
+                              const std::function<bool()>& isPresent,
+                              StatusFn status)
+    {
+        for (;;)
+        {
+            if (ipLock.enter (500))
+                return true;
+            if (isPresent())        // the other instance finished while we waited
+                return false;       // caller re-checks presence and returns success
+            status ("waiting for another GentSampler to finish downloading models...");
+        }
+    }
+
     // Download one weight to <name>.part (resuming any partial), verify its
     // SHA-256, then atomically move it into place. Reports cumulative progress
     // across the whole set. Retries a few times; keeps the .part for resume on a
@@ -249,6 +277,21 @@ bool ensureModelsPresent (const juce::File& modelsDir,
         return false;
     }
 
+    // WAVE1_SPEC.md F5: one named cross-instance/cross-process lock around
+    // the whole download section (see acquireDownloadLock above). enter()/
+    // exit() are managed manually (not ScopedLockType) because acquisition
+    // itself needs the bounded retry-with-status-callback loop below;
+    // gentUnlockOnExit releases it on every return path once acquired.
+    juce::InterProcessLock ipLock ("GentSampler_ModelDownload");
+    if (! acquireDownloadLock (ipLock, [&] { return modelsPresent (modelsDir); }, status))
+        return modelsPresent (modelsDir);   // the other instance finished while we waited
+    const juce::ScopeGuard gentUnlockOnExit { [&ipLock] { ipLock.exit(); } };
+
+    // Re-check once now that we hold the lock: another instance may have
+    // finished the whole set while we were waiting to acquire.
+    if (modelsPresent (modelsDir))
+        return true;
+
     const juce::int64 grand = totalDownloadBytes();
     juce::int64 before = 0;
 
@@ -318,9 +361,28 @@ bool ensureBasicPitchPresent (const juce::File& modelsDir,
         return false;
     }
 
-    // single-file download/verify/resume; progress is over this one file
-    if (! downloadOne (kBasicPitch, modelsDir, 0, kBasicPitch.size, progress, status, cancel, errorOut))
-        return false;
+    // WAVE1_SPEC.md F5: the Basic Pitch sibling entry point shares modelsDir
+    // with the Demucs set and gets the SAME named lock (per-file locking
+    // rejected as unneeded complexity for a first-run-only path).
+    juce::InterProcessLock ipLock ("GentSampler_ModelDownload");
+    if (! acquireDownloadLock (ipLock, [&] { return basicPitchPresent (modelsDir); }, status))
+        return basicPitchPresent (modelsDir);   // the other instance finished while we waited
+    const juce::ScopeGuard gentUnlockOnExit { [&ipLock] { ipLock.exit(); } };
+
+    // Re-check once now that we hold the lock: another instance may have
+    // finished this file while we were waiting to acquire.
+    if (basicPitchPresent (modelsDir))
+        return true;
+
+    // single-file download/verify/resume; progress is over this one file.
+    // fileComplete() re-check immediately before the download (drafter Q7.5):
+    // trivially satisfied here (one file, already re-checked via
+    // basicPitchPresent() just above, which IS fileComplete() for this file).
+    if (! fileComplete (basicPitchFile (modelsDir), kBasicPitch))
+    {
+        if (! downloadOne (kBasicPitch, modelsDir, 0, kBasicPitch.size, progress, status, cancel, errorOut))
+            return false;
+    }
 
     status ("Transcription model ready");
     return true;
