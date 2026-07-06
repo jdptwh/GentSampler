@@ -655,6 +655,12 @@ private:
     // project reopen never blocks the message thread on file IO.
     juce::File           restoreLoadPath;         // guarded by infoLock
     std::atomic<bool>    wantRestoreLoad { false };
+    // WAVE1_SPEC.md F2: restoreGen snapshotted at the same time restoreLoadPath
+    // is stashed (plain int, guarded by infoLock alongside it) so
+    // doRestoreLoadJob() can detect a newer, unrelated restore that landed
+    // while its (possibly long) decode was in flight and bail instead of
+    // adopting a stale file's audio under the newer restore's cues.
+    int                  restoreLoadGenAtStash { 0 };   // guarded by infoLock
 
     // ---- audio-to-MIDI transcription (Basic Pitch) ----
     BasicPitchTranscriber transcriber;

@@ -3408,9 +3408,11 @@ bool GentSamplerAudioProcessor::loadKitV2Audio (const juce::File& kitFile, bool 
 void GentSamplerAudioProcessor::doRestoreLoadJob()
 {
     juce::File f;
+    int genAtStash = 0;
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
         f = restoreLoadPath;
+        genAtStash = restoreLoadGenAtStash;
     }
     if (f == juce::File())
         return;
@@ -3462,6 +3464,16 @@ void GentSamplerAudioProcessor::doRestoreLoadJob()
         }
         const int n = juce::jmin (chunkLen, len - offset);
         reader->read (&buf, offset, n, offset, true, true);
+    }
+
+    // WAVE1_SPEC.md F2 (audit #5): the decode above is long; re-check right
+    // before adopting that no newer, unrelated restore landed while we were
+    // decoding (doAnalysisJob's gen-guard pattern). A stale decode is
+    // discarded here rather than adopted under a different restore's cues.
+    if (restoreGen.load() != genAtStash)
+    {
+        DBG ("doRestoreLoadJob: restoreGen changed mid-decode for " << f.getFullPathName() << " -- discarding stale decode");
+        return;
     }
 
     adoptSourceBuffer (std::move (buf), reader->sampleRate, f.getFullPathName(),
@@ -3555,6 +3567,17 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     kitPending = false;
     analysisKeepCues = true;
 
+    // WAVE1_SPEC.md F2 (audit #5): clear ANY previously-stashed pending load at
+    // the top of every restore's path handling — including the empty/refused/
+    // missing-path branches below — so a restore with no source path can never
+    // inherit a predecessor restore's still-pending doRestoreLoadJob() request.
+    // The valid-path branch below re-stashes (path + gen) as needed.
+    {
+        const juce::SpinLock::ScopedLockType sl (infoLock);
+        restoreLoadPath = juce::File();
+    }
+    wantRestoreLoad = false;
+
     auto extra = state.getChildWithName ("EXTRA");
     if (! extra.isValid())
         return;
@@ -3588,6 +3611,7 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
                 fileName = f.getFileName();
                 filePath = path;
                 restoreLoadPath = f;
+                restoreLoadGenAtStash = restoreGen.load();
             }
             wantRestoreLoad = true;
         }
