@@ -93,8 +93,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   confirmed the proof). Reviewer PASS cycle 1, 0 findings.
   **AUDIT BURN-DOWN COMPLETE: 18/18 findings resolved** (17 fixed +
   reviewer-verified across three waves; 1 characterized + deferred to v2
-  with proof). Pending: Joe's two-repro Wave-3 smoke. NEXT: the packaging
-  pass (CUDA-pack exclusion, installer payload — BACKLOG item).
+  with proof). Wave-3 two-repro smoke Joe-PASSED 2026-07-06. AUDIT 2 run
+  2026-07-06 (multi-agent, wf_90cc8154-5bd, repo @ 6af11aa): 10 lanes incl.
+  new regression-diff + build-packaging lanes; 7 raw -> 6 CONFIRMED
+  (0 HIGH / 5 MED / 1 LOW), 1 refuted -> PREPACKAGE_AUDIT_2.md. Six lanes
+  came back clean (wave 1-3 hardening held). Notables: #3 = WAVE1 F1 fix
+  regressed first-tap audition on unassigned pads (spec premise was false;
+  needs Joe ruling), #4/#5 = packaging blockers (POST_BUILD deploy breaks
+  clean-machine builds; build.bat xcopy ships the 2.6 GB CUDA pack — the
+  deployed folder on this box already has it). Fix wave spec in progress
+  (drafter -> planner -> Joe approval). NEXT after burn-down: the packaging
+  pass (CUDA-pack exclusion, installer payload — BACKLOG item; #4/#5 fold
+  into it if the planner so rules).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
