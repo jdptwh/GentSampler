@@ -105,6 +105,14 @@ project B with no source → B must not adopt A's audio). Gates green.
   the triggering note never played audio under the current behavior either
   (point-cue assign, no voice start). Accepted; Joe's wave pass includes a
   tap-to-cue feel check as final arbiter.
+  **CORRECTION (WAVE4 F3 / PREPACKAGE_AUDIT_2 #3):** the "never played audio
+  under the current behavior either" premise above was verified FALSE
+  against baseline `29969f7` (`assignPadCue` :539-544 set `auditionPad` and
+  `processBlock` started the voice from it) — this was a real audition-voice
+  regression, not a latency-only, always-silent deferral. Joe's Wave-1
+  sign-off did not ratify dropping it because he was not told audition had
+  been dropped. Parity restored in WAVE4 F3 (planner ruling OQ-A path (a));
+  annotated here per that ruling, history not rewritten.
 - Voice-start path for ASSIGNED pads: untouched (drafter Q2.4: no scope creep).
 - Correct the false "message thread only" contract comment
   (`PluginProcessor.h` ~355-366) to name the deferred path.

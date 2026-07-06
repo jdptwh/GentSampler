@@ -2611,6 +2611,12 @@ void GentSamplerAudioProcessor::handleNoteOff (int note)
 // cues[pad] < 0 after the exchange -- a drag-drop assignPadCue() on the
 // message thread may have raced the audio-thread tick and already assigned
 // this pad; if so, skip it (drafter Q2.2 ruling: race resolves to skip).
+// WAVE4 F3 (PREPACKAGE_AUDIT_2 #3, planner OQ-A path (a)): Wave-1's own
+// framing of this deferral as "VISUAL-only" (WAVE1_SPEC.md:104-106) was
+// verified FALSE against baseline 29969f7 assignPadCue -- baseline started
+// an audible voice on the same tap that assigned the cue. Restored here to
+// match assignPadCue's post-setCue sequence verbatim (minus selectedPad,
+// which handleNoteOn already sets on the audio thread -- see below).
 void GentSamplerAudioProcessor::handleAsyncUpdate()
 {
     for (int pad = 0; pad < 16; ++pad)
@@ -2623,6 +2629,18 @@ void GentSamplerAudioProcessor::handleAsyncUpdate()
         pushUndo();
         setCue (pad, pos, /*snap*/ false);
         cueEnds[(size_t) pad] = kOpenSlice;   // 9f2ab28 point-cue semantics: bare POINT cue, open end
+        // Baseline parity (assignPadCue :539-544): audition the freshly
+        // assigned pad on the same tap, same as a drag-drop assign. NOT
+        // selectedPad -- handleNoteOn already wrote that on the audio thread
+        // before triggerAsyncUpdate(); writing it again here would be a
+        // duplicate, not parity. If several pads were assigned in the same
+        // sweep, the last one wins the single auditionPad slot -- accepted
+        // coalescing, same spirit as the multi-pad sweep itself.
+        lastTriggerPad = pad;
+        ++lastTriggerCount;
+        ++uiDirty;
+        if (! previewingA.load())
+            auditionPad = pad;
     }
 
     // PREPACKAGE_AUDIT.md #11: drain the graveyard ring stashed by
