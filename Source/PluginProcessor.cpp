@@ -558,6 +558,7 @@ void GentSamplerAudioProcessor::assignPadCue (int pad, bool snap)
     selectedPad = pad;
     lastTriggerPad = pad;
     ++lastTriggerCount;
+    ++lastAssignCount;
     ++uiDirty;
     if (! previewingA.load())
         auditionPad = pad;
@@ -2638,6 +2639,7 @@ void GentSamplerAudioProcessor::handleAsyncUpdate()
         // coalescing, same spirit as the multi-pad sweep itself.
         lastTriggerPad = pad;
         ++lastTriggerCount;
+        ++lastAssignCount;
         ++uiDirty;
         if (! previewingA.load())
             auditionPad = pad;

@@ -1344,13 +1344,21 @@ private:
             if (sg != lastStemGen) { lastStemGen = sg; rebuildStemPeaks(); repaint(); }
         }
 
-        // snap the view to the most recently triggered pad's region
+        // snap the view to the most recently triggered pad's region -- but only
+        // on a FRESH ASSIGNMENT or a DIFFERENT pad than the previous trigger
+        // (PREPACK_UX U1); a re-trigger of the same already-assigned pad must
+        // never move the view (Joe: hero zoom should hold while inspecting).
         const int trig = p.lastTriggerCount.load();
         if (trig != lastTrig)
         {
             lastTrig = trig;
             const int padIdx = p.lastTriggerPad.load();
-            if (follow && padIdx >= 0 && cachedLen > 0)
+            const int asg = p.lastAssignCount.load();
+            const bool freshAssign = (asg != lastAssign);
+            const bool newPad = (padIdx != lastTrigPadSeen);
+            lastAssign = asg;
+            lastTrigPadSeen = padIdx;
+            if (follow && padIdx >= 0 && cachedLen > 0 && (freshAssign || newPad))
             {
                 const double s = (double) p.getCue (padIdx);
                 const double e = (double) p.getEffectiveCueEnd (padIdx);
@@ -1466,6 +1474,8 @@ private:
     HandleDragEngine dragEngine;   // F1: shared relative-drag state for CUE/END gestures
     bool follow = true, wasPlaying = false;
     int lastTrig = -1;
+    int lastAssign = -1;         // PREPACK_UX U1: last-seen p.lastAssignCount -- fresh-assign detector
+    int lastTrigPadSeen = -1;    // PREPACK_UX U1: last-seen p.lastTriggerPad -- different-pad detector
     double scrollGrab = 0.0, panAnchorStart = 0.0;
     int panAnchorX = 0;
 

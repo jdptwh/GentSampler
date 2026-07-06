@@ -79,6 +79,7 @@ Notes the implementer must respect:
 - If several pads were assigned in one sweep, the last one wins the (single) auditionPad slot — accepted coalescing, same spirit as the sweep comment; note it in the code comment.
 - Update the Wave-1 comment block (:2565-2571) to describe the restored parity instead of the superseded framing.
 - Add a one-line correction annotation to WAVE1_SPEC.md next to :104-106: the "never played audio" premise was false (PREPACKAGE_AUDIT_2 #3); parity restored in WAVE4.
+- **Forward annotation (PREPACK_UX U1, 2026-07-06):** `PREPACK_UX_SPEC.md` U1 adds `++lastAssignCount;` immediately beside F3's restored `++lastTriggerCount;` bump in `handleAsyncUpdate()` (and at `assignPadCue`'s matching site) to give the view-follow timer a fresh-assign signal; F3's own behavior here (first-tap audition + snap) is unchanged.
 
 **AC:**
 1. The four added lines match baseline `29969f7` assignPadCue's post-setCue sequence, minus `selectedPad` (reviewer diff-reads against baseline :559-563).

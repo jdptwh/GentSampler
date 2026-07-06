@@ -306,6 +306,7 @@ public:
     int  getPadPlayPos (int pad) const                     { return padPlayPos[(size_t) pad].load(); }
     std::atomic<int> lastTriggerPad { -1 };                // most recent pad hit (for view-follow)
     std::atomic<int> lastTriggerCount { 0 };
+    std::atomic<int> lastAssignCount { 0 };                // fresh pad assignment -- view-follow snaps unconditionally on this, not on mere re-triggers
 
     // ---- preview transport + live cue assignment ----
     void startPreview (int sourcePos)                      { previewCmd = juce::jmax (0, sourcePos); }
