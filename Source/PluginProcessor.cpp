@@ -2629,7 +2629,7 @@ void GentSamplerAudioProcessor::handleAsyncUpdate()
         pushUndo();
         setCue (pad, pos, /*snap*/ false);
         cueEnds[(size_t) pad] = kOpenSlice;   // 9f2ab28 point-cue semantics: bare POINT cue, open end
-        // Baseline parity (assignPadCue :539-544): audition the freshly
+        // Baseline parity (29969f7 assignPadCue, post-setCue tail): audition the freshly
         // assigned pad on the same tap, same as a drag-drop assign. NOT
         // selectedPad -- handleNoteOn already wrote that on the audio thread
         // before triggerAsyncUpdate(); writing it again here would be a

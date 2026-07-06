@@ -101,10 +101,23 @@ clean, passes pluginval, and runs stable inside FL Studio.
   regressed first-tap audition on unassigned pads (spec premise was false;
   needs Joe ruling), #4/#5 = packaging blockers (POST_BUILD deploy breaks
   clean-machine builds; build.bat xcopy ships the 2.6 GB CUDA pack — the
-  deployed folder on this box already has it). Fix wave spec in progress
-  (drafter -> planner -> Joe approval). NEXT after burn-down: the packaging
-  pass (CUDA-pack exclusion, installer payload — BACKLOG item; #4/#5 fold
-  into it if the planner so rules).
+  deployed folder on this box already has it). **WAVE 4 (all six) COMPLETE
+  pending Joe's manual pass** (WAVE4_SPEC.md, planner-owned, Joe-approved):
+  checkpoints a333fc4 (F1 doStemJob gen+identity publish guard — planner
+  extended scope to cover direct-load mid-separation, not just restore) /
+  b12bc19 (F2 panel-follows-pad deferred while any of the 23 inspector
+  controls is mid-interaction) / d2489cb (F3 audition parity restored per
+  OQ-A path a — WAVE1's "VISUAL-only" premise was FALSE, annotated in
+  WAVE1_SPEC.md; **Joe's feel re-check MANDATORY**, revert+path-b if
+  rejected) / c5fed96 (F4 IS_DIRECTORY configure guard on the deploy step;
+  dev-box failure stays FATAL = the FL gate) / bd7323c (F5 build.bat
+  robocopy /xf CUDA exclusion, /r:0 /w:0, errorlevel 8) / ea9a7f7 (F6
+  6-arg LagrangeInterpolator, BULK dispatch, token-exact template check).
+  Opus reviewer PASS cycle 1, 0 blocking, 2 nits (verdict_lint 0); lead
+  applied nit 2 at wave close. Joe manual pass outstanding: F3 feel check
+  (mandatory), F1/F2 repros (best-effort). NEXT: the packaging pass
+  (CUDA-pack exclusion at the SOURCE + already-polluted deployed-folder
+  cleanup are its first two line items; installer payload — BACKLOG item).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
