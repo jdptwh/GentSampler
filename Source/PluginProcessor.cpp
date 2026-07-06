@@ -1302,6 +1302,12 @@ void GentSamplerAudioProcessor::doStemJob()
     if (src == nullptr)
         return;
 
+    // PREPACKAGE_AUDIT_2.md #1 (WAVE4_SPEC.md F1): snapshot restoreGen + the
+    // source identity at entry (doStemCacheLoadJob :3594 pattern). A restore
+    // bumps restoreGen (applyStateTree); a direct/kit load replaces the
+    // source object without bumping it — the bail condition below covers both.
+    const int genAtEntry = restoreGen.load();
+
     auto setStatus = [this] (const juce::String& s)
     {
         const juce::SpinLock::ScopedLockType sl (infoLock);
@@ -1442,6 +1448,20 @@ void GentSamplerAudioProcessor::doStemJob()
         if (it != stems.end())
             set->buffers[(size_t) i] = std::move (it->second);
     }
+
+    // PREPACKAGE_AUDIT_2.md #1 (WAVE4_SPEC.md F1) — site 1: a restore or a
+    // direct/kit load landed while separate() was running. This result
+    // belongs to a superseded source; the incoming load/restore already owns
+    // stemCacheKey for itself, so we must not touch it here.
+    if (restoreGen.load() != genAtEntry || getSource() != src)
+    {
+        DBG ("doStemJob: bail (site 1), source changed during separation");
+        delete set;
+        setStatus ("separation discarded (source changed during separation)");
+        separating = false; stemProgress = 0.0f; ++uiDirty;
+        return;
+    }
+
     {
         const juce::SpinLock::ScopedLockType sl (stemLock);
         stemSet = set;
@@ -1488,6 +1508,28 @@ void GentSamplerAudioProcessor::doStemJob()
                     DBG ("doStemJob: stem cache encode failed: " << cacheErr);
                     cacheOk = false;
                 }
+            }
+
+            // PREPACKAGE_AUDIT_2.md #1 (WAVE4_SPEC.md F1) — site 2: the encode
+            // loop runs for seconds-to-minutes, a real second window after the
+            // stemSet from site 1 was already published. On bail here we must
+            // RETRACT that published set (pointer-identity check under
+            // stemLock) and leave stemCacheKey untouched in BOTH directions —
+            // the incoming load/restore already owns it for itself; clearing
+            // it here would clobber that. The just-written cache dir on disk
+            // is left in place: it's keyed to the old source's content hash,
+            // benign, and correct if that source ever returns.
+            if (restoreGen.load() != genAtEntry || getSource() != src)
+            {
+                DBG ("doStemJob: bail (site 2), source changed during separation");
+                {
+                    const juce::SpinLock::ScopedLockType sl (stemLock);
+                    if (stemSet.get() == set)
+                        stemSet = nullptr;
+                }
+                setStatus ("separation discarded (source changed during separation)");
+                separating = false; stemProgress = 0.0f; ++uiDirty;
+                return;
             }
 
             if (cacheOk)
