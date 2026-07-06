@@ -136,4 +136,4 @@ Order U1 → U2 (OQ-5). Interrupted work resumes from `git log`/`git status` aga
 | Fix | Commit | Reviewer verdict | Joe |
 |---|---|---|---|
 | U1 | (this commit) — implementer dispatch completed AC1-4; gate blocked ~40 min by the deliberate FL-lock deploy gate, lead re-ran both gates green after FL released the plugin and committed | — | — |
-| U2 | — | — | — |
+| U2 | (this commit) | — | — |

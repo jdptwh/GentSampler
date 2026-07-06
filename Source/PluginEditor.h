@@ -97,7 +97,8 @@ struct HandleDragEngine
 // position" rule CUE/END already follow — this is what makes AC-F5.1's
 // no-jump-at-grab guarantee hold for the marker too (see handleDragMove).
 inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
-                             int pad, HandleDragEngine::Handle handle, int startX)
+                             int pad, HandleDragEngine::Handle handle, int startX,
+                             int openEndAnchor = -1)
 {
     g.pad = pad;
     g.handle = handle;
@@ -107,7 +108,16 @@ inline void handleDragBegin (HandleDragEngine& g, GentSamplerAudioProcessor& p,
     if (handle == HandleDragEngine::Handle::cue)
         g.anchorSample = p.getCue (pad);
     else if (handle == HandleDragEngine::Handle::end)
-        g.anchorSample = p.getEffectiveCueEnd (pad);   // OPEN -> len-1, see risk #6
+    {
+        // PREPACK_UX U2: an OPEN slice's drawn end grip sits at cue+~14px (hero)
+        // or waveR-10 (strip), not at len-1 — seed the anchor at the grip the
+        // caller actually drew so first movement follows the mouse instead of
+        // teleporting to end-of-file. Non-open slices are unaffected (anchor =
+        // effectiveCueEnd, same as before, its drawn position already matches).
+        g.anchorSample = (p.isOpenSlice (pad) && openEndAnchor >= 0)
+                            ? openEndAnchor
+                            : p.getEffectiveCueEnd (pad);
+    }
     else // grain
     {
         const int cue = p.getCue (pad);
@@ -854,7 +864,8 @@ public:
                     { p.pushUndo(); p.setCueEnd (sel, -1); repaint(); return; }
                     // F1: no pushUndo/setCueEnd here — arm the engine only, edit is lazy.
                     drag = DragMode::endEdge; dragPad = sel;
-                    handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
+                    handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x,
+                                     xToSample (juce::roundToInt (endHandleX (sel))));
                     if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
                     return;
                 }
@@ -882,7 +893,8 @@ public:
             p.selectedPad = hp;
             drag = DragMode::endEdge;
             dragPad = hp;
-            handleDragBegin (dragEngine, p, hp, HandleDragEngine::Handle::end, e.x);
+            handleDragBegin (dragEngine, p, hp, HandleDragEngine::Handle::end, e.x,
+                              xToSample (juce::roundToInt (endHandleX (hp))));
             if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
             return;
         }
@@ -1726,7 +1738,14 @@ public:
         if (de <= 6.0f && de <= dc)
         {
             drag = DragMode::endEdge;
-            handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x);
+            // PREPACK_UX U2: exact inverse of paint()'s xOf lambda (:1582), evaluated
+            // at the drawn endX member, so an open slice's anchor equals its grip
+            // (waveR-10) instead of len-1 (see handleDragBegin's isOpenSlice gate).
+            const int openAnchor = (waveR > waveL)
+                ? zoomLo + (int) (((double) (endX - waveL) / (double) juce::jmax (1, waveR - waveL))
+                                    * (double) juce::jmax (1, zoomHi - zoomLo))
+                : -1;
+            handleDragBegin (dragEngine, p, sel, HandleDragEngine::Handle::end, e.x, openAnchor);
             gestureZoomFrozen = true;
             if (onHandleGrabbed) onHandleGrabbed (HandleDragEngine::Handle::end);
         }
