@@ -2906,8 +2906,8 @@ bool GentSamplerAudioProcessor::exportPad (int pad, const juce::File& wavFile)
         return false;
     os.release();   // writer owns the stream now
 
-    writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
-    return true;
+    const bool ok = writer->writeFromAudioSampleBuffer (buf, 0, buf.getNumSamples());
+    return ok;
 }
 
 juce::String GentSamplerAudioProcessor::buildFlipLog()

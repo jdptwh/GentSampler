@@ -8,7 +8,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 
 | # | Sev | Subsystem | Finding | Where | Status |
 |---|-----|-----------|---------|-------|--------|
-| 1 | HIGH | file-io | exportPad() discards the WAV writer's success/failure result and always reports success, so a failed export (disk full, denied write) is reported to the user as a completed export | Source/PluginProcessor.cpp:2909 | OPEN |
+| 1 | HIGH | file-io | exportPad() discards the WAV writer's success/failure result and always reports success, so a failed export (disk full, denied write) is reported to the user as a completed export | Source/PluginProcessor.cpp:2909 | FIXED WAVE1 F3 |
 | 2 | HIGH | rt-safety | handleNoteOn -> assignPadCue -> pushUndo() runs a heap-allocating, unsynchronized undo-history push on the audio thread | Source/PluginProcessor.cpp:2504 | OPEN |
 | 3 | HIGH | stem-engine | Unsynchronized process-global statics in ensureOrtLoaded() raced by multiple plugin instances | Source/StemSeparator.cpp:60 | OPEN |
 | 4 | HIGH | stem-engine | No cross-instance/cross-process lock around first-run model download to the shared Documents\GentSampler\models folder | Source/ModelDownloader.cpp:94 | OPEN |
