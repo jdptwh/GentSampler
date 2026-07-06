@@ -1540,10 +1540,38 @@ void GentSamplerAudioProcessorEditor::attachPad (int pad)
     padPitch.updateText();
 }
 
+// WAVE4 F2 (PREPACKAGE_AUDIT_2.md #2): a MIDI-driven pad reselection mid-tick must not
+// steal an in-progress inspector edit onto the wrong pad. attachPad() rebinds every one
+// of these 15 SliderAttachments / 5 ButtonAttachments / 3 ComboBoxAttachments; this must
+// stay 1:1 with attachPad()'s rebind list (:1486-1508) or a missed control reintroduces
+// the hijack for that control specifically.
+static bool anyInspectorControlMidInteraction (
+    const std::array<juce::Slider*, 15>& sliders,
+    const std::array<juce::Button*, 5>& buttons,
+    const std::array<juce::ComboBox*, 3>& combos)
+{
+    for (auto* s : sliders)
+        if (s->isMouseButtonDown())
+            return true;
+    for (auto* b : buttons)
+        if (b->isMouseButtonDown())
+            return true;
+    for (auto* c : combos)
+        if (c->isPopupActive())
+            return true;
+    return false;
+}
+
 void GentSamplerAudioProcessorEditor::timerCallback()
 {
     const int sel = p.selectedPad.load();
-    if (sel != attachedPad)
+    const bool editing = anyInspectorControlMidInteraction (
+        { &padPitch, &padLevel, &padAtt, &padRel, &padCrush, &padSpeed, &padPan,
+          &padCutoff, &padReso, &padBleed, &padGrainSize, &padGrainDens, &padGrainPos,
+          &padGrainSpray, &padGrainPitch },
+        { &sliceStop, &loopBtn, &revBtn, &grainBtn, &freezeBtn },
+        { &playMode, &chokeBox, &ftypeBox });
+    if (sel != attachedPad && ! editing)
         attachPad (sel);
 
     // F4: the arrow-nudge armed handle resets to CUE whenever the selected pad changes
