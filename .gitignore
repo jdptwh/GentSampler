@@ -54,3 +54,7 @@ Desktop.ini
 
 # Claude local settings (machine-specific)
 .claude/settings.local.json
+
+# Transient agent-pipeline state (reviewer verdicts are overwritten per review
+# cycle; the durable record lives in each WAVE*_SPEC.md Record table)
+.claude/state/

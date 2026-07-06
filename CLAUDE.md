@@ -95,16 +95,7 @@ clean, passes pluginval, and runs stable inside FL Studio.
   reviewer-verified across three waves; 1 characterized + deferred to v2
   with proof). Pending: Joe's two-repro Wave-3 smoke. NEXT: the packaging
   pass (CUDA-pack exclusion, installer payload — BACKLOG item).
-- Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
-  hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
-- 2026-07-04 session: base re-verified GREEN this tip (build/ctest/pluginval-5,
-  cold). Fixed a pre-existing cold-open pluginval hang (CUDA preload on
-  construct — see landmine below); committed on its own. Still AT THE EAR-GATE —
-  no P3/P4 code started. In flight this session, gated behind the ear-gate: a
-  filesDropped self-drop guard (reject our own tempDir() exports) and an
-  INVESTIGATE-ONLY writeup of the live cue-on-unassigned-pad reference-frame bug
-  (source-vs-rendered cue domain) going into PHASE3_SPEC.md.
 
 ## Conventions
 - Language/stack: C++17, JUCE 8.0.4 (FetchContent), CMake ≥3.22,
