@@ -2258,6 +2258,99 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+//  PitchValueChip — PHASE E1.3: the header PITCH control as a drag-value
+//  readout (mockup-approved). Rotary-HV mechanics give a relative vertical
+//  drag with no jump-on-click; the LnF "valueChip" property renders the bare
+//  mono value instead of an arc knob. Double-click opens an inline editor;
+//  right-click / ctrl-click resets to 0 st.
+class PitchValueChip : public juce::Slider
+{
+public:
+    PitchValueChip()
+    {
+        setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+        setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        getProperties().set ("valueChip", true);
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() || e.mods.isCtrlDown())
+        {
+            setValue (0.0, juce::sendNotificationSync);        // reset to 0 st
+            return;
+        }
+        juce::Slider::mouseDown (e);
+    }
+
+    void mouseDoubleClick (const juce::MouseEvent&) override
+    {
+        editor = std::make_unique<juce::TextEditor>();
+        addAndMakeVisible (*editor);
+        editor->setBounds (getLocalBounds());
+        editor->setJustification (juce::Justification::centred);
+        editor->setFont (Theme::mono (13.0f));
+        editor->setColour (juce::TextEditor::backgroundColourId, Theme::well);
+        editor->setColour (juce::TextEditor::textColourId, Theme::t1);
+        editor->setColour (juce::TextEditor::outlineColourId, Theme::accent.withAlpha (0.55f));
+        editor->setColour (juce::TextEditor::focusedOutlineColourId, Theme::accent.withAlpha (0.8f));
+        editor->setText (getTextFromValue (getValue()), juce::dontSendNotification);
+        editor->selectAll();
+        editor->onReturnKey  = [this] { commitEditor (true);  };
+        editor->onEscapeKey  = [this] { commitEditor (false); };
+        editor->onFocusLost  = [this] { commitEditor (true);  };
+        editor->grabKeyboardFocus();
+    }
+
+private:
+    void commitEditor (bool apply)
+    {
+        if (editor == nullptr)
+            return;                                            // re-entry guard (focus-lost during teardown)
+        auto* ed = editor.release();
+        const juce::String typed = ed->getText();
+        ed->setVisible (false);
+        removeChildComponent (ed);
+        juce::MessageManager::callAsync ([ed] { delete ed; }); // never delete inside its own callback
+        if (apply)
+            setValue (getValueFromText (typed), juce::sendNotificationSync);
+        repaint();
+    }
+
+    std::unique_ptr<juce::TextEditor> editor;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchValueChip)
+};
+
+// ---------------------------------------------------------------------------
+//  MidiLed — PHASE E1.5: passive MIDI-activity indicator (no chip chrome,
+//  non-interactive). Driven from the editor timer off lastTriggerCount.
+class MidiLed : public juce::Component
+{
+public:
+    MidiLed() { setInterceptsMouseClicks (false, false); }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto r = getLocalBounds().toFloat().withSizeKeepingCentre (7.0f, 7.0f);
+        if (lit)
+        {
+            g.setColour (Theme::accent.withAlpha (0.30f));
+            g.fillEllipse (r.expanded (3.5f));                 // soft bloom
+            g.setColour (Theme::glow);
+            g.fillEllipse (r);
+        }
+        else
+        {
+            g.setColour (juce::Colour (0xff2a2f36));           // dark idle dot
+            g.fillEllipse (r);
+        }
+    }
+
+    bool lit = false;
+};
+
+// ---------------------------------------------------------------------------
 //  GentLookAndFeel — Redesign Phase A skin. One control language: every
 //  button/toggle/combo is a chip (Theme::paintChip), every rotary is the
 //  approved arc knob, every slider textbox is a recessed mono value field.
@@ -2440,6 +2533,16 @@ public:
     void drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPos, float, float, juce::Slider& s) override
     {
+        // PHASE E1.3: "valueChip" sliders render as a bare mono readout (the
+        // header PITCH chip) — drag mechanics stay rotary-HV, no arc drawn.
+        if (s.getProperties().contains ("valueChip"))
+        {
+            g.setFont (Theme::mono (13.0f));
+            g.setColour (s.isEnabled() ? Theme::t1 : Theme::t3);
+            g.drawText (s.getTextFromValue (s.getValue()),
+                        juce::Rectangle<int> (x, y, width, height), juce::Justification::centred);
+            return;
+        }
         const auto  sq = juce::Rectangle<int> (x, y, width, height).toFloat();
         const float S  = juce::jmin (sq.getWidth(), sq.getHeight());
         const auto  c  = sq.getCentre();
@@ -2848,7 +2951,7 @@ private:
 
     juce::TextButton loadBtn { "LOAD" }, sliceBtn { "AUTO-SLICE" };
     juce::TextButton saveKitBtn { "SAVE KIT" }, loadKitBtn { "LOAD KIT" }, exportKitBtn { "EXPORT KIT" };
-    juce::TextButton recBtn { "REC MIDI" }, halfBtn { "/2" }, dblBtn { "x2" };
+    juce::TextButton recBtn { "REC" }, halfBtn { "/2" }, dblBtn { "x2" };   // E1.5: record-arm chip is just REC
     // toolbar dropdown triggers (replace the old left panel)
     SplitChip sliceMenu;   // SECTIONS_SPEC.md PART 3: split chip (main zone runs, caret opens the menu)
     juce::TextButton kitMenu { "KIT" }, exportMenu { "EXPORT" };
@@ -2896,10 +2999,13 @@ private:
     std::array<juce::TextButton, 7> srcTag;     // PAD SOURCE: FULL, DRM, BASS, VOX, GTR, PNO, OTH
     std::array<TrigPad, 3> trigSeg;              // TRIGGER: Gate / One-shot / Latch (drives playMode)
     std::array<HeroViewSeg, 2> viewSeg;          // D2: hero COMPOSITE<->STEMS seg (mockup #viewSeg)
-    juce::Label fileLbl, bpmLbl, playLbl, ratioLbl, titleLbl, padTitle, padRead, ppL, plL, paL, prL, pcL, psL, ppanL;
+    juce::Label fileLbl, bpmLbl, playLbl, ratioLbl, titleLbl, padTitle, ppL, plL, paL, prL, pcL, psL, ppanL;   // E1.1: padRead retired with the header PAD chip
     juce::Label padMetaLbl, padMeta2Lbl, chokeLbl, pcoL, preL, ftypeLbl, pbL;   // pad meta lines (.m1/.m2) + choke + FILTER + bleed captions
     juce::Label gsL, gdL, gpL, gyL, gtL;   // granular knob captions (size/density/position/spray/pitch)
-    juce::Slider masterPitch, padPitch, padLevel, padAtt, padRel, padCrush, padSpeed, padPan, padCutoff, padReso, padBleed;
+    PitchValueChip masterPitch;                                // E1.3: header PITCH as a drag-value chip
+    MidiLed midiLed;                                           // E1.5: passive MIDI-activity LED
+    int ledTrigSeen = -1, ledHold = 0;                         // E1.5: LED drive state (timer-polled)
+    juce::Slider padPitch, padLevel, padAtt, padRel, padCrush, padSpeed, padPan, padCutoff, padReso, padBleed;
     juce::Slider padGrainSize, padGrainDens, padGrainPos, padGrainSpray, padGrainPitch;
 
     std::unique_ptr<DragChip> midiChip;        // performance-capture MIDI drag-out
@@ -2916,6 +3022,7 @@ private:
     juce::Rectangle<int> headerRect, toolbarRect, inspRect, displayRect, padsRect;   // layout zones (railRect/stemRect retired)
     juce::Rectangle<int> detailRect;       // C3: Slice Detail strip bounds (mockup .detail)
     std::vector<std::pair<juce::Point<int>, juce::String>> sectionLabels;
+    std::vector<std::pair<juce::Point<int>, juce::String>> hdrEyebrows;   // E1.2: dimmer per-control tier under the zone labels
     std::vector<int> hdrDividers;          // x positions of header group separators
     std::vector<int> inspDividers;         // y positions of inspector section separators
     std::vector<juce::Rectangle<int>> grpRects;   // mockup .grp boxes (GRANULAR / MIDI groups)
@@ -2924,7 +3031,6 @@ private:
     juce::Image vignetteImg;               // 256x256 radial vignette tile (built once, stretched -> elliptical)
     juce::Image noiseImg;                  // 96x96 film-grain tile (built once)
     juce::Image frameImg;                  // low-res frame-canvas radial (built once, stretched -> elliptical)
-    juce::Rectangle<int> padChipRect;      // filled orange PAD chip in the header
     std::unique_ptr<juce::FileChooser> chooser;
 
     // ---- F4: arrow-key nudge state (SLICE_FEEL_TASK.md F4) — editor-held per spec's

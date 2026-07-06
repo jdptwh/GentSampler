@@ -34,7 +34,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     addAndMakeVisible (keyPick);
     addAndMakeVisible (titleLbl);
     addAndMakeVisible (padTitle);
-    addAndMakeVisible (padRead);
+    addAndMakeVisible (midiLed);            // E1.5: MIDI-activity LED (passive)
     addAndMakeVisible (sliceStop);
     addAndMakeVisible (playMode);
     addAndMakeVisible (masterPitch);
@@ -107,9 +107,6 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     // readouts that live inside the black display
     fileLbl.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.85f));
     fileLbl.setFont (juce::Font (13.0f));
-    padRead.setColour (juce::Label::textColourId, juce::Colour (0xff180c04));
-    padRead.setFont (juce::Font (14.0f, juce::Font::bold));
-    padRead.setJustificationType (juce::Justification::centred);
 
     // SRC: what the record IS. Double-click to correct detection (0 resets).
     bpmLbl.setJustificationType (juce::Justification::centredRight);
@@ -146,6 +143,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     ratioLbl.setJustificationType (juce::Justification::centred);
     ratioLbl.setColour (juce::Label::textColourId, juce::Colours::white.withAlpha (0.45f));
     ratioLbl.setFont (juce::Font (11.0f));
+    ratioLbl.setTooltip ("Playback ratio vs. source BPM.");     // E1.4: secondary text gets a tooltip
 
     // the dropdown shows the ACTIVE key; picking a new one retunes the flip
     keyPick.setTextWhenNothingSelected ("KEY --");
@@ -164,8 +162,9 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     tempoMode.addItem ("SYNC", 2);
     tempoMode.addItem ("CUSTOM", 3);
 
-    masterPitch.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-    masterPitch.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 56, 16);
+    // E1.3: masterPitch is a PitchValueChip — style/textbox handled by the class;
+    // its "-N st" text functions are installed after aMaster is created (the
+    // SliderAttachment ctor overwrites text functions with the parameter's own).
 
     sliceMode.addItem ("16 EQUAL", 1);
     sliceMode.addItem ("EVERY BEAT", 2);
@@ -272,7 +271,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         const auto f = tempDir().getChildFile ("GentSampler_Pad" + juce::String (pad + 1).paddedLeft ('0', 2) + ".wav");
         return p.exportPad (pad, f) ? f : juce::File();
     };
-    midiChip = std::make_unique<DragChip> ("MIDI", [this]() -> juce::File
+    midiChip = std::make_unique<DragChip> ("MID", [this]() -> juce::File   // E1.5: one MIDI-labeled group; drag-out keeps its grip glyph
     {
         const auto f = tempDir().getChildFile ("GentSampler_Performance.mid");
         return p.exportCapturedMidi (f) ? f : juce::File();
@@ -327,6 +326,14 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     };
 
     aMaster    = std::make_unique<SA> (p.apvts, "masterPitch", masterPitch);
+    // E1.3: install the "-N st" text pair AFTER the attachment (its ctor set the
+    // parameter's own text functions); aMaster never rebinds, so these stick.
+    masterPitch.textFromValueFunction = [] (double v)
+    {
+        const int st = (int) std::round (v);
+        return juce::String (st > 0 ? "+" : "") + juce::String (st) + " st";
+    };
+    masterPitch.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue(); };
     aTempoMode = std::make_unique<CA> (p.apvts, "tempoMode", tempoMode);
     aKb        = std::make_unique<BA> (p.apvts, "kbMode", kbBtn);
     attachPad (0);
@@ -778,7 +785,8 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
             srcTag[(size_t) (k + 1)].getProperties().set ("stemHue", (juce::int64) Theme::stem (k).getARGB());
 
         // bipolar knobs: arc fills from 12 o'clock outward
-        for (auto* s : { &masterPitch, &padPitch, &padPan, &padGrainPitch })
+        // (masterPitch left the rotary family in E1.3 — it renders as a value chip)
+        for (auto* s : { &padPitch, &padPan, &padGrainPitch })
             s->getProperties().set ("bipolar", true);
 
         // hero overlay chips: OPAQUE faces so they read over waveform content (B6.1)
@@ -803,8 +811,6 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
         }
         ratioLbl.setFont (Theme::mono (11.0f));
         ratioLbl.setColour (juce::Label::textColourId, Theme::t3);
-        padRead.setFont (Theme::mono (13.5f, true).withExtraKerningFactor (0.06f));
-        padRead.setColour (juce::Label::textColourId, Theme::inkOnAccent);
 
         // pad header block (.padNum 24 mono / .m1 9.5 mono / .m2 7.5 tracked)
         padTitle.setFont (Theme::mono (27.0f, true));
@@ -908,28 +914,25 @@ void GentSamplerAudioProcessorEditor::paintContent (juce::Graphics& g)
         g.setColour (Theme::edgeHi());
         for (int dx : hdrDividers)
             g.drawVerticalLine (dx, (float) headerRect.getY() + 14.0f, (float) headerRect.getBottom() - 12.0f);
-        // wordmark (.wm two-tone) + tag — painted, replaces the old titleLbl
-        g.setFont (Theme::ui (17.0f, true).withExtraKerningFactor (0.02f));
+        // wordmark (.wm two-tone) + tag — painted, replaces the old titleLbl.
+        // E1.2: wordmark sits under the FILE zone label (15px, y+10); tagline
+        // drops one opacity step so it doesn't compete.
+        g.setFont (Theme::ui (15.0f, true).withExtraKerningFactor (0.02f));
         g.setColour (Theme::t1);
-        g.drawText ("Gent", 14, headerRect.getY() + 8, 44, 18, juce::Justification::left);
+        g.drawText ("Gent", 14, headerRect.getY() + 10, 40, 16, juce::Justification::left);
         g.setColour (Theme::accent);
-        g.drawText ("Sampler", 14 + (int) Theme::ui (17.0f, true).getStringWidthFloat ("Gent"),
-                    headerRect.getY() + 8, 80, 18, juce::Justification::left);
-        g.setFont (Theme::ui (8.0f).withExtraKerningFactor (0.22f));
-        g.setColour (Theme::t3);
-        g.drawText ("STEM FLIP WORKSTATION", 14, headerRect.getY() + 29, 140, 10, juce::Justification::left);
-        // filled PAD badge (.padBadge: glow -> accent, box-shadow 0 0 14px .35 bloom).
-        // Painted on the root canvas, so the feather has real room (no clipping).
-        if (! padChipRect.isEmpty())
-        {
-            const auto pr = padChipRect.toFloat();
-            Theme::featherGlow (g, pr, 6.5f, Theme::accent.withAlpha (0.35f), 12.0f, 7);
-            juce::ColourGradient bg (Theme::glow, pr.getX(), pr.getY(), Theme::accent, pr.getX(), pr.getBottom(), false);
-            g.setGradientFill (bg);
-            g.fillRoundedRectangle (pr, 6.5f);
-            g.setColour (juce::Colours::white.withAlpha (0.35f));
-            g.drawLine (pr.getX() + 6.0f, pr.getY() + 0.9f, pr.getRight() - 6.0f, pr.getY() + 0.9f, 1.1f);
-        }
+        g.drawText ("Sampler", 14 + (int) Theme::ui (15.0f, true).getStringWidthFloat ("Gent"),
+                    headerRect.getY() + 10, 76, 16, juce::Justification::left);
+        g.setFont (Theme::ui (8.0f).withExtraKerningFactor (0.14f));   // E1.2: kerning trimmed so the tagline fits its slot un-ellipsized
+        g.setColour (Theme::t3.withAlpha (0.55f));
+        g.drawText ("STEM FLIP WORKSTATION", 14, headerRect.getY() + 31, 116, 10, juce::Justification::left);
+        // E1.1: the filled PAD badge is gone — the inspector already shows the
+        // active pad; nothing replaces it here.
+        // E1.2: per-control eyebrows — one step dimmer than the zone labels.
+        g.setFont (Theme::slabelFont());
+        g.setColour (Theme::t3.withAlpha (0.72f));
+        for (auto& e : hdrEyebrows)
+            g.drawText (e.second, e.first.x, e.first.y, 220, 12, juce::Justification::left);
     }
 
     // toolbar strip (under the header) — quiet panel band
@@ -994,6 +997,7 @@ void GentSamplerAudioProcessorEditor::layoutContent()
     //  it) and added the strip itself — the pad grid gets that height back.
     // ======================================================================
     sectionLabels.clear();
+    hdrEyebrows.clear();
     inspDividers.clear();
     grpRects.clear();
     kdivRects.clear();
@@ -1003,58 +1007,59 @@ void GentSamplerAudioProcessorEditor::layoutContent()
 
     auto full = juce::Rectangle<int> (0, 0, kDesignW, kDesignH);
 
-    // ===== HEADER (.hdr: one 48px row) =====
+    // ===== HEADER — PHASE E1 four-zone layout (mockup-approved 2026-07-06) =====
+    // FILE | MUSICAL | SYNC | INPUT, 1px hairline dividers, ONE control height
+    // (26px) on ONE row origin (y+16) -> single shared value baseline. Zone
+    // labels (sectionLabels, t3) + dimmer per-control eyebrows (hdrEyebrows).
     auto header = full.removeFromTop (48);
     headerRect = header;
     {
-        const int eyeY = header.getY() + 5;
-        const int chipY = header.getY() + 11, chipH = 26;
-        const int roY = header.getY() + 16, roH = 24;      // readout value band under eyebrows
+        const int chipY = header.getY() + 16, chipH = 26;
+        auto zoneAt    = [&] (int x, const char* t)
+        { sectionLabels.push_back ({ { x, header.getY() + 5 }, juce::String (t) }); };
         auto eyebrowAt = [&] (int x, const char* t)
-        { sectionLabels.push_back ({ { x, eyeY }, juce::String (t) }); };
+        { hdrEyebrows.push_back ({ { x, header.getY() + 5 }, juce::String (t) }); };
         auto divvAt = [&] (int x) { hdrDividers.push_back (x); };
 
         // wordmark + tag painted in paintContent; titleLbl retired from layout
         titleLbl.setBounds (juce::Rectangle<int>());
 
-        // LOAD / KIT / EXPORT ghost chips after the wordmark
-        int x = 146;
-        loadBtn.setBounds   (x, chipY, 50, chipH); x += 53;
-        kitMenu.setBounds   (x, chipY, 38, chipH); x += 41;
-        exportMenu.setBounds(x, chipY, 58, chipH); x += 62;
+        // ---- FILE: wordmark + LOAD/KIT/EXPORT + undo/redo (variant B) ----
+        zoneAt (14, "FILE");
+        loadBtn.setBounds   (132, chipY, 50, chipH);
+        kitMenu.setBounds   (186, chipY, 40, chipH);
+        exportMenu.setBounds(230, chipY, 58, chipH);
+        undoBtn.setBounds   (292, chipY, 22, chipH);
+        redoBtn.setBounds   (317, chipY, 22, chipH);
+        divvAt (349);
 
-        // centred readouts: SRC BPM (/2 value x2) | KEY | PITCH | HOST | TEMPO
-        divvAt (x); x += 6;
-        eyebrowAt (x + 8, "SRC BPM");
-        halfBtn.setBounds (x, roY + 2, 16, 20);
-        bpmLbl.setBounds  (x + 16, roY, 48, roH);
-        dblBtn.setBounds  (x + 64, roY + 2, 16, 20);
-        x += 84; divvAt (x); x += 6;
-        eyebrowAt (x + 2, "KEY");
-        keyPick.setBounds (x, roY, 58, 24);
-        x += 62; divvAt (x); x += 6;
-        eyebrowAt (x, "PITCH");
-        masterPitch.setBounds (x, header.getY() + 12, 36, 34);
-        x += 40; divvAt (x); x += 6;
-        eyebrowAt (x + 6, "HOST");
-        playLbl.setBounds  (x, roY, 42, roH);
-        ratioLbl.setBounds (x + 42, roY + 3, 30, 18);
-        x += 74; divvAt (x); x += 6;
-        eyebrowAt (x + 2, "TEMPO");
-        tempoMode.setBounds (x, roY, 48, 24);
+        // ---- MUSICAL: SRC BPM (/2 value x2) | KEY | PITCH value chip ----
+        zoneAt (361, "MUSICAL");
+        eyebrowAt (425, "SRC BPM");
+        halfBtn.setBounds (361, chipY, 18, chipH);
+        bpmLbl.setBounds  (383, chipY, 48, chipH);
+        dblBtn.setBounds  (435, chipY, 18, chipH);
+        eyebrowAt (484, "KEY");
+        keyPick.setBounds (461, chipY, 62, chipH);
+        eyebrowAt (534, "PITCH");
+        masterPitch.setBounds (533, chipY, 46, chipH);        // E1.3: drag-value chip, in-row
+        divvAt (590);
 
-        // right cluster <- from the badge inward
-        int rx = header.getRight() - 14;
-        padChipRect = { rx - 70, header.getY() + 10, 70, 28 };
-        padRead.setBounds (padChipRect);
-        rx -= 76;
-        if (midiChip) midiChip->setBounds (rx - 42, chipY, 42, chipH);
-        rx -= 47;
-        recBtn.setBounds (rx - 68, chipY, 68, chipH);  rx -= 73;
-        kbBtn.setBounds  (rx - 76, chipY, 76, chipH);  rx -= 81;
-        velBtn.setBounds (rx - 66, chipY, 66, chipH);  rx -= 71;
-        redoBtn.setBounds(rx - 16, chipY + 3, 16, 20); rx -= 20;
-        undoBtn.setBounds(rx - 16, chipY + 3, 16, 20);
+        // ---- SYNC: HOST value + dim ratio + tempo-mode dropdown ----
+        zoneAt (602, "SYNC");
+        eyebrowAt (645, "HOST");
+        playLbl.setBounds  (602, chipY, 44, chipH);
+        ratioLbl.setBounds (648, chipY, 36, chipH);
+        tempoMode.setBounds (686, chipY, 74, chipH);          // E1.4: sized for "CUSTOM", zero truncation
+        divvAt (772);
+
+        // ---- INPUT: VELOCITY / KEYBOARD toggles + MIDI cluster (LED-REC-MID) ----
+        zoneAt (784, "INPUT");
+        velBtn.setBounds (784, chipY, 62, chipH);
+        kbBtn.setBounds  (850, chipY, 66, chipH);
+        midiLed.setBounds (920, chipY, 14, chipH);            // E1.5: passive activity LED
+        recBtn.setBounds (938, chipY, 42, chipH);
+        if (midiChip) midiChip->setBounds (984, chipY, 42, chipH);
     }
 
     full.removeFromTop (8);   // mockup .hero margin: 8px 12px 0
@@ -1651,7 +1656,16 @@ void GentSamplerAudioProcessorEditor::timerCallback()
     undoBtn.setEnabled (p.canUndo());
     redoBtn.setEnabled (p.canRedo());
     fileLbl.setText (p.getFileName(), juce::dontSendNotification);
-    padRead.setText ("PAD " + juce::String (sel + 1), juce::dontSendNotification);
+
+    // E1.5: MIDI-activity LED — lights on pad triggers (lastTriggerCount), holds
+    // ~3 ticks (~200ms @15Hz) so single taps register visibly.
+    {
+        const int t = p.lastTriggerCount.load();
+        if (t != ledTrigSeen) { ledTrigSeen = t; ledHold = 3; }
+        const bool lit = ledHold > 0;
+        if (ledHold > 0) --ledHold;
+        if (midiLed.lit != lit) { midiLed.lit = lit; midiLed.repaint(); }
+    }
 
     // SELECTED PAD detail: big source-coloured number + cue line + meta line
     {
@@ -1793,12 +1807,13 @@ void GentSamplerAudioProcessorEditor::timerCallback()
 
     if (p.isCapturing())
     {
-        recBtn.setButtonText ("STOP (" + juce::String (p.capturedEventCount()) + ")");
+        // E1.5: fits the 42px REC chip ("■ 128" worst case); count keeps its meaning
+        recBtn.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xa0 ")) + juce::String (p.capturedEventCount()));
         recBtn.setColour (juce::TextButton::buttonColourId, Theme::recActive);
     }
     else
     {
-        recBtn.setButtonText ("REC MIDI");
+        recBtn.setButtonText ("REC");
         recBtn.removeColour (juce::TextButton::buttonColourId);
     }
 
