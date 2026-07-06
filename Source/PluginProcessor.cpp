@@ -2586,12 +2586,12 @@ void GentSamplerAudioProcessor::handleAsyncUpdate()
     // ReferenceCountedObject free happens -- on the message thread, never on
     // the audio thread. Coalescing is fine: one callback drains everything
     // that has piled up since the last one.
-    for (int r = graveR.load (std::memory_order_relaxed);
+    for (std::uint32_t r = graveR.load (std::memory_order_relaxed);
          r != graveW.load (std::memory_order_acquire);
          ++r)
     {
-        graveyard[(size_t) (r % (int) graveyard.size())] = nullptr;
-        graveR.store (r + 1, std::memory_order_release);
+        graveyard[(size_t) (r & 63u)] = nullptr;   // wrap-safe unsigned index
+        graveR.store (r + 1u, std::memory_order_release);
     }
 }
 
@@ -3849,11 +3849,11 @@ void GentSamplerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         const juce::SpinLock::ScopedTryLockType tl (rendLock);
         if (tl.isLocked())
         {
-            const int w = graveW.load (std::memory_order_relaxed);
-            if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+            const std::uint32_t w = graveW.load (std::memory_order_relaxed);
+            if (w - graveR.load (std::memory_order_acquire) < (std::uint32_t) graveyard.size())
             {
-                graveyard[(size_t) (w % (int) graveyard.size())] = active;
-                graveW.store (w + 1, std::memory_order_release);
+                graveyard[(size_t) (w & 63u)] = active;   // 64-slot ring, wrap-safe
+                graveW.store (w + 1u, std::memory_order_release);
                 active = rendered;
                 stashedThisBlock = true;
             }
@@ -3863,11 +3863,11 @@ void GentSamplerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         const juce::SpinLock::ScopedTryLockType tl (stemRendLock);
         if (tl.isLocked())
         {
-            const int w = graveW.load (std::memory_order_relaxed);
-            if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+            const std::uint32_t w = graveW.load (std::memory_order_relaxed);
+            if (w - graveR.load (std::memory_order_acquire) < (std::uint32_t) graveyard.size())
             {
-                graveyard[(size_t) (w % (int) graveyard.size())] = activeStems;
-                graveW.store (w + 1, std::memory_order_release);
+                graveyard[(size_t) (w & 63u)] = activeStems;   // 64-slot ring, wrap-safe
+                graveW.store (w + 1u, std::memory_order_release);
                 activeStems = renderedStems;
                 stashedThisBlock = true;
             }
@@ -3879,11 +3879,11 @@ void GentSamplerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, 
         {
             for (int i = 0; i < 16; ++i)
             {
-                const int w = graveW.load (std::memory_order_relaxed);
-                if (w - graveR.load (std::memory_order_acquire) < (int) graveyard.size())
+                const std::uint32_t w = graveW.load (std::memory_order_relaxed);
+                if (w - graveR.load (std::memory_order_acquire) < (std::uint32_t) graveyard.size())
                 {
-                    graveyard[(size_t) (w % (int) graveyard.size())] = activePads[(size_t) i];
-                    graveW.store (w + 1, std::memory_order_release);
+                    graveyard[(size_t) (w & 63u)] = activePads[(size_t) i];   // 64-slot ring, wrap-safe
+                    graveW.store (w + 1u, std::memory_order_release);
                     activePads[(size_t) i] = padRenders[(size_t) i];
                     stashedThisBlock = true;
                 }

@@ -579,7 +579,13 @@ private:
     // side: the array is a fixed member, and moving a Ptr into a slot is
     // refcount-neutral (no new/delete).
     std::array<juce::ReferenceCountedObjectPtr<juce::ReferenceCountedObject>, 64> graveyard;
-    std::atomic<int> graveW { 0 }, graveR { 0 };
+    // WAVE2 review fix (cycle-1 blocking finding): UNSIGNED indices. They
+    // increment forever (up to 18/block) and never reset — signed int hits
+    // INT_MAX where ++ is UB and `% 64` on a negative value yields a negative
+    // index -> OOB heap write. uint32_t wraps with defined behavior; `w - r`
+    // stays correct across wrap (modular arithmetic) and `& 63u` indexing is
+    // wrap-safe (64 = power of two).
+    std::atomic<std::uint32_t> graveW { 0 }, graveR { 0 };
 
     static void offlineStretchSlice (const juce::AudioBuffer<float>& in, int start, int numIn,
                                      double sampleRate, double speed, juce::AudioBuffer<float>& out);
