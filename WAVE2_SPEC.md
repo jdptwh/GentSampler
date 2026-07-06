@@ -4,8 +4,7 @@
 **Provenance:** drafted by SPEC-DRAFTER (all nine findings re-verified by
 symbol against current source — premises intact post-Wave-1, current line
 numbers throughout); reviewed, corrected and OWNED by the PLANNER (Fable,
-2026-07-05). All eight drafter open questions RESOLVED below. **AWAITING
-JOE'S APPROVAL — no implementation before sign-off** (ROUTING.md loop 1).
+2026-07-05). All eight drafter open questions RESOLVED below. **APPROVED by Joe 2026-07-05 ("go") — implementation authorized.**
 **IDs:** audit finding numbers are permanent IDs. Execution order:
 **#7 → #15 → #8 → #13 → #12 → #10 → #9 → #14 → #11** (mechanical first —
 adopted from the drafter; all design questions are resolved in this spec, so
