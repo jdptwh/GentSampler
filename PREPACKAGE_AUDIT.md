@@ -17,7 +17,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 | 7 | MED | engine-math | padStemMask restored from saved state without the 0x3F bit-mask clamp that gent::stemMaskWithBit always applies | Source/PluginProcessor.cpp:3600 | FIXED WAVE2 #7 |
 | 8 | MED | memory | No length cap when decoding stem FLACs from a .gentkit v2 archive (loadKitV2Audio) | Source/PluginProcessor.cpp:3391 | FIXED WAVE2 #8 |
 | 9 | MED | persistence | Stem-cache-load request not cancelled by a subsequent restore; stems can attach to the wrong source | Source/PluginProcessor.cpp:3652 | OPEN |
-| 10 | MED | persistence | applyStateTree falls back to live in-memory value (not the declared default) for slice-mode/stem-quality settings missing from an older kit/project | Source/PluginProcessor.cpp:3607 | OPEN |
+| 10 | MED | persistence | applyStateTree falls back to live in-memory value (not the declared default) for slice-mode/stem-quality settings missing from an older kit/project | Source/PluginProcessor.cpp:3607 | FIXED WAVE2 #10 |
 | 11 | MED | rt-safety | Audio-thread reassignment of ReferenceCountedObjectPtr members (active/activeStems/activePads) can free large audio buffers on the audio thread | Source/PluginProcessor.cpp:3684 | OPEN |
 | 12 | MED | stem-engine | Hybrid-mode source indices from manifest.json are trusted against runtime model output size with no bounds check | Source/StemSeparator.cpp:868 | FIXED WAVE2 #12 |
 | 13 | MED | threading | sectionSensitivity is a single shared atomic for both requestSectionReport and requestSectionApply, so back-to-back menu clicks at different sensitivities silently use the wrong sensitivity for one of the two jobs | Source/PluginProcessor.cpp:3252 | FIXED WAVE2 #13 |

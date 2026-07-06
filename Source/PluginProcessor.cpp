@@ -3673,17 +3673,38 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     bpmOverride = (double) extra.getProperty ("ubpm", 0.0);
     editorW = (int) extra.getProperty ("edW", 900);
     editorH = (int) extra.getProperty ("edH", 640);
-    setStemQuality ((int) extra.getProperty ("stemQ", (int) stemQuality.load()));   // clamped 0..2
-    setSliceGridDiv     ((int) extra.getProperty ("slG", (int) sliceGridDiv.load()));
-    setSliceSensitivity ((int) extra.getProperty ("slS", (int) sliceSensitivity.load()));
-    setSliceSnap        ((int) extra.getProperty ("slP", (int) sliceSnap.load()));
+
+    // PREPACKAGE_AUDIT.md #10: these nine fallbacks used to be the LIVE
+    // in-memory atomic (e.g. "stemQ", (int) stemQuality.load()) — for a key
+    // absent from an older kit/project XML, that silently carried over
+    // whatever a PREVIOUS applyStateTree() call on this same processor
+    // instance left behind, instead of landing on the field's declared
+    // default. Named constants below match PluginProcessor.h's initializers
+    // EXACTLY (sliceGridDiv{2}, sliceSensitivity{1}, sliceSnap{1},
+    // sliceModeSel{0}, sectionBars{4}, sectionSens{1}, gridEvenSel{3},
+    // kitSens{1}, stemQuality{1}) so a missing key always lands on the
+    // documented default, regardless of prior session state.
+    constexpr int kDefaultStemQuality      = 1;   // FAST/HQ/MAX — HQ default
+    constexpr int kDefaultSliceGridDiv     = 2;   // 0 Bar,1 Beat,2 1/8,3 1/16
+    constexpr int kDefaultSliceSensitivity = 1;   // 0 Low,1 Med,2 High
+    constexpr int kDefaultSliceSnap        = 1;   // 0 Loose,1 Med,2 Tight
+    constexpr int kDefaultSliceModeSel     = 0;   // 0 SECTIONS-BARS (default)
+    constexpr int kDefaultSectionBars      = 4;   // {1,2,4,8}
+    constexpr int kDefaultSectionSens      = 1;   // 0 few,1 medium,2 many
+    constexpr int kDefaultGridEvenSel      = 3;   // 0 16-equal,1 beat,2 2-beats,3 every bar
+    constexpr int kDefaultKitSens          = 1;   // 0 few,1 medium,2 many
+
+    setStemQuality ((int) extra.getProperty ("stemQ", kDefaultStemQuality));   // clamped 0..2
+    setSliceGridDiv     ((int) extra.getProperty ("slG", kDefaultSliceGridDiv));
+    setSliceSensitivity ((int) extra.getProperty ("slS", kDefaultSliceSensitivity));
+    setSliceSnap        ((int) extra.getProperty ("slP", kDefaultSliceSnap));
     // SECTIONS_SPEC.md PART 3: SLICE split-chip mode model — defaults preserved
     // for old projects/kits without these keys (getProperty fallback).
-    setSliceModeSel ((int) extra.getProperty ("slMode", (int) sliceModeSel.load()));
-    setSectionBars  ((int) extra.getProperty ("slBars", (int) sectionBars.load()));
-    setSectionSens  ((int) extra.getProperty ("slSens", (int) sectionSens.load()));
-    setGridEvenSel  ((int) extra.getProperty ("slEven", (int) gridEvenSel.load()));
-    setKitSens      ((int) extra.getProperty ("slKSens", (int) kitSens.load()));
+    setSliceModeSel ((int) extra.getProperty ("slMode", kDefaultSliceModeSel));
+    setSectionBars  ((int) extra.getProperty ("slBars", kDefaultSectionBars));
+    setSectionSens  ((int) extra.getProperty ("slSens", kDefaultSectionSens));
+    setGridEvenSel  ((int) extra.getProperty ("slEven", kDefaultGridEvenSel));
+    setKitSens      ((int) extra.getProperty ("slKSens", kDefaultKitSens));
     snapEnabled = (bool) extra.getProperty ("snap", snapEnabled.load());
     velToLevel  = (bool) extra.getProperty ("vel2l", true);
     // D2: restore hero view sticky request through the sanitizer (garbage-stored-int
