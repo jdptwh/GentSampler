@@ -4,7 +4,7 @@
 **Provenance:** authored directly by the PLANNER (Fable, 2026-07-05).
 Drafter step SKIPPED per ROUTING.md Rule 8 economics — this spec is smaller
 than a drafter dispatch; the draft-then-review lever pays only on large specs.
-All symbols verified at HEAD. **AWAITING JOE'S APPROVAL** (ROUTING.md loop 1).
+All symbols verified at HEAD. **APPROVED by Joe 2026-07-05 ("go") — implementation authorized.**
 **Order:** #17 → #16 → #18 (mechanical → mechanical → test-authoring).
 
 ## Ground rules (Waves 1–2 protocol)
