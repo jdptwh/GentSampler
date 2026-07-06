@@ -497,3 +497,184 @@ TEST_CASE ("P2.5 classifySlice: vector satisfying both KICK and HAT criteria -> 
     const auto r = gent::classifySlice (f, t);
     CHECK (r.cls == gent::KICK);
 }
+
+// ---------------------------------------------------------------------------
+// P2.6 — branch 1c coverage: hasStems == true but NEITHER drums-dominant
+// (stemShare[0] < t.drumsDominant) NOR tonal-dominant (bass+vox+gtr+pno share
+// < t.tonalDominant) falls through to the NO-STEMS SPECTRAL TREE evaluated
+// with kThreshNoStems (not the caller's kThreshStems). Per the wiring
+// contract classifySlice is always called with `t = kThreshStems` when
+// f.hasStems is true, so the caller's `t` below is kThreshStems throughout —
+// that is also what the final ambiguity-rule demotion (rule 5) checks
+// against (t.minConfidence), even though the spectral-tree feature tests
+// themselves ran under kThreshNoStems. See EngineMath.h classifySlice's
+// `spectral_tree_with_kThreshNoStems` label and the `finish_classification`
+// demotion check.
+// ---------------------------------------------------------------------------
+TEST_CASE ("P2.6 classifySlice: branch 1c (ambiguous stems) KICK-shaped -> KICK via no-stems fallthrough"
+)
+{
+    const auto& t  = gent::kThreshStems;    // caller preset (hasStems == true wiring contract)
+    const auto& nt = gent::kThreshNoStems;  // preset the fallthrough spectral tree actually uses
+    gent::SliceFeatures f = zeroFeatures();
+    f.hasStems = true;
+
+    // Ambiguous stem mix: BOTH dominance tests fail (1c's own routing test).
+    f.stemShare[0] = std::max (0.0f, t.drumsDominant - 0.5f * t.drumsDominant);
+    const float tonalShare = std::max (0.0f, t.tonalDominant - 0.5f * t.tonalDominant);
+    f.stemShare[1] = tonalShare / 4.0f;
+    f.stemShare[2] = tonalShare / 4.0f;
+    f.stemShare[3] = tonalShare / 4.0f;
+    f.stemShare[4] = tonalShare / 4.0f;
+    f.stemShare[5] = 1.0f - f.stemShare[0] - tonalShare;
+
+    // Spectral features shaped for KICK per kThreshNoStems (the fallthrough's
+    // active preset), mirroring the no-stems KICK case's construction above.
+    f.bandRatio[0] = std::min (0.95f, nt.kickLowRatio + 0.5f * nt.kickLowRatio);
+    const float rem = 1.0f - f.bandRatio[0];
+    f.bandRatio[1] = f.bandRatio[2] = f.bandRatio[3] = rem / 3.0f;
+    f.centroidHz = std::max (10.0f, nt.kickCentroidMax - 0.5f * nt.kickCentroidMax);
+    f.decaySec = std::max (0.001f, nt.kickDecayMax - 0.5f * nt.kickDecayMax);
+    f.durationSec = nt.kickDecayMax + nt.hatDurMax;   // long enough not to look like HAT
+    f.zcr = 0.5f * nt.hatZcrMin;                      // low ZCR: not hat-like
+    // Fails the no-stems TONAL test (flatness above tonalFlatMax: noisy, not peaked).
+    f.chromaFlatness = std::min (1.0f, nt.tonalFlatMax + 0.5f * (1.0f - nt.tonalFlatMax));
+
+    const auto r = gent::classifySlice (f, t);
+    CHECK (r.cls == gent::KICK);
+    CHECK (r.confidence >= t.minConfidence);
+}
+
+TEST_CASE ("P2.6 classifySlice: branch 1c (ambiguous stems) TONAL-shaped -> TONAL via no-stems fallthrough"
+)
+{
+    const auto& t  = gent::kThreshStems;
+    const auto& nt = gent::kThreshNoStems;
+    gent::SliceFeatures f = zeroFeatures();
+    f.hasStems = true;
+
+    // Same ambiguous-stems routing as the KICK-shaped case above.
+    f.stemShare[0] = std::max (0.0f, t.drumsDominant - 0.5f * t.drumsDominant);
+    const float tonalShare = std::max (0.0f, t.tonalDominant - 0.5f * t.tonalDominant);
+    f.stemShare[1] = tonalShare / 4.0f;
+    f.stemShare[2] = tonalShare / 4.0f;
+    f.stemShare[3] = tonalShare / 4.0f;
+    f.stemShare[4] = tonalShare / 4.0f;
+    f.stemShare[5] = 1.0f - f.stemShare[0] - tonalShare;
+
+    // Spectral features shaped for TONAL per kThreshNoStems: peaked chroma
+    // AND long enough duration (both criteria of the no-stems TONAL test,
+    // which runs FIRST in the spectral tree).
+    f.chromaFlatness = std::max (0.0f, nt.tonalFlatMax - 0.5f * nt.tonalFlatMax);
+    f.durationSec = nt.tonalDurMin + 0.5f * nt.tonalDurMin;
+    f.bandRatio[0] = f.bandRatio[1] = f.bandRatio[2] = f.bandRatio[3] = 0.25f;
+    f.zcr = 0.05f;
+    f.centroidHz = 1000.0f;
+    f.decaySec = 0.5f;
+
+    const auto r = gent::classifySlice (f, t);
+    CHECK (r.cls == gent::TONAL);
+    CHECK (r.confidence >= t.minConfidence);
+}
+
+// *** WAVE3_SPEC.md #18 case 3 -- OPEN QUESTION, NOT YET RESOLVED, DO NOT ***
+// *** "FIX" BY GUESSING -- see WAVE3 implementer report for the escalation. ***
+// The spec asks for a case where hasStems==true, both dominance tests fail
+// (1c), and spectral features are weak everywhere -> expect OTHER via the
+// min-confidence demotion. That exact scenario is PROVABLY UNREACHABLE
+// against the current classifySlice body when the caller passes kThreshStems
+// (the wiring-contract preset for hasStems==true), because:
+//   - finish_classification's ambiguity rule demotes on
+//     `winningConfidence < t.minConfidence`, using the CALLER's `t`
+//     (kThreshStems, minConfidence == 0.50f) -- NOT `activeT`
+//     (kThreshNoStems) even though activeT is what actually ran the
+//     fallthrough's spectral-tree feature tests. This matches the binding
+//     comment above classifySlice ("rule 5") verbatim -- code and its own
+//     spec-comment agree, so this is not a transcription slip.
+//   - Every non-OTHER result reachable from the no-stems spectral tree has
+//     confidence >= 0.5f exactly: a full KICK/HAT/SNARE/TONAL match's
+//     confidence is clamp(0.5 + 0.5*mean(passing margins), 0, 1) with
+//     passing margins clamped to [0,1] (floor 0.5 when every criterion
+//     barely passes); the PERC near-miss fallback is either exactly 0.5f
+//     (no positive near-miss found) or > 0.5f (some positive near-miss).
+//   - So the demotion test is always `(>=0.5f) < 0.50f`, which is false --
+//     the ambiguity rule can never fire through the 1c fallthrough while
+//     kThreshStems.minConfidence stays at exactly 0.50f.
+// This case instead pins the ACTUAL reachable floor (PERC, confidence
+// exactly 0.5f, no demotion) so the fallthrough's real behavior stays
+// covered and regressions on this exact question are caught either way.
+// Escalated to the planner: is this a real classifySlice defect (demotion
+// should check `activeT.minConfidence` for the 1c path) or does the spec
+// need amending to describe the reachable floor? Classifier BODY is
+// deliberately UNTOUCHED per WAVE3_SPEC.md's "do not fix the classifier"
+// instruction pending that answer.
+TEST_CASE ("P2.6 classifySlice: branch 1c (ambiguous stems) weak-everywhere -> "
+           "PERC at the confidence floor (0.5, NOT demoted) -- see OPEN QUESTION comment above"
+)
+{
+    const auto& t  = gent::kThreshStems;    // demotion check (rule 5) uses THIS preset's minConfidence
+    const auto& nt = gent::kThreshNoStems;
+    gent::SliceFeatures f = zeroFeatures();
+    f.hasStems = true;
+
+    // Same ambiguous-stems routing.
+    f.stemShare[0] = std::max (0.0f, t.drumsDominant - 0.5f * t.drumsDominant);
+    const float tonalShare = std::max (0.0f, t.tonalDominant - 0.5f * t.tonalDominant);
+    f.stemShare[1] = tonalShare / 4.0f;
+    f.stemShare[2] = tonalShare / 4.0f;
+    f.stemShare[3] = tonalShare / 4.0f;
+    f.stemShare[4] = tonalShare / 4.0f;
+    f.stemShare[5] = 1.0f - f.stemShare[0] - tonalShare;
+
+    // Spectral features weak/neutral everywhere under kThreshNoStems: fails
+    // TONAL (flatness above tonalFlatMax), and fails KICK/HAT/SNARE by a wide
+    // margin each (flat bands, mid centroid/zcr/duration) so every near-miss
+    // margin is deeply negative (no positive near-miss survives) and the
+    // PERC fallback lands on the exact 0.5f floor. chromaFlatness is placed
+    // strictly between tonalFlatMax and snareFlatMin so it ALSO fails
+    // SNARE's own flatness criterion (>= snareFlatMin) -- otherwise SNARE's
+    // chroma criterion alone would pass and push a positive near-miss above
+    // the floor.
+    f.chromaFlatness = nt.tonalFlatMax + 0.1f * (nt.snareFlatMin - nt.tonalFlatMax);
+    f.bandRatio[0] = f.bandRatio[1] = f.bandRatio[2] = f.bandRatio[3] = 0.25f;
+    f.centroidHz = 1000.0f;
+    f.zcr = 0.5f * nt.hatZcrMin;
+    f.decaySec = nt.kickDecayMax + 2.0f * nt.kickDecayMax;
+    f.durationSec = nt.hatDurMax + 2.0f * nt.hatDurMax;
+
+    const auto r = gent::classifySlice (f, t);
+    CHECK (r.cls == gent::PERC);
+    CHECK (r.confidence == doctest::Approx (0.5f));
+}
+
+TEST_CASE ("P2.6 classifySlice: contrast pin -- drums CLEARLY dominant with case-2's spectral shape "
+           "does NOT take the 1c fallthrough (result differs from the TONAL-shaped case)"
+)
+{
+    const auto& t  = gent::kThreshStems;
+    const auto& nt = gent::kThreshNoStems;
+    gent::SliceFeatures f = zeroFeatures();
+    f.hasStems = true;
+
+    // Drums CLEARLY dominant this time (routes straight into 1a's percussion
+    // subtree with kThreshStems, never reaching the 1c fallthrough).
+    f.stemShare[0] = std::min (0.95f, t.drumsDominant + 0.5f * (1.0f - t.drumsDominant));
+    const float restShare = 1.0f - f.stemShare[0];
+    f.stemShare[1] = f.stemShare[2] = f.stemShare[3] = f.stemShare[4] = 0.0f;
+    f.stemShare[5] = restShare;
+
+    // SAME spectral features as the TONAL-shaped 1c case above (peaked chroma,
+    // long duration) -- under 1a's percussion subtree these don't correspond
+    // to any of KICK/HAT/SNARE's criteria, so this must resolve via the PERC
+    // fallback (confidence from the drums-dominance margin alone), landing on
+    // PERC or OTHER (demoted) -- either way, never TONAL like case 2.
+    f.chromaFlatness = std::max (0.0f, nt.tonalFlatMax - 0.5f * nt.tonalFlatMax);
+    f.durationSec = nt.tonalDurMin + 0.5f * nt.tonalDurMin;
+    f.bandRatio[0] = f.bandRatio[1] = f.bandRatio[2] = f.bandRatio[3] = 0.25f;
+    f.zcr = 0.05f;
+    f.centroidHz = 1000.0f;
+    f.decaySec = 0.5f;
+
+    const auto r = gent::classifySlice (f, t);
+    CHECK (r.cls != gent::TONAL);
+}
