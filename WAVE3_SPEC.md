@@ -51,8 +51,16 @@ existing per-branch naming):
    fallthrough (proves 1c reaches the no-stems tree with the right preset).
 2. Same ambiguous stems, spectral features shaped for TONAL per
    kThreshNoStems → expect TONAL.
-3. Same, spectral features weak everywhere → expect OTHER (min-confidence
-   demotion still applies through the fallthrough).
+3. AMENDED W3-A (planner, post-implementation): the original "weak
+   everywhere → OTHER via demotion" is PROVABLY UNREACHABLE through the 1c
+   fallthrough — finish_classification's demotion compares against the
+   CALLER's preset (t=kThreshStems, minConfidence 0.50) not activeT
+   (kThreshNoStems), and the no-stems tree's reachable confidence floor is
+   exactly 0.5, so the demotion never fires on this path. The test asserts
+   the actual floor (PERC @ 0.5) and carries the OPEN QUESTION block.
+   PLANNER RULING: the t-vs-activeT inconsistency is a latent defect in the
+   PARKED v2 classifier — deferred to the v2 re-gate (BACKLOG), NOT fixed in
+   v1 (classifier body is off the v1 path; dev report only).
 4. Contrast pin: drums CLEARLY dominant (t.drumsDominant + margin) with the
    SAME spectral features as case 2 → must NOT take the fallthrough
    (result differs from case 2's), proving 1a/1c divergence.

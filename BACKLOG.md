@@ -141,3 +141,14 @@ while-dialog-open. Accepted for WAVE1 with reviewer diff-reads + Joe manual
 repros as the gate. Candidate spec: a minimal host-harness test target
 (instantiate 2 processors, drive setStateInformation twice, open/close
 editors) — needs a spec before implementation.
+
+## v2 classifier: finish_classification demotion uses caller preset, not activeT (found 2026-07-05, WAVE3 #18)
+While writing 1c-fallthrough tests (WAVE3 #18, tests/ClassifierTests.cpp —
+see the OPEN QUESTION block), the implementer PROVED the demotion rule
+(winningConfidence < t.minConfidence -> OTHER) reads the CALLER's preset
+`t` (kThreshStems, 0.50) instead of `activeT` (kThreshNoStems), the preset
+that actually ran the fallthrough's spectral tree — and the no-stems tree's
+confidence floor is exactly 0.5, so demotion can NEVER fire through 1c.
+Likely intent: activeT.minConfidence. PARKED with the v2 classifier (dev
+report only in v1; PHASE3_SPEC.md is the v2 record); fix + re-baseline the
+affected tests at the v2 ear-gate, not before.
