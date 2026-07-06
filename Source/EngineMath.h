@@ -246,6 +246,19 @@ inline std::uint8_t stemMaskWithBit (std::uint8_t m, int stem, bool on)
     return (std::uint8_t) (r & 0x3F);
 }
 
+// Restore-path clamp for padStemMask (PREPACKAGE_AUDIT.md #7, WAVE2_SPEC.md).
+// Every other writer of padStemMask goes through stemMaskWithBit above, whose
+// contract strips bits beyond the 6 stems "even from a dirty input mask" --
+// but the setStateInformation restore loop read the persisted "src<i>" value
+// straight into padStemMask with no such clamp. This is the same defense
+// applied one block below via sanitizeHeroView for heroView: any raw stored
+// int (including a hand-edited/corrupted kit file) is masked down to the 6
+// legal stem bits before it ever reaches gent::stemGainFor.
+inline std::uint8_t sanitizeStemMask (int raw)
+{
+    return (std::uint8_t) (raw & 0x3F);
+}
+
 // From padMapHue/padSourceColour's single-bit classification
 // (PluginEditor.h:26-28, 41-43). Returns the stem index 0-5 when exactly one
 // bit is set (a classic power-of-two-or-zero test), else -1 for FULL (mask

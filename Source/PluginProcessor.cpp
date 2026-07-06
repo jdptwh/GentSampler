@@ -3665,7 +3665,7 @@ void GentSamplerAudioProcessor::applyStateTree (const juce::ValueTree& state)
     {
         cues[(size_t) i] = (int) extra.getProperty ("cue" + juce::String (i), cues[(size_t) i].load());
         cueEnds[(size_t) i] = (int) extra.getProperty ("end" + juce::String (i), -1);
-        padStemMask[(size_t) i] = (std::uint8_t) (int) extra.getProperty ("src" + juce::String (i), 0);
+        padStemMask[(size_t) i] = gent::sanitizeStemMask ((int) extra.getProperty ("src" + juce::String (i), 0));
     }
 
     detectedBpm = (double) extra.getProperty ("bpm", 0.0);

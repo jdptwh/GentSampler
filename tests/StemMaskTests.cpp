@@ -43,6 +43,29 @@ TEST_CASE ("T5.1 stemMaskWithBit: set / clear / out-of-range strip / idempotent 
 }
 
 // ---------------------------------------------------------------------------
+// T7 — sanitizeStemMask (restore-path clamp, PREPACKAGE_AUDIT.md #7)
+// ---------------------------------------------------------------------------
+TEST_CASE ("T7.1 sanitizeStemMask: named cases (0x40 -> 0x00, 0xFF -> 0x3F, 0x3F unchanged)")
+{
+    CHECK (gent::sanitizeStemMask (0x40) == 0x00);
+    CHECK (gent::sanitizeStemMask (0xFF) == 0x3F);
+    CHECK (gent::sanitizeStemMask (0x3F) == 0x3F);
+    CHECK (gent::sanitizeStemMask (0x00) == 0x00);
+    CHECK (gent::sanitizeStemMask (0x01) == 0x01);
+}
+
+TEST_CASE ("T7.2 sanitizeStemMask: exhaustive 0-255 sweep -- result always equals input & 0x3F, "
+           "always in [0, 0x3F]")
+{
+    for (int raw = 0; raw <= 255; ++raw)
+    {
+        const std::uint8_t got = gent::sanitizeStemMask (raw);
+        CHECK (got == (std::uint8_t) (raw & 0x3F));
+        CHECK (got <= 0x3F);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // T5.2 — singleStemIndex (FULL-neutral rule)
 // ---------------------------------------------------------------------------
 TEST_CASE ("T5.2 singleStemIndex: single-bit -> stem index, FULL/multi -> -1")
