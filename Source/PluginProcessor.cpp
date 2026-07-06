@@ -96,6 +96,7 @@ GentSamplerAudioProcessor::GentSamplerAudioProcessor()
         cues[(size_t) i] = 0;
         cueEnds[(size_t) i] = -1;
         padPlayPos[(size_t) i] = -1;
+        pendingAssignPos[i] = -1;   // WAVE1_SPEC.md F1: no pending MIDI tap-assign for this pad
     }
 
     capEvents.reserve (4096);
@@ -2513,7 +2514,23 @@ void GentSamplerAudioProcessor::handleNoteOn (int note, float vel)
         const int pad = note - 36;
         selectedPad = pad;                   // panel follows the pad
         if (cues[(size_t) pad].load() < 0)   // unassigned: drop a cue at the playhead
-            assignPadCue (pad);
+        {
+            // WAVE1_SPEC.md F1 (audit #2 rt-safety): this used to call
+            // assignPadCue(pad) directly here, on the audio thread -- pushUndo()
+            // heap-allocates (std::vector history push/erase) with no lock,
+            // unsynchronized against the message thread's own undo()/redo()/
+            // pushUndo() callers. The audio-thread side is now ONLY an atomic
+            // position write + triggerAsyncUpdate() -- no allocation, no
+            // history access. handleAsyncUpdate() (message thread) does the
+            // real pushUndo()/setCue()/cueEnds assignment. Position source is
+            // exactly what assignPadCue() itself reads -- both already atomics,
+            // read here without calling any non-atomic-reading function.
+            const int pos = (previewingA.load() && previewPlayPos.load() >= 0)
+                                 ? previewPlayPos.load()
+                                 : assignCursor.load();
+            pendingAssignPos[(size_t) pad] = pos;
+            triggerAsyncUpdate();
+        }
         else
             startVoice (pad, vel, 0, note, false);
     }
@@ -2525,6 +2542,28 @@ void GentSamplerAudioProcessor::handleNoteOff (int note)
         releaseVoices (selectedPad.load(), note, false, false);
     else if (note >= 36 && note < 52)
         releaseVoices (note - 36, -1, false, true);
+}
+
+// WAVE1_SPEC.md F1 (audit #2 rt-safety): juce::AsyncUpdater dispatches this on
+// the message thread. Sweeps all 16 slots (not just one) so near-simultaneous
+// MIDI taps on different pads within the same message-loop tick are all
+// serviced, one CueSnap (pushUndo()) per pad actually assigned. Re-checks
+// cues[pad] < 0 after the exchange -- a drag-drop assignPadCue() on the
+// message thread may have raced the audio-thread tick and already assigned
+// this pad; if so, skip it (drafter Q2.2 ruling: race resolves to skip).
+void GentSamplerAudioProcessor::handleAsyncUpdate()
+{
+    for (int pad = 0; pad < 16; ++pad)
+    {
+        const int pos = pendingAssignPos[(size_t) pad].exchange (-1);
+        if (pos < 0)
+            continue;
+        if (cues[(size_t) pad].load() >= 0)   // already assigned since the tick -- skip
+            continue;
+        pushUndo();
+        setCue (pad, pos, /*snap*/ false);
+        cueEnds[(size_t) pad] = kOpenSlice;   // 9f2ab28 point-cue semantics: bare POINT cue, open end
+    }
 }
 
 // ============================================================================

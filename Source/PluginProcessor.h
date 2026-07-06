@@ -93,7 +93,8 @@ struct PadRender : juce::ReferenceCountedObject
 
 // ---------------------------------------------------------------------------
 class GentSamplerAudioProcessor : public juce::AudioProcessor,
-                                  private juce::Thread
+                                  private juce::Thread,
+                                  private juce::AsyncUpdater
 {
 public:
     GentSamplerAudioProcessor();
@@ -360,10 +361,17 @@ public:
     // edit history (cue/end + stem-source + grain state, 0.3). Message thread
     // only: undo()/redo() now also write APVTS grain params via
     // getParameterAsValue (see applySnap), which is a message-thread-only API;
-    // their only callers are the editor's undo/redo buttons and the Ctrl+Z /
+    // their callers are the editor's undo/redo buttons, the Ctrl+Z /
     // Ctrl+Shift+Z / Ctrl+Y keyPressed handler (verified — grep PluginEditor.cpp
     // for ".undo()"/".redo()"; all four sites are JUCE component callbacks,
-    // which JUCE guarantees run on the message thread).
+    // which JUCE guarantees run on the message thread), and pushUndo() alone
+    // (not undo()/redo()) is also called from handleAsyncUpdate() (WAVE1_SPEC.md
+    // F1, audit #2): juce::AsyncUpdater callbacks are message-thread-dispatched
+    // by JUCE, so this still satisfies the message-thread-only contract even
+    // though the REQUEST for that pushUndo() originates from a MIDI tap
+    // observed on the audio thread in handleNoteOn() -- the audio-thread side
+    // there is only an atomic write + triggerAsyncUpdate(), never a direct
+    // call into pushUndo()/setCue()/history.
     void pushUndo();                                       // call BEFORE a cue/end/source/grain mutation
     void undo();
     void redo();
@@ -505,6 +513,18 @@ private:
     void handleNoteOff (int note);
     void startVoice (int pad, float vel, int extraSemis, int note, bool kbMode);
     void releaseVoices (int pad, int note, bool quick, bool onlyGate);
+
+    // WAVE1_SPEC.md F1 (audit #2 rt-safety): a MIDI tap on an unassigned pad
+    // used to call assignPadCue() (pushUndo() + setCue(), heap-allocating
+    // std::vector history push) directly from handleNoteOn() on the audio
+    // thread. The audio-thread side is now exactly an atomic position write
+    // per pad + triggerAsyncUpdate() -- NOTHING else. handleAsyncUpdate()
+    // (juce::AsyncUpdater, message thread) sweeps all 16 slots and runs the
+    // real pushUndo()/setCue()/cueEnds assignment there. assignPadCue() itself
+    // is unchanged and still used directly by the editor's drag-drop path
+    // (message thread) -- handleNoteOn() simply no longer calls it.
+    std::atomic<int> pendingAssignPos[16];   // -1 = no pending assign for that pad; init in ctor
+    void handleAsyncUpdate() override;
 
     // export helper: renders one pad's slice (cue → next cue) with pad
     // pitch / level / crush applied, in the rendered (tempo-synced) domain
