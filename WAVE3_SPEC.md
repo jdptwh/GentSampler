@@ -96,6 +96,8 @@ bash .claude/hooks/pluginval_gate.sh
 ## Record
 | Fix | Checkpoint commit | Reviewer verdict | Joe |
 |---|---|---|---|
-| #17 | | | |
-| #16 | | | |
-| #18 | | | |
+| #17 | `49c9fd3` | PASS (cycle 1) | pending smoke |
+| #16 | `1e8f7ef` | PASS (cycle 1) | pending smoke |
+| #18 | `c624dec` (+W3-A `4b09f3b`) | PASS (cycle 1) — unreachability proof independently CONFIRMED by the reviewer (walked the confidence math; PERC @ exactly 0.5 floor) | machine-verified (ctest 116) |
+
+Reviewer: Opus, cycle 1, 0 findings, verdict_lint exit 0, gates_rerun=true.

@@ -82,9 +82,19 @@ clean, passes pluginval, and runs stable inside FL Studio.
   Joe-approved): checkpoints ad75ec8..67f927a + correction 1a29d26 — the
   Opus reviewer FAILED cycle 1 on a real catch (signed graveyard ring
   indices -> INT_MAX UB -> OOB heap write; the spec's own overflow-horizon
-  check), lead applied the specified fix, cycle-2 PASS 0 findings. AWAITING
-  Joe's nine-repro manual pass (WAVE2_SPEC.md bottom). THEN: Wave 3 (3 LOW),
-  then the packaging pass (CUDA-pack exclusion, BACKLOG).
+  check), lead applied the specified fix, cycle-2 PASS 0 findings. Wave 2
+  Joe-validated 2026-07-05. **WAVE 3 (three LOWs) COMPLETE** (WAVE3_SPEC.md,
+  Joe-approved; planner-authored, drafter skipped per Rule 8): 49c9fd3 (#17
+  decode-cap uniformity) / 1e8f7ef (#16 first-heartbeat dir create) /
+  c624dec (#18 four 1c-fallthrough doctests, 110->116). #18's test-writing
+  PROVED the spec's demotion case unreachable and surfaced a latent
+  t-vs-activeT defect in the PARKED v2 classifier — planner ruling: deferred
+  to the v2 re-gate (AMENDMENT W3-A + BACKLOG entry; reviewer independently
+  confirmed the proof). Reviewer PASS cycle 1, 0 findings.
+  **AUDIT BURN-DOWN COMPLETE: 18/18 findings resolved** (17 fixed +
+  reviewer-verified across three waves; 1 characterized + deferred to v2
+  with proof). Pending: Joe's two-repro Wave-3 smoke. NEXT: the packaging
+  pass (CUDA-pack exclusion, installer payload — BACKLOG item).
 - Next up (post-novelty-gate): Part 3 dropdown, then KIT v1 (isolate every
   hit, time-order, NO classification — see PHASE3_RESCOPE.md).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
