@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GentSampler — E1 Header Mockup (Phase E)</title>
+<style>
+  /* ============ page chrome (not part of the mockup) ============ */
+  body { background:#08090b; color:#9BA1A8; font-family:"Segoe UI",system-ui,sans-serif;
+         margin:0; padding:28px 32px 64px; }
+  h1 { color:#E8EAED; font-size:18px; font-weight:600; margin:0 0 4px; }
+  h2 { color:#E8993A; font-size:11px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
+       margin:36px 0 10px; }
+  p.note { font-size:12px; color:#5C636B; margin:2px 0 14px; max-width:960px; }
+  p.note b { color:#9BA1A8; font-weight:600; }
+  .frame { border:1px solid rgba(255,255,255,.07); border-radius:4px; display:inline-block;
+           background:#0E1216; padding:0; overflow:hidden; }
+  ul.check { font-size:12px; color:#9BA1A8; line-height:1.7; }
+  ul.check li b { color:#E8EAED; }
+  .tag { display:inline-block; font-size:9px; font-weight:700; letter-spacing:.2em; padding:2px 7px;
+         border-radius:3px; margin-left:8px; vertical-align:2px; }
+  .tag.rec { background:rgba(232,153,58,.15); color:#E8993A; border:1px solid rgba(232,153,58,.4); }
+  .tag.ref { background:rgba(255,255,255,.05); color:#5C636B; border:1px solid rgba(255,255,255,.1); }
+
+  /* ============ skin tokens (Theme.h verbatim) ============ */
+  /* canvas #0E1216 · panel #161B21 · panelHi #1A2028 · well #0A0D10 · edgeHi #fff@6%
+     accent #E8993A · glow #FFB85C · accentTextOn #FFD9A3 · inkOnAccent #1A1207
+     t1 #E8EAED · t2 #9BA1A8 · t3 #5C636B */
+
+  .hdr { position:relative; width:1040px; height:48px;
+         background:linear-gradient(#1A2028,#161B21);
+         border-top:1px solid rgba(255,255,255,.06);
+         border-bottom:1px solid rgba(0,0,0,.5);
+         font-family:"Segoe UI",system-ui,sans-serif; }
+
+  /* zone hairlines — 1px, ~12% bone, inset like the JUCE dividers (y+14 -> bottom-12) */
+  .divv { position:absolute; top:12px; bottom:10px; width:1px; background:rgba(232,234,237,.12); }
+
+  /* micro-caps tiers */
+  .zlabel { position:absolute; top:5px; font-size:8px; font-weight:700; letter-spacing:.24em;
+            color:#5C636B; text-transform:uppercase; }
+  .eyebrow{ position:absolute; top:5px; font-size:8px; font-weight:700; letter-spacing:.18em;
+            color:#454b52; text-transform:uppercase; }
+
+  /* single control row: EVERYTHING is 26px tall, top:16 -> one shared baseline */
+  .ctl { position:absolute; top:16px; height:26px; box-sizing:border-box; }
+
+  /* chips */
+  .chip { display:flex; align-items:center; justify-content:center; padding:0 10px;
+          border-radius:6px; border:1px solid rgba(255,255,255,.08);
+          color:#9BA1A8; font-size:10.5px; font-weight:700; letter-spacing:.12em;
+          text-transform:uppercase; background:transparent; white-space:nowrap; }
+  .chip.on { background:linear-gradient(rgba(232,153,58,.22),rgba(232,153,58,.10));
+             border-color:rgba(232,153,58,.55); color:#FFD9A3;
+             box-shadow:0 0 10px rgba(232,153,58,.28); }
+  .chip.sq { padding:0; width:22px; font-size:12px; letter-spacing:0; }
+  .chip .caret { font-size:8px; margin-left:6px; color:#5C636B; }
+  .chip.on .caret { color:#FFD9A3; }
+  .chip .grip { letter-spacing:0; margin-right:5px; font-size:11px; color:#5C636B; }
+
+  /* bare mono readouts (the .ro.v pattern) — all values share the row's centreline */
+  .ro { display:flex; align-items:center; font-family:Consolas,ui-monospace,monospace;
+        font-size:13px; color:#E8EAED; white-space:nowrap; }
+  .ro .dim { color:#5C636B; font-size:11px; margin-left:6px; }
+  .nudge { display:flex; align-items:center; justify-content:center; width:18px; height:26px;
+           border:1px solid rgba(255,255,255,.08); border-radius:6px; color:#5C636B;
+           font-size:9px; font-weight:700; }
+
+  /* wordmark */
+  .wm { position:absolute; left:14px; top:8px; font-size:17px; font-weight:700;
+        letter-spacing:.02em; color:#E8EAED; }
+  .wm span { color:#E8993A; }
+  .wmtag { position:absolute; left:14px; top:30px; font-size:8px; font-weight:600;
+           letter-spacing:.22em; color:#3d434a; }   /* t3 dropped one step per E1.2 */
+
+  /* MIDI LED */
+  .led { width:7px; height:7px; border-radius:50%; background:#E8993A;
+         box-shadow:0 0 6px rgba(232,153,58,.8); align-self:center; }
+  .led.off { background:#2a2f36; box-shadow:none; }
+
+  /* ---- CURRENT-header reference bits ---- */
+  .padbadge { display:flex; align-items:center; justify-content:center; border-radius:6.5px;
+              background:linear-gradient(#FFB85C,#E8993A); color:#1A1207;
+              font-family:Consolas,ui-monospace,monospace; font-size:13.5px; font-weight:700;
+              letter-spacing:.06em; box-shadow:0 0 14px rgba(232,153,58,.35);
+              border-top:1px solid rgba(255,255,255,.35); }
+  .knob { position:absolute; width:26px; height:26px; border-radius:50%;
+          background:radial-gradient(circle at 50% 38%, #23292f, #14181d 70%);
+          border:1px solid rgba(255,255,255,.09); }
+  .knob:after { content:""; position:absolute; inset:-3px; border-radius:50%;
+                border:2px solid transparent;
+                border-top-color:#E8993A; border-left-color:#E8993A;
+                transform:rotate(-40deg); }
+  .knobro { position:absolute; font-family:Consolas,ui-monospace,monospace; font-size:10px;
+            color:#E8EAED; text-align:center; }
+  .clipnote { position:absolute; font-size:8px; color:#c0392b; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+
+<h1>GentSampler — E1 header mockup</h1>
+<p class="note">Skin tokens lifted verbatim from Theme.h. The plugin scales one fixed 1040×700 canvas
+(uniform AffineTransform, no reflow), so the 880 view below is the honest representation: the same
+layout at 0.846×. Recommended composition uses <b>MIDI variant B</b> (keeps the performance drag-out)
+and <b>UNDO/REDO variant B</b> (relocated to FILE) — alternates rendered at the bottom.</p>
+
+<!-- ================= CURRENT (reference) ================= -->
+<h2>Current header — as shipped<span class="tag ref">reference</span></h2>
+<div class="frame">
+  <div class="hdr">
+    <div class="wm">Gent<span>Sampler</span></div>
+    <div class="wmtag" style="color:#5C636B;">STEM FLIP WORKSTATION</div>
+    <div class="ctl chip" style="left:146px; width:50px;">LOAD</div>
+    <div class="ctl chip" style="left:199px; width:38px;">KIT</div>
+    <div class="ctl chip" style="left:243px; width:58px;">EXPORT</div>
+    <div class="divv" style="left:305px;"></div>
+    <div class="eyebrow" style="left:319px; color:#5C636B;">SRC BPM</div>
+    <div class="ctl nudge" style="left:311px; top:18px; height:20px;">/2</div>
+    <div class="ctl ro" style="left:333px;">159.2</div>
+    <div class="ctl nudge" style="left:379px; top:18px; height:20px;">x2</div>
+    <div class="divv" style="left:401px;"></div>
+    <div class="eyebrow" style="left:409px; color:#5C636B;">KEY</div>
+    <div class="ctl chip" style="left:407px; width:58px; top:16px; height:24px;">A MAJ<span class="caret">▾</span></div>
+    <div class="divv" style="left:473px;"></div>
+    <div class="eyebrow" style="left:479px; color:#5C636B;">PITCH</div>
+    <div class="knob" style="left:481px; top:13px;"></div>
+    <div class="knobro" style="left:474px; top:40px; width:40px;">-5</div>
+    <div class="clipnote" style="left:516px; top:40px;">← readout rides the header edge</div>
+    <div class="divv" style="left:519px;"></div>
+    <div class="eyebrow" style="left:531px; color:#5C636B;">HOST</div>
+    <div class="ctl ro" style="left:525px;">130.0<span class="dim">x0.82</span></div>
+    <div class="divv" style="left:599px;"></div>
+    <div class="eyebrow" style="left:607px; color:#5C636B;">TEMPO</div>
+    <div class="ctl chip" style="left:605px; width:48px; top:16px; height:24px;">SY…<span class="caret">▾</span></div>
+    <!-- right cluster -->
+    <div class="ctl chip sq" style="left:663px; top:19px; height:20px; width:16px; border-radius:4px;">↶</div>
+    <div class="ctl chip sq" style="left:683px; top:19px; height:20px; width:16px; border-radius:4px;">↷</div>
+    <div class="ctl chip on" style="left:706px; width:66px;">VELOCITY</div>
+    <div class="ctl chip" style="left:777px; width:76px;">KEYBOARD</div>
+    <div class="ctl chip" style="left:858px; width:68px;">REC MIDI</div>
+    <div class="ctl chip" style="left:931px; width:42px;"><span class="grip">⠿</span>MIDI</div>
+    <div class="ctl padbadge" style="left:956px; top:10px; height:28px; width:70px;">PAD 16</div>
+  </div>
+</div>
+<p class="note">Faults on display: TEMPO truncates ("SY…"), PITCH readout rides the bottom edge, ↶↷
+read as unlabeled circles beside TEMPO, two MIDI-labeled controls, PAD badge duplicates the inspector,
+five control heights / four y-origins. (PAD badge overlaps MIDI chip here because the real layout
+right-aligns from the badge — reproduced faithfully.)</p>
+
+<!-- ================= PROPOSED 1040 ================= -->
+<h2>Proposed — 1040px<span class="tag rec">recommended composition</span></h2>
+<div class="frame">
+  <div class="hdr">
+    <!-- ZONE: FILE -->
+    <div class="zlabel" style="left:14px;">FILE</div>
+    <div class="wm" style="top:10px; font-size:15px;">Gent<span>Sampler</span></div>
+    <div class="wmtag" style="top:31px;">STEM FLIP WORKSTATION</div>
+    <div class="ctl chip" style="left:132px; width:50px;">LOAD</div>
+    <div class="ctl chip" style="left:186px; width:40px;">KIT</div>
+    <div class="ctl chip" style="left:230px; width:58px;">EXPORT</div>
+    <div class="ctl chip sq" style="left:292px;">↶</div>
+    <div class="ctl chip sq" style="left:317px;">↷</div>
+
+    <div class="divv" style="left:349px;"></div>
+
+    <!-- ZONE: MUSICAL -->
+    <div class="zlabel" style="left:361px;">MUSICAL</div>
+    <div class="eyebrow" style="left:425px;">SRC BPM</div>
+    <div class="ctl nudge" style="left:361px;">/2</div>
+    <div class="ctl ro" style="left:387px; width:44px; justify-content:center;">159.2</div>
+    <div class="ctl nudge" style="left:433px;">x2</div>
+    <div class="eyebrow" style="left:466px;">KEY</div>
+    <div class="ctl chip" style="left:461px; width:62px;">A MAJ<span class="caret">▾</span></div>
+    <div class="eyebrow" style="left:534px;">PITCH</div>
+    <div class="ctl ro" style="left:533px; width:46px; justify-content:center;">-5 st</div>
+
+    <div class="divv" style="left:590px;"></div>
+
+    <!-- ZONE: SYNC -->
+    <div class="zlabel" style="left:602px;">SYNC</div>
+    <div class="eyebrow" style="left:645px;">HOST</div>
+    <div class="ctl ro" style="left:602px;">130.0<span class="dim" title="Playback ratio vs. source BPM">×0.82</span></div>
+    <div class="ctl chip" style="left:686px; width:74px;">SYNC<span class="caret">▾</span></div>
+
+    <div class="divv" style="left:772px;"></div>
+
+    <!-- ZONE: INPUT -->
+    <div class="zlabel" style="left:784px;">INPUT</div>
+    <div class="ctl chip on" style="left:784px; width:64px;">VELOCITY</div>
+    <div class="ctl chip" style="left:852px; width:70px;">KEYBOARD</div>
+    <div class="ctl" style="left:934px; display:flex; gap:6px; align-items:center;">
+      <div class="led" title="MIDI activity"></div>
+      <div class="chip" style="height:26px; width:44px;">REC</div>
+      <div class="chip" style="height:26px; width:48px;" title="Drag out the captured performance as MIDI"><span class="grip">⠿</span>MID</div>
+    </div>
+  </div>
+</div>
+<ul class="check">
+  <li><b>PAD chip removed</b> — width reclaimed by INPUT; nothing relocated.</li>
+  <li><b>Four zones</b> (FILE · MUSICAL · SYNC · INPUT), 1px dividers @ 12% bone, zone labels micro-caps top-aligned.</li>
+  <li><b>One control height (26px)</b>, one row origin (y16) → single shared value baseline. /2 · ×2 nudgers grow to 26px slims.</li>
+  <li><b>PITCH is a drag-value readout</b> ("-5 st", mono, same pattern as SRC BPM): vertical drag, double-click type, right-click reset 0 st.</li>
+  <li><b>SYNC cluster</b>: HOST 130.0 with ×0.82 as dim secondary text (tooltip "Playback ratio vs. source BPM"), SYNC ▾ sized for CUSTOM — zero truncation.</li>
+  <li><b>One MIDI group</b>: activity LED (no chip chrome) + REC arm toggle + ⠿ MID drag-out (variant B — see below).</li>
+  <li><b>↶ ↷ moved to FILE</b> (variant B): squared 22px ghost chips, full 26px height, tooltips kept.</li>
+  <li>Tagline dropped one opacity step (t3 → 55% t3).</li>
+</ul>
+
+<!-- ================= PROPOSED 880 ================= -->
+<h2>Proposed — 880px floor (uniform 0.846× scale, as the plugin actually renders)</h2>
+<div class="frame" style="width:880px; height:41px;">
+  <div style="transform:scale(0.84615); transform-origin:top left;">
+    <div class="hdr">
+      <div class="zlabel" style="left:14px;">FILE</div>
+      <div class="wm" style="top:10px; font-size:15px;">Gent<span>Sampler</span></div>
+      <div class="wmtag" style="top:31px;">STEM FLIP WORKSTATION</div>
+      <div class="ctl chip" style="left:132px; width:50px;">LOAD</div>
+      <div class="ctl chip" style="left:186px; width:40px;">KIT</div>
+      <div class="ctl chip" style="left:230px; width:58px;">EXPORT</div>
+      <div class="ctl chip sq" style="left:292px;">↶</div>
+      <div class="ctl chip sq" style="left:317px;">↷</div>
+      <div class="divv" style="left:349px;"></div>
+      <div class="zlabel" style="left:361px;">MUSICAL</div>
+      <div class="eyebrow" style="left:425px;">SRC BPM</div>
+      <div class="ctl nudge" style="left:361px;">/2</div>
+      <div class="ctl ro" style="left:387px; width:44px; justify-content:center;">159.2</div>
+      <div class="ctl nudge" style="left:433px;">x2</div>
+      <div class="eyebrow" style="left:466px;">KEY</div>
+      <div class="ctl chip" style="left:461px; width:62px;">A MAJ<span class="caret">▾</span></div>
+      <div class="eyebrow" style="left:534px;">PITCH</div>
+      <div class="ctl ro" style="left:533px; width:46px; justify-content:center;">-5 st</div>
+      <div class="divv" style="left:590px;"></div>
+      <div class="zlabel" style="left:602px;">SYNC</div>
+      <div class="eyebrow" style="left:645px;">HOST</div>
+      <div class="ctl ro" style="left:602px;">130.0<span class="dim">×0.82</span></div>
+      <div class="ctl chip" style="left:686px; width:74px;">SYNC<span class="caret">▾</span></div>
+      <div class="divv" style="left:772px;"></div>
+      <div class="zlabel" style="left:784px;">INPUT</div>
+      <div class="ctl chip on" style="left:784px; width:64px;">VELOCITY</div>
+      <div class="ctl chip" style="left:852px; width:70px;">KEYBOARD</div>
+      <div class="ctl" style="left:934px; display:flex; gap:6px; align-items:center;">
+        <div class="led"></div>
+        <div class="chip" style="height:26px; width:44px;">REC</div>
+        <div class="chip" style="height:26px; width:48px;"><span class="grip">⠿</span>MID</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= VARIANTS ================= -->
+<h2>Open decision 1 — MIDI cluster (E1.5)</h2>
+<p class="note"><b>The two current controls are not duplicates:</b> REC MIDI arms capture; the second
+"MIDI" chip is the drag-out source for the captured performance (.mid → drag into FL). Doc-literal
+variant A deletes the drag-out affordance.</p>
+<div class="frame" style="margin-right:16px;">
+  <div class="hdr" style="width:240px;">
+    <div class="zlabel" style="left:12px;">A — DOC-LITERAL (drag-out lost)</div>
+    <div class="ctl" style="left:12px; display:flex; gap:6px; align-items:center;">
+      <div class="led"></div>
+      <div class="chip" style="height:26px; width:44px;">REC</div>
+    </div>
+  </div>
+</div>
+<div class="frame">
+  <div class="hdr" style="width:300px;">
+    <div class="zlabel" style="left:12px;">B — LED + REC + DRAG-OUT (recommended)</div>
+    <div class="ctl" style="left:12px; display:flex; gap:6px; align-items:center;">
+      <div class="led"></div>
+      <div class="chip" style="height:26px; width:44px;">REC</div>
+      <div class="chip" style="height:26px; width:48px;"><span class="grip">⠿</span>MID</div>
+    </div>
+  </div>
+</div>
+
+<h2>Open decision 2 — the two "unlabeled circles" = cue-edit UNDO / REDO</h2>
+<p class="note">They are functional (undo/redo cue edits, Ctrl+Z/Y, enable-state tracks history) and
+already have tooltips — the problem is placement beside TEMPO and 16px size.</p>
+<div class="frame" style="margin-right:16px;">
+  <div class="hdr" style="width:300px;">
+    <div class="zlabel" style="left:12px;">A — STAY IN INPUT, RE-STYLED</div>
+    <div class="ctl chip" style="left:12px; width:70px;">KEYBOARD</div>
+    <div class="ctl chip sq" style="left:90px;">↶</div>
+    <div class="ctl chip sq" style="left:115px;">↷</div>
+  </div>
+</div>
+<div class="frame" style="margin-right:16px;">
+  <div class="hdr" style="width:300px;">
+    <div class="zlabel" style="left:12px;">B — MOVE TO FILE, AFTER EXPORT (recommended)</div>
+    <div class="ctl chip" style="left:12px; width:58px;">EXPORT</div>
+    <div class="ctl chip sq" style="left:74px;">↶</div>
+    <div class="ctl chip sq" style="left:99px;">↷</div>
+  </div>
+</div>
+<div class="frame">
+  <div class="hdr" style="width:300px;">
+    <div class="zlabel" style="left:12px;">C — REMOVE FROM HEADER (Ctrl+Z/Y only)</div>
+    <div class="ctl ro" style="left:12px; font-size:10px; color:#5C636B;">(no visible undo affordance — not recommended)</div>
+  </div>
+</div>
+
+<h2>E1 acceptance checklist (as rendered above)</h2>
+<ul class="check">
+  <li>[x] No PAD chip in header</li>
+  <li>[x] No truncated/ellipsized static labels at 1040 or 880 (SYNC sized for "CUSTOM")</li>
+  <li>[x] No text clipping outside header bounds (PITCH readout now in-row)</li>
+  <li>[x] Exactly one MIDI-labeled control group</li>
+  <li>[x] Single shared baseline; single 26px control height</li>
+  <li>[x] Four hairline-divided zones</li>
+</ul>
+
+</body>
+</html>
