@@ -24,7 +24,7 @@ Repo @ `29969f7`. Fix status column updated as fixes land.
 | 14 | MED | threading | adoptSourceBuffer() can run concurrently from the message thread (user drag-drop/browser load) and the worker thread (async project-restore decode), tearing source/fileName/cues across two unrelated files | Source/PluginProcessor.cpp:275 | FIXED WAVE2 #14 |
 | 15 | MED | ui-wiring | SplitChip (the SLICE toolbar chip) has no mouse-button gating — right-click on its main body silently re-runs a destructive reslice | Source/PluginEditor.h:2715 | FIXED WAVE2 #15 |
 | 16 | LOW | engine-math | classifySlice's ambiguous-stem fallthrough branch (1c: hasStems true, neither drums nor tonal dominant) has zero test coverage | Source/EngineMath.h:976 | OPEN |
-| 17 | LOW | file-io | First stem-separation heartbeat write targets Documents\GentSampler before that folder is ever created, silently no-oping on a brand-new install | Source/PluginProcessor.cpp:1307 | OPEN |
+| 17 | LOW | file-io | First stem-separation heartbeat write targets Documents\GentSampler before that folder is ever created, silently no-oping on a brand-new install | Source/PluginProcessor.cpp:1307 | FIXED WAVE3 #16 |
 | 18 | LOW | memory | Same missing length cap on stem-cache FLAC restore (doStemCacheLoadJob) | Source/PluginProcessor.cpp:3533 | FIXED WAVE3 #17 |
 
 ## 1. [HIGH] exportPad() discards the WAV writer's success/failure result and always reports success, so a failed export (disk full, denied write) is reported to the user as a completed export

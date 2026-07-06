@@ -1318,6 +1318,8 @@ void GentSamplerAudioProcessor::doStemJob()
     const auto modelsDir = gentDir.getChildFile ("models");
     const auto logFile   = gentDir.getChildFile ("stems_log.txt");
 
+    gentDir.createDirectory();
+
     // live heartbeat so progress is visible while it runs (refresh this file)
     auto heartbeat = [&] (const juce::String& s)
     {
