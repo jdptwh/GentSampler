@@ -220,12 +220,17 @@ One commit per fix, order **F1 → F2 → F3 → F4 → F5 → F6** (runtime MED
 
 | Fix | Commit | Reviewer verdict (cycle 1) | Joe |
 |---|---|---|---|
-| F1 | `a333fc4` | PASS (nit: empty-key residual window — within accepted Risks-F1 residuals, characterized only) | pending manual pass (AC6 best-effort) |
-| F2 | `b12bc19` | PASS (1:1 coverage over all 23 rebinds verified) | pending manual pass (AC4) |
-| F3 | `d2489cb` | PASS (nit: comment line-citation drift — lead-fixed at wave close) | **pending MANDATORY feel re-check (AC5)** |
+| F1 | `a333fc4` | PASS (nit: empty-key residual window — within accepted Risks-F1 residuals, characterized only) | PASS 2026-07-06 |
+| F2 | `b12bc19` | PASS (1:1 coverage over all 23 rebinds verified) | PASS 2026-07-06 |
+| F3 | `d2489cb` | PASS (nit: comment line-citation drift — lead-fixed at wave close) | **feel re-check PASS 2026-07-06 — restored first-tap audition ratified** |
 | F4 | `c5fed96` | PASS (reviewer independently re-ran the 3-case cmake -P proof) | — |
 | F5 | `bd7323c` | PASS (exclusion patterns independently verified against the real bundle) | — |
 | F6 | `ea9a7f7` | PASS (token-exact template check, no transposition; BULK scope clean) | — |
+
+**WAVE 4 CLOSED 2026-07-06: Joe manual pass GREEN** (post-reboot; the same-day
+separation failure was diagnosed as box-state OOM — kernel paged-pool leak +
+full C: pinning the pagefile — NOT a wave regression; separation confirmed
+working after reboot).
 
 Wave verdict: **PASS cycle 1, 0 blocking, 2 nits** (verdict.json, verdict_lint
 exit 0, escalate=false). F1 checkpoint note: the original implementer dispatch

@@ -114,10 +114,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   robocopy /xf CUDA exclusion, /r:0 /w:0, errorlevel 8) / ea9a7f7 (F6
   6-arg LagrangeInterpolator, BULK dispatch, token-exact template check).
   Opus reviewer PASS cycle 1, 0 blocking, 2 nits (verdict_lint 0); lead
-  applied nit 2 at wave close. Joe manual pass outstanding: F3 feel check
-  (mandatory), F1/F2 repros (best-effort). NEXT: the packaging pass
-  (CUDA-pack exclusion at the SOURCE + already-polluted deployed-folder
-  cleanup are its first two line items; installer payload — BACKLOG item).
+  applied nit 2 at wave close. **Joe manual pass GREEN 2026-07-06 (WAVE 4
+  CLOSED; F3 restored first-tap audition ratified).** Same-day separation
+  failure = box-state OOM (paged-pool leak + full C:), fixed by reboot —
+  NOT a wave regression (memory: disk-and-oom-recovery). ~5.2 GB C: cleanup
+  plan pending Joe's pick. NEXT (Joe-ordered): pre-packaging UX spec
+  (PREPACK_UX_SPEC.md, in flight): (1) triggering a pad must not zoom the
+  hero back out — keep the user's zoom for in-context adjustments; (2) the
+  end-window drag of a newly auditioned slice must follow the mouse from
+  grab, not snap-then-re-drag. THEN the packaging pass (CUDA-pack exclusion
+  at the SOURCE + deployed-folder cleanup first two line items; installer
+  payload — BACKLOG). A further polish pass exists but is GATED on Joe's
+  explicit instruction — do not start it.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
