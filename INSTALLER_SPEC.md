@@ -157,9 +157,43 @@ Code-signing execution; JUCE license purchase; EULA authoring; Standalone packag
 ## Record
 | Task | Commit / session log | Evidence | Reviewer verdict | Joe |
 |---|---|---|---|---|
-| T1 | | | | |
+| T1 | IMPLEMENTER 2026-07-07 | see T1 evidence block below | pending | |
 | T2 | | | | |
 | T3 | | | | |
 | T4 | | | | |
 | T5 | | | | — (Joe IS the gate) |
 | T6 | | | | |
+
+### T1 evidence (payload definition + pre-flight rule)
+
+**Payload table**
+
+| File | Destination in installer | Source |
+|---|---|---|
+| `GentSampler.vst3` (the plugin binary, inside the bundle) | `{commoncf}\VST3\GentSampler.vst3\Contents\x86_64-win\GentSampler.vst3` | staged artefact dir |
+| `onnxruntime.dll` | `...\Contents\x86_64-win\onnxruntime.dll` | staged artefact dir |
+| `onnxruntime_providers_shared.dll` | `...\Contents\x86_64-win\onnxruntime_providers_shared.dll` | staged artefact dir |
+| `THIRD_PARTY_LICENSES\` (tree: README.md, basic-pitch, demucs, juce, onnxruntime, signalsmith-stretch) | `...\Contents\Resources\THIRD_PARTY_LICENSES\` | repo root |
+| `README.md` | `...\Contents\Resources\README.md` | repo root |
+
+No models, no CUDA DLLs, no Standalone component — verified absent below.
+
+**Live `dir` of the staged artefact folder** (`D:\GentSamplerBuild\GentSampler_artefacts\Release\VST3\GentSampler.vst3\Contents\x86_64-win`, captured 2026-07-07 via PowerShell `dir`):
+
+```
+    Directory: D:\GentSamplerBuild\GentSampler_artefacts\Release\VST3\GentSampler.vst3\Contents\x86_64-win
+
+Mode                 LastWriteTime         Length Name
+----                 -------------         ------ ----
+-a----          7/7/2026  12:53 PM        6946816 GentSampler.vst3
+-a----         6/25/2026   5:35 PM       11624416 onnxruntime.dll
+-a----         6/25/2026   5:35 PM          21472 onnxruntime_providers_shared.dll
+```
+
+Exactly the 3 expected keepers, nothing else — matches PACKAGING's proof, no CUDA names present. (`...\Contents\Resources` exists in the bundle today as an empty dir — the correct target for the license tree + README.)
+
+**Pre-flight allowlist (7 CUDA patterns, checked-for-absence) + 3-keeper (checked-for-presence) rule, to be written verbatim into T3's `make_installer.bat`:**
+- Keepers required present: `GentSampler.vst3`, `onnxruntime.dll`, `onnxruntime_providers_shared.dll`.
+- Patterns required absent (any match = exit non-zero, no compile): `cublas*.dll`, `cudart*.dll`, `cudnn*.dll`, `cufft*.dll`, `curand*.dll`, `nvrtc*.dll`, `onnxruntime_providers_cuda.dll`.
+
+**Models-dir independence note:** the installer never references `Documents\GentSampler` in any section. Verified by source citation — `Source/PluginProcessor.cpp:936` (`gentCheckStemEngine` one-time check) and `Source/PluginProcessor.cpp:1325` (stem-separation job) both resolve the models directory as `juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("GentSampler").getChildFile ("models")` — a per-user special-folder lookup resolved at runtime, wholly independent of where the VST3 bundle itself is installed. Installing to `{commoncf}\VST3\...` has no effect on model resolution.
