@@ -1,4 +1,10 @@
-# PACKAGING_SPEC — FINAL (planner-owned; pending Joe approval)
+# PACKAGING_SPEC — FINAL (planner-owned; **Joe-APPROVED 2026-07-07**)
+
+## APPROVAL RECORD (Joe, 2026-07-07)
+1. **P2 execution:** agent-executed delete after Joe approves the dry-run listing — APPROVED (spec default stands).
+2. **JUCE license mode:** NOT yet declared — Joe: "we need to take care of this kind of thing for sure." P4 therefore delivers the factual entry with the mode bracketed UNRESOLVED **plus a clear decision brief for Joe** (the three JUCE-8 regimes — AGPLv3, free tier w/ splash + revenue cap, paid commercial — with what each implies for a distributed closed-source plugin and the missing top-level LICENSE). The declaration is a follow-up Joe decision, deliberately not blocking this pass.
+3. **Version 1.1.0:** APPROVED (CMake → 1.1.0, README H1 stays v1.1).
+4. **Clean machine:** EXISTS — Joe has a separate machine. P3 upgrades per the OQ-5 ruling: agents cannot drive that box, so P3 delivers (a) the local scratch-clone proxy run as specced AND (b) a self-contained CLEAN_MACHINE_CHECKLIST (prereq winget installs → clone → build.bat → expected results → pluginval if available → FL smoke) for Joe to execute there; Joe's results complete the ledger's PROVEN column.
 
 **Repo:** `C:\Users\JoeyD\Desktop\GentSampler\GentSampler` @ `0e89d5e`.
 **Provenance:** drafted by SPEC-DRAFTER; reviewed, corrected, and OWNED by the PLANNER 2026-07-07. Sources: CLAUDE.md landmines, BACKLOG.md packaging item, WAVE4_SPEC.md F4/F5 records + Risks, build.bat, CMakeLists.txt, README.md, THIRD_PARTY_LICENSES/README.md, GPU_HANDOFF.md, Source/StemSeparator.cpp (`kCudaDlls`), Source/ModelDownloader.cpp.
