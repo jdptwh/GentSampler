@@ -231,10 +231,14 @@ clean, passes pluginval, and runs stable inside FL Studio.
   retired)** + lipo universal2 (VST3/AU/dylib) + dylib-absent degradation
   + ad-hoc sign + ditto artifact `GentSampler-macOS-universal2` (37.2 MB).
   Spec checkpoints 3+4 COMPLETE; checklist authored (cp 5 = relay
-  pending). Iteration-commits reviewer pass in flight. REMAINING: relay
-  artifact to friend + Joe-directed Logic/Zoom checklist session
+  pending). Iteration commits reviewer PASS cycle 1, 0 findings (gates
+  re-run independently; EngineMath-untouched ruling upheld — fixture tie
+  was an analytic artifact, never blunt an ear-gate-approved comparison
+  for a test-only defect). REMAINING (human half): relay artifact to
+  friend + Joe-directed Logic/Zoom checklist session
   (MACOS_TEST_CHECKLIST.md); friend info still pending uname -m + macOS
-  version (Logic Pro latest confirmed, disk OK).
+  version (Logic Pro latest confirmed, disk OK). Port close = criterion
+  12 session GREEN, Joe-arbitrated.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
