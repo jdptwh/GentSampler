@@ -63,9 +63,9 @@ No changes were made to the model file; it is redistributed as-is.
   configure time — see `CMakeLists.txt` lines 34–38 (`ORT_VERSION "1.18.1"`,
   URL `https://github.com/microsoft/onnxruntime/releases/download/v1.18.1/onnxruntime-win-x64-gpu-1.18.1.zip`).
   The two core CPU-path DLLs (`onnxruntime.dll`, `onnxruntime_providers_shared.dll`)
-  are copied next to the deployed plugin at build time; the CUDA/cuDNN pack
-  is a separate, gated first-run download (see `ModelDownloader.cpp`) and is
-  not part of the default CPU-only install.
+  are copied next to the deployed plugin at build time; the zip's CUDA/cuDNN
+  components are NOT shipped or downloaded (GPU is gated off, `kEnableCuda=false`)
+  — the CPU-only install carries only the two core DLLs.
 - **Copyright:** Copyright Microsoft Corporation.
 - **License:** MIT — full text in
   [`onnxruntime/LICENSE`](onnxruntime/LICENSE).

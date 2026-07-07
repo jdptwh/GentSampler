@@ -94,21 +94,32 @@ source is non-empty before adopting it, and reconciling restore vs. the
 async slice-rebuild path. SEV-HIGH — silent data loss / host stall on a
 core round-trip. Needs a spec before implementation.
 
-## PACKAGING — do not ship the ~2.6 GB CUDA/cuDNN pack in the release build (flagged 2026-07-04)
-The full CUDA 11.8 / cuDNN 8.9 runtime (~2.6 GB: `onnxruntime_providers_cuda.dll`
-410 MB, `cudnn_cnn_infer64_8.dll` 571 MB, `cublasLt64_11.dll` 544 MB,
-`cufft64_10.dll` 280 MB, plus the rest of `kCudaDlls`) currently sits beside the
-build artefact (`build/GentSampler_artefacts/Release/VST3/.../x86_64-win/`,
-dated 2026-06-25). Per CLAUDE.md/CMakeLists the shipping design is: bundle only
-the two small core ORT DLLs next to the VST3; the CUDA EP + cuDNN + weights are a
-first-run ModelDownloader fetch to keep CPU-only installs small. The GPU pack is
-dev-box leftover from GPU experiments, not a build output (POST_BUILD copies only
-the 2 core DLLs). Runtime is CPU-only (`kEnableCuda=false`), and construct no
-longer touches these (fixed 2026-07-04). For the eventual installer/packaging
-pass: ensure the release/installer excludes the CUDA pack entirely (CPU-only
-payload), and confirm the pluginval/CI artefact folder doesn't carry it either
-(it was the trigger for the cold-open hang). No runtime dependency on these DLLs
-exists while CUDA is shelved. Packaging concern only — no code change implied.
+## RESOLVED 2026-07-07 (PACKAGING_SPEC.md P1/P2) — was: PACKAGING — do not ship the ~2.6 GB CUDA/cuDNN pack
+The CUDA/cuDNN dev pack was purged from BOTH the artefact-bundle source
+(P1, 12 files) and the deployed Program Files folder (P2, 12 files / 2.07 GB,
+Joe-approved dry-run). Nothing regenerates it (POST_BUILD copies only the 2
+core ORT DLLs; the deploy step copies only the binary; ModelDownloader has NO
+CUDA download code — the old "first-run CUDA fetch" description was a stale
+design note, corrected in CMakeLists comments + THIRD_PARTY_LICENSES this
+pass). build.bat's robocopy `/xf` exclusion (WAVE4 F5) guards the install
+path. Clean-machine proxy validated (PACKAGING_SPEC P3).
+
+## INSTALLER — follow-on spec (teed up 2026-07-07 per PACKAGING_SPEC OQ-PKG-A)
+Prerequisites are DONE (CUDA-free payload, licenses complete, README accurate,
+version 1.1.0). A real installer is a NEW-DEPENDENCY decision requiring Joe's
+authorization. The follow-on spec must answer:
+1. Payload definition: VST3 (+ Standalone?), the 2 core ORT DLLs, license
+   texts; models stay a first-run ModelDownloader fetch (~1.79 GB).
+2. Tooling choice (Joe authorizes): Inno Setup vs NSIS vs WiX vs "zip +
+   install.bat" zero-dependency option.
+3. First-run-downloader interplay (install dir permissions vs Documents\
+   GentSampler models dir — already user-writable, likely no change).
+4. Code-signing (unsigned binaries trip SmartScreen — cert cost/process is a
+   Joe business decision).
+5. BLOCKER for public distribution: the JUCE license mode declaration
+   (THIRD_PARTY_LICENSES marks it UNRESOLVED; decision brief delivered
+   2026-07-07 — closed-source w/ no splash + no LICENSE file is not valid
+   under any JUCE regime for public release).
 
 ## RESOLVED 2026-07-05 (`2ee2f53`, DATA_INTEGRITY_SPEC.md) — was: HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
 Data-integrity race on the state-restore path (paired with the sync-loadFile

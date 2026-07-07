@@ -153,9 +153,23 @@ clean, passes pluginval, and runs stable inside FL Studio.
   padding, abbreviation tooltips, empty-pad + hover, file-drag accent ring
   on hero, 880 floor pass = zero truncation; addendum 86abfb6: VEL/KBD
   3-letter chips, Joe-requested — labels overflowed). **PHASE E CLOSED —
-  Joe GREEN 2026-07-07 (all six tasks + addendum).** NEXT: the packaging
-  pass (spec in flight: CUDA-pack exclusion at the SOURCE + deployed-folder
-  cleanup + installer payload per BACKLOG).
+  Joe GREEN 2026-07-07 (all six tasks + addendum).** **PACKAGING PASS
+  COMPLETE 2026-07-07** (PACKAGING_SPEC.md, Joe-approved; reviewer PASS
+  cycle 1, 0 blocking): P1 artefact-source CUDA purge (12 files, rebuild-
+  stable) / P2 deployed-folder purge (12 files 2.07 GB, Joe-approved dry-run,
+  lead-executed) / P3 clean-machine local proxy GREEN (fresh clone, zero-state
+  fetch, CUDA-free install, pluginval 5) + CLEAN_MACHINE_CHECKLIST.md for
+  Joe's separate box / P4 THIRD_PARTY_LICENSES complete (JUCE mode
+  [UNRESOLVED — Joe to declare]; decision brief delivered — closed-source +
+  no splash + no LICENSE is not valid under ANY JUCE regime for PUBLIC
+  distribution; private builds fine) / P5 README verified + stale v2-claims
+  fixed + **version 1.1.0** (pluginval-confirmed) + stale CMake CUDA-comment
+  fix. BACKLOG: packaging item RESOLVED; INSTALLER follow-on teed up
+  (payload/tooling/downloader/code-signing/JUCE-mode-blocker). PENDING JOE:
+  FL check post-P2 (load + one separation), clean-machine checklist run,
+  reopen a 1.0.0-saved FL project post-bump, JUCE mode declaration.
+  NEXT: the INSTALLER spec (needs Joe's tooling authorization) once the
+  pending manual checks are green.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
