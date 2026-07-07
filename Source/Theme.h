@@ -322,7 +322,13 @@ namespace Theme
     // ------------------------------------------------------------------------
     inline const juce::Image& glowSprite()
     {
-        static juce::Image img = [] {
+        // TEARDOWN_FIX_SPEC.md: deliberately LEAKED (heap, never deleted). A
+        // function-local static juce::Image is Direct2D-backed here (BACKLOG 0.4
+        // finding); its destructor at DLL_PROCESS_DETACH runs under the Windows
+        // loader lock and deadlocks inside d3d11/the NVIDIA driver — the FL
+        // close-hang proven by the 2026-07-07 FL64.DMP analysis. The OS reclaims
+        // the 16 KB at process exit. Never convert back to a by-value static.
+        static juce::Image* img = new juce::Image ([] {
             constexpr int N = 64;
             juce::Image m (juce::Image::ARGB, N, N, true);
             juce::Graphics g (m);
@@ -331,7 +337,7 @@ namespace Theme
             g.setGradientFill (rg);
             g.fillEllipse (0.0f, 0.0f, (float) N, (float) N);
             return m;
-        }();
-        return img;
+        }());
+        return *img;
     }
 }

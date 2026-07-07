@@ -95,4 +95,4 @@ the ONLY change is that the destructor never runs.
 ## Record
 | Item | Commit | Evidence | Joe |
 |---|---|---|---|
-| F1 leak glowSprite | — | — | pending close-hang re-test (AC-4) |
+| F1 leak glowSprite | (this commit) | diff = Theme.h only; gates green (build+ctest, pluginval strictness 5 incl. open/close lifecycles); sibling-static grep clean (only remaining match is the fix's own comment) | pending close-hang re-test (AC-4, 3+ FL closes) |
