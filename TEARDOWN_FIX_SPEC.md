@@ -1,4 +1,4 @@
-# TEARDOWN_FIX_SPEC — FL-close deadlock (planner-authored micro-spec, Rule 8 / Wave-3 precedent; pending Joe approval)
+# TEARDOWN_FIX_SPEC — FL-close deadlock (planner-authored micro-spec; Joe-approved; **CLOSED 2026-07-07 — fix verified**)
 
 **Repo:** `C:\Users\JoeyD\Desktop\GentSampler\GentSampler` @ master tip. 2026-07-07.
 **Bug (Joe-reported):** closing FL Studio with any project containing GentSampler leaves FL unresponsive (>1 min, Windows "not responding", force-close required). Every time; only when GentSampler is present; observed throughout the build.
@@ -95,4 +95,4 @@ the ONLY change is that the destructor never runs.
 ## Record
 | Item | Commit | Evidence | Joe |
 |---|---|---|---|
-| F1 leak glowSprite | (this commit) | diff = Theme.h only; gates green (build+ctest, pluginval strictness 5 incl. open/close lifecycles); sibling-static grep clean (only remaining match is the fix's own comment) | pending close-hang re-test (AC-4, 3+ FL closes) |
+| F1 leak glowSprite | (this commit) | diff = Theme.h only; gates green (build+ctest, pluginval strictness 5 incl. open/close lifecycles); sibling-static grep clean (only remaining match is the fix's own comment) | **PASS (Joe, 2026-07-07): FL closes cleanly with GentSampler loaded — SPEC CLOSED** |

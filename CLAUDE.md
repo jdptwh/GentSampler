@@ -168,8 +168,11 @@ clean, passes pluginval, and runs stable inside FL Studio.
   (payload/tooling/downloader/code-signing/JUCE-mode-blocker). PENDING JOE:
   FL check post-P2 (load + one separation), clean-machine checklist run,
   reopen a 1.0.0-saved FL project post-bump, JUCE mode declaration.
-  NEXT: the INSTALLER spec (needs Joe's tooling authorization) once the
-  pending manual checks are green.
+  **TEARDOWN FIX 2026-07-07 (5a66bc1, TEARDOWN_FIX_SPEC.md, Joe-verified
+  CLOSED):** the forever FL-close hang was OUR static D2D glowSprite dtor
+  deadlocking under the loader lock (dump-proven) — now intentionally
+  leaked; see the new landmine. NEXT: INSTALLER_SPEC.md (planner-owned,
+  pause lifted, pending Joe approval — headline: authorize Inno Setup 6).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
@@ -319,3 +322,14 @@ Running list of past failures and their fixes, so they never recur.
   engine-check log NOT updating after a run is the tell that the probe hung.
 - Unicode in UI strings requires MSVC `/utf-8` (already set) — don't remove it
   or middots/arrows mojibake.
+- 2026-07-07 — FL froze FOREVER on every close with GentSampler loaded
+  (force-close required, present since Phase A): a function-local
+  `static juce::Image` (Theme.h glowSprite) is Direct2D-backed here; its
+  destructor ran at DLL_PROCESS_DETACH under the Windows LOADER LOCK and
+  deadlocked inside d3d11/nvwgf2umx (dump-proven, FL64.DMP; fix `5a66bc1`
+  per TEARDOWN_FIX_SPEC.md). RULE: never hold a JUCE object with native
+  resources (Image/graphics/threads) in a static with a destructor —
+  intentionally LEAK such caches (`static T* x = new T(...)`). A dump-
+  analysis rig exists: winget WinDbg -> copy amd64\cdb.exe out of
+  WindowsApps (direct exec is ACL-blocked) -> `cdb -z dump -c ".symfix;
+  .reload; ~*kb; q"`.

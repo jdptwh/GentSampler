@@ -1,4 +1,4 @@
-# INSTALLER_SPEC — FINAL (planner-owned; **EXECUTION PAUSED by Joe 2026-07-07** — FL-close-hang investigation takes priority; spec NOT yet Joe-approved)
+# INSTALLER_SPEC — FINAL (planner-owned; pause LIFTED 2026-07-07 — FL-close hang fixed & Joe-verified; **pending Joe approval**)
 
 **Repo:** `C:\Users\JoeyD\Desktop\GentSampler\GentSampler` @ master tip (post-PACKAGING close).
 **Provenance:** drafted by SPEC-DRAFTER; reviewed, corrected, and OWNED by the PLANNER 2026-07-07. Sources verified: BACKLOG.md INSTALLER item, PACKAGING_SPEC.md (P3 ledger + Joe close-out), build.bat, CMakeLists.txt:1–160, CLEAN_MACHINE_CHECKLIST.md, Source/ModelDownloader.cpp, Source/PluginProcessor.cpp:933–940/1322–1352 (models-dir resolution — install-independent, claim TRUE), THIRD_PARTY_LICENSES/README.md:23–47 (JUCE commercial declaration), .claude/agent.config, .gitignore (NO dist/ entry today), README.md.

@@ -3,7 +3,7 @@
 Items here need a spec before any implementation. Do not pick these up
 without Joe green-lighting a spec.
 
-## HIGH — FL Studio hangs on close whenever a project contains GentSampler (Joe-reported 2026-07-07)
+## RESOLVED 2026-07-07 (TEARDOWN_FIX_SPEC.md, 5a66bc1, Joe-verified) — was: HIGH — FL hangs on close with GentSampler loaded
 Repro (Joe): open any FL project containing GentSampler -> close FL -> FL goes
 unresponsive, requires force-close. Happens EVERY time, ONLY when GentSampler
 is in the open project; has occurred "all throughout the build."
@@ -31,7 +31,7 @@ FIX CANDIDATE (cheap, zero-risk): intentionally leak the sprite
 DLL detach — the standard JUCE-plugin pattern for native-resource statics;
 16KB reclaimed by the OS at process exit. Audit for any sibling static JUCE
 objects while in there. Needs a micro-spec + Joe approval.
-INSTALLER task is PAUSED pending this fix (a shutdown hang must not ship).
+RESOLUTION: dump-proven (FL64.DMP: LdrUnloadDll -> static dtors -> d3d11 -> nvwgf2umx infinite wait under loader lock); glowSprite static leaked intentionally; Joe verified clean FL closes. INSTALLER pause lifted.
 
 ## P3 retry: per-column wave-gradient "breathing" (benched 2026-07-02)
 REDESIGN_C6_POLISH.md P3 was reverted after the cached 1x256 waveRamp blit
