@@ -1,0 +1,142 @@
+# macos-build.yml — MACOS_PORT_SPEC.md Phase 2 (criterion 7, Amendment A2).
+#
+# THIN WRAPPER (Rule 10): all gate logic lives in .claude/hooks/build_test.sh
+# and .claude/hooks/pluginval_gate.sh — this workflow invokes the SAME two
+# hooks a local mac box would, plus the CI-only machine gates that have no
+# local equivalent yet (auval, lipo universal2 asserts, dylib-absent
+# degradation, ad-hoc signing, ditto packaging). Do not duplicate gate
+# CONTENT into this file — if the build/test steps need to change, change
+# the hooks, not this workflow.
+#
+# Triggers deliberately narrow (Risk R10 — mac runner minutes bill at 10x):
+# workflow_dispatch always available, plus push only when a path that can
+# affect the mac build actually changed. No bare "push: branches: [master]".
+
+name: macOS Build
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - "Source/**"
+      - "tests/**"
+      - "CMakeLists.txt"
+      - ".claude/hooks/build_test.sh"
+      - ".claude/hooks/pluginval_gate.sh"
+      - ".github/workflows/macos-build.yml"
+
+# One run at a time per ref — avoid burning parallel mac minutes on rapid
+# successive pushes (Risk R10).
+concurrency:
+  group: macos-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Honored by .claude/hooks/pluginval_gate.sh's mac branch (env-var override
+  # first, per MACOS_PORT_SPEC.md file plan).
+  PLUGINVAL_BIN: ${{ github.workspace }}/pluginval.app/Contents/MacOS/pluginval
+  VST3_BUNDLE: build/GentSampler_artefacts/Release/VST3/GentSampler.vst3
+  AU_BUNDLE: build/GentSampler_artefacts/Release/AU/GentSampler.component
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---- primary gate: same hook a local mac box would run ----
+      - name: Build + ctest (primary gate)
+        run: bash .claude/hooks/build_test.sh
+
+      # ---- provision the official mac pluginval release binary ----
+      - name: Download pluginval (macOS)
+        run: |
+          set -euo pipefail
+          curl -L -o pluginval_macOS.zip \
+            "https://github.com/Tracktion/pluginval/releases/latest/download/pluginval_macOS.zip"
+          ditto -x -k pluginval_macOS.zip .
+          xattr -dr com.apple.quarantine pluginval.app || true
+          chmod +x "${PLUGINVAL_BIN}"
+
+      # ---- CI must never let the hook's local auto-skip silently pass ----
+      # (a skipped secondary gate in CI = a FAILED run — MACOS_PORT_SPEC.md
+      # criterion 7).
+      - name: Assert pluginval is present and executable
+        run: |
+          set -euo pipefail
+          if [ ! -x "${PLUGINVAL_BIN}" ]; then
+            echo "::error::pluginval binary missing or not executable at ${PLUGINVAL_BIN} — the secondary gate would silently auto-skip. Failing the run per MACOS_PORT_SPEC.md criterion 7."
+            exit 1
+          fi
+          "${PLUGINVAL_BIN}" --version
+
+      # ---- secondary gate: same hook a local mac box would run ----
+      - name: pluginval strictness 5 (secondary gate)
+        run: bash .claude/hooks/pluginval_gate.sh
+
+      # ---- AU machine gate (criterion 11, Amendment A2: from the FIRST run) ----
+      - name: Install AU component + auval
+        run: |
+          set -euo pipefail
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "${AU_BUNDLE}" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar || true
+          auval -v aumu Gsmp Jtgt
+
+      # ---- universal2 asserts (criterion 8): both plugin binaries AND the
+      # bundled ORT dylib must all report x86_64 arm64 ----
+      - name: lipo universal2 asserts
+        run: |
+          set -euo pipefail
+          check_universal() {
+            local path="$1"
+            local archs
+            archs="$(lipo -archs "$path")"
+            echo "lipo -archs $path => $archs"
+            if [[ "$archs" != *"x86_64"* || "$archs" != *"arm64"* ]]; then
+              echo "::error::$path is not universal2 (got: $archs)"
+              exit 1
+            fi
+          }
+          check_universal "${VST3_BUNDLE}/Contents/MacOS/GentSampler"
+          check_universal "${AU_BUNDLE}/Contents/MacOS/GentSampler"
+          check_universal "${VST3_BUNDLE}/Contents/Frameworks/libonnxruntime.1.18.1.dylib"
+
+      # ---- dylib-absent degradation, MACHINE half (criterion 10) ----
+      # Copy the built VST3 bundle, strip the ORT dylib, re-ad-hoc-sign, and
+      # confirm pluginval still passes (plugin loads, no crash, engine simply
+      # reports unavailable — mirrors the Windows missing-DLL behavior).
+      - name: Dylib-absent degradation (machine half)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/GentSampler_nodylib.vst3
+          ditto "${VST3_BUNDLE}" /tmp/GentSampler_nodylib.vst3
+          rm -f /tmp/GentSampler_nodylib.vst3/Contents/Frameworks/libonnxruntime.1.18.1.dylib
+          codesign --force --deep --sign - /tmp/GentSampler_nodylib.vst3
+          "${PLUGINVAL_BIN}" --strictness-level 5 --skip-gui-tests --validate /tmp/GentSampler_nodylib.vst3
+
+      # ---- ad-hoc re-sign the SHIPPING bundles AFTER the ORT dylib is
+      # inserted (criterion 7 / criterion 15a) — arm64 refuses to run wholly
+      # unsigned code at all; this is the private-testing signing half. ----
+      - name: Ad-hoc re-sign shipping bundles
+        run: |
+          set -euo pipefail
+          codesign --force --deep --sign - "${VST3_BUNDLE}"
+          codesign --force --deep --sign - "${AU_BUNDLE}"
+
+      # ---- package with ditto BEFORE upload (Risk R11 — upload-artifact
+      # destroys symlinks/exec bits; never upload a bare bundle tree) ----
+      - name: Package bundles (ditto zip)
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ditto -c -k --keepParent "${VST3_BUNDLE}" dist/GentSampler-vst3-universal2.zip
+          ditto -c -k --keepParent "${AU_BUNDLE}" dist/GentSampler-component-universal2.zip
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: GentSampler-macOS-universal2
+          path: dist/*.zip
+          if-no-files-found: error
