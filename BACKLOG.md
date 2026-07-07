@@ -3,6 +3,36 @@
 Items here need a spec before any implementation. Do not pick these up
 without Joe green-lighting a spec.
 
+## HIGH — FL Studio hangs on close whenever a project contains GentSampler (Joe-reported 2026-07-07)
+Repro (Joe): open any FL project containing GentSampler -> close FL -> FL goes
+unresponsive, requires force-close. Happens EVERY time, ONLY when GentSampler
+is in the open project; has occurred "all throughout the build."
+PRIME SUSPECT (initial audit 2026-07-07, unconfirmed): Theme.h:325
+`glowSprite()` holds a function-local `static juce::Image` (64x64 ARGB).
+Function-local statics destruct at DLL_PROCESS_DETACH (FL FreeLibrarys the
+plugin at close) UNDER THE WINDOWS LOADER LOCK; per this repo's own 0.4
+finding, default `juce::Image(ARGB,...)` routes through the NATIVE/Direct2D
+image type in this JUCE 8 setup -> its destructor releases D2D/DXGI COM
+resources under loader lock -> classic deadlock. Timeline fits (glow sprite =
+Phase A skin). Painted by every arc knob + the BLEED slider, so it is created
+in every editor session.
+Other teardown paths audited clean so far: processor dtor = cancelPendingUpdate
++ stopThread(10000) (worker idles in wait(250), exits fast); Ort::Env objects
+are per-instance unique_ptrs destroyed at processor dtor (not statics);
+onnxruntime.dll is LoadLibrary'd and intentionally never freed (safe);
+gentCheckStemEngine probe creates no Env/threads.
+CONFIRMATION WANTED before fixing: (a) hang duration (forever vs ~10s bounds
+the mechanism); (b) does the STANDALONE also hang on close? (standalone exits
+via ExitProcess -> statics may not run the same way -> a no-hang there is
+consistent with the loader-lock theory); (c) ideally a hang dump (Task Manager
+-> Details -> FL64.exe -> Create dump file while hung) for definitive stacks.
+FIX CANDIDATE (cheap, zero-risk): intentionally leak the sprite
+(`static juce::Image* img = new juce::Image(...)`) so no destructor runs at
+DLL detach — the standard JUCE-plugin pattern for native-resource statics;
+16KB reclaimed by the OS at process exit. Audit for any sibling static JUCE
+objects while in there. Needs a micro-spec + Joe approval.
+INSTALLER task is PAUSED pending this fix (a shutdown hang must not ship).
+
 ## P3 retry: per-column wave-gradient "breathing" (benched 2026-07-02)
 REDESIGN_C6_POLISH.md P3 was reverted after the cached 1x256 waveRamp blit
 rendered the hero wave at ~half alpha (measured lum 51->27, amber lost).
