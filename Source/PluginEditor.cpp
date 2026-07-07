@@ -1687,7 +1687,31 @@ void GentSamplerAudioProcessorEditor::timerCallback()
 
     undoBtn.setEnabled (p.canUndo());
     redoBtn.setEnabled (p.canRedo());
-    fileLbl.setText (p.getFileName(), juce::dontSendNotification);
+
+    // PHASE E4.3: middle-ellipsize the filename into its fixed slot (keep the
+    // head AND the tail — "Apocalypse-All The Peo…-Abm-[Master]" reads better
+    // than a mid-token tail cut); full name on hover. Recomputed only when the
+    // name actually changes.
+    if (const auto raw = p.getFileName(); raw != lastRawFile)
+    {
+        lastRawFile = raw;
+        const auto f = fileLbl.getFont();
+        const float maxW = (float) fileLbl.getWidth() - 4.0f;
+        juce::String shown = raw;
+        if (f.getStringWidthFloat (shown) > maxW)
+        {
+            const juce::String ell (juce::CharPointer_UTF8 ("\xe2\x80\xa6"));
+            for (int keep = raw.length() - 1; keep > 4; --keep)
+            {
+                const int h = (keep + 1) / 2, t = keep / 2;
+                juce::String cand = raw.substring (0, h) + ell + raw.getLastCharacters (t);
+                if (f.getStringWidthFloat (cand) <= maxW) { shown = cand; break; }
+                shown = cand;
+            }
+        }
+        fileLbl.setText (shown, juce::dontSendNotification);
+        fileLbl.setTooltip (raw);
+    }
 
     // E1.5: MIDI-activity LED — lights on pad triggers (lastTriggerCount), holds
     // ~3 ticks (~200ms @15Hz) so single taps register visibly.
@@ -1859,15 +1883,45 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         if (qualityBox.getSelectedId() != juce::jlimit (0, 2, p.getStemQuality()) + 1)
             qualityBox.setSelectedId (juce::jlimit (0, 2, p.getStemQuality()) + 1, juce::dontSendNotification);
 
+        // PHASE E4.1: busy->ready edge starts the STEMS READY badge clock; the
+        // badge (chip style, bone text) fades out ~3s later and the raw
+        // timing/backend line ("done (62.6 s, CPU)") moves to its tooltip.
+        if (busy || dling)                    wasBusySep = true;
+        else if (wasBusySep && ready)       { wasBusySep = false; stemsReadyAt = juce::Time::getMillisecondCounter(); }
+        else if (! ready)                     wasBusySep = false;
+
         if (dling)
+        {
+            stemStatusLbl.setAlpha (1.0f);
             stemStatusLbl.setText (p.getStemStatus(), juce::dontSendNotification);   // "Downloading models 42%"
+        }
         else if (busy)
+        {
+            stemStatusLbl.setAlpha (1.0f);
             stemStatusLbl.setText ("Separating " + juce::String (juce::roundToInt (p.getStemProgress() * 100.0f)) + "%",
                                    juce::dontSendNotification);
+        }
         else if (ready)
-            stemStatusLbl.setText (p.getStemStatus().isNotEmpty() ? p.getStemStatus() : juce::String ("Stems ready"),
-                                   juce::dontSendNotification);
+        {
+            const juce::uint32 since = juce::Time::getMillisecondCounter() - stemsReadyAt;
+            if (stemsReadyAt != 0 && since < 3000)
+            {
+                stemStatusLbl.setText ("STEMS READY", juce::dontSendNotification);
+                stemStatusLbl.setAlpha (since < 2400 ? 1.0f : 1.0f - (float) (since - 2400) / 600.0f);
+            }
+            else
+            {
+                stemStatusLbl.setText ({}, juce::dontSendNotification);               // quiet once acknowledged
+                stemStatusLbl.setAlpha (1.0f);
+            }
+            stemStatusLbl.setTooltip (p.getStemStatus());                             // "done (62.6 s, CPU)" details
+        }
         else
-            stemStatusLbl.setText ("No stems yet", juce::dontSendNotification);
+        {
+            stemStatusLbl.setAlpha (1.0f);
+            const auto st = p.getStemStatus();
+            stemStatusLbl.setText (st.containsIgnoreCase ("failed") ? st : juce::String ("No stems yet"),
+                                   juce::dontSendNotification);                       // failures stay visible
+        }
     }
 }

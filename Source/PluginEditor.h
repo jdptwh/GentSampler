@@ -1180,23 +1180,10 @@ private:
                 g.drawText (juce::String (i + 1), (int) fx, (int) fy, (int) (fw - fh * 0.4f), (int) fh,
                             juce::Justification::centred);
 
-                // selected territory tag: "CUE n · 14.2s", or "CUE n · OPEN" when gated
-                if (selPad && sr > 0.0)
-                {
-                    const juce::String tag = open
-                        ? ("CUE " + juce::String (i + 1) + "  OPEN")
-                        : ("CUE " + juce::String (i + 1)
-                           + juce::String::formatted ("  %.1fs",
-                                 (double) (p.getEffectiveCueEnd (i) - p.getCue (i)) / sr));
-                    g.setFont (juce::Font (9.0f, juce::Font::bold));
-                    const float tw = g.getCurrentFont().getStringWidthFloat (tag) + 12.0f;
-                    auto tr = juce::Rectangle<float> (juce::jlimit (0.0f, (float) w - tw, xs + 2.0f),
-                                                      (float) top + 3.0f, tw, 15.0f);
-                    g.setColour (Theme::well.withAlpha (0.85f));
-                    g.fillRoundedRectangle (tr, 4.0f);
-                    g.setColour (Theme::accent);
-                    g.drawText (tag, tr, juce::Justification::centred);
-                }
+                // PHASE E4.2: the floating "CUE n · OPEN/len" tag is GONE — it
+                // clipped at the strip's top edge, overlapped the waveform, and
+                // duplicated the slice-detail strip's CUE/END/LEN readout. Any
+                // future anchored playhead/cue tag is its own proposal.
             }
 
             if (open)
@@ -3021,6 +3008,9 @@ private:
     PitchValueChip masterPitch;                                // E1.3: header PITCH as a drag-value chip
     MidiLed midiLed;                                           // E1.5: passive MIDI-activity LED
     int ledTrigSeen = -1, ledHold = 0;                         // E1.5: LED drive state (timer-polled)
+    juce::uint32 stemsReadyAt = 0;                             // E4.1: when separation completed (badge fade clock)
+    bool wasBusySep = false;                                   // E4.1: busy->ready edge detector
+    juce::String lastRawFile;                                  // E4.3: middle-ellipsis cache key
     juce::Slider padPitch, padLevel, padAtt, padRel, padCrush, padSpeed, padPan, padCutoff, padReso, padBleed;
     juce::Slider padGrainSize, padGrainDens, padGrainPos, padGrainSpray, padGrainPitch;
 
