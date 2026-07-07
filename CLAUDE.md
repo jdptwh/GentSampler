@@ -129,16 +129,25 @@ clean, passes pluginval, and runs stable inside FL Studio.
   sites, isOpenSlice-gated so non-open/cue/grain byte-identical). Opus
   reviewer PASS cycle 1, 0 findings, gates re-run independently (116
   ctest). U1's gate was FL-lock-blocked ~40 min (deliberate gate; lead
-  resumed after release). **POLISH PASS NOW OPEN (Joe-ordered 2026-07-06):
-  PHASE E** — UI polish per PHASE_E_POLISH_PASS.md (doc NOT yet on disk;
-  Joe to supply). Rules: tasks E1→E6 strictly one at a time; every task
-  starts with a code-inventory audit (verify the doc against the code);
-  E1 has an HTML-mockup gate (1040px + 880px, Joe sign-off BEFORE JUCE
-  code); report-and-wait items: the two unlabeled TEMPO icons, QUANTIZE
-  toggle-vs-action; full clean files not diffs; verify each task at
-  1040×700 AND 880×592 with before/after screenshots; build with
-  `cmake --build build --config Release --parallel`. No new features, no
-  architecture changes, visual language locked per the doc header.
+  resumed after release). **PHASE E POLISH PASS IN PROGRESS** (doc =
+  PHASE_E_POLISH_PASS.md, repo root; rules: E1→E6 one at a time, audit-first
+  per task, full clean files, verify 1040×700 + 880×592 floor with
+  before/after captures — rig = scratchpad capture.ps1; build with
+  `cmake --build build --config Release --parallel`; capture BEFORE
+  implementing for the before shots; kill only OUR launched standalone,
+  never FL). STATUS: **E1 DONE + Joe GREEN** (5ff1149; mockup gate passed
+  via E1_HEADER_MOCKUP.html, variants B/B: MIDI cluster keeps ⠿MID drag-out,
+  undo/redo→FILE zone; tagline kerning .22→.14 to fit un-ellipsized —
+  flagged, accepted). **E2 DONE + Joe GREEN** (d71a88a; gent::fmt in
+  EngineMath.h + tests/FormatTests.cpp doctests, all 15 attachPad sliders +
+  header labels routed, LNF createSliderTextBox → Theme::mono tabular).
+  **E3 DONE pending Joe** (4cffcbe; rainbow padColour DELETED — pads 13-16
+  magenta source; padSourceColour→neutral bone fallback, single-stem pads
+  keep stem tokens; playing = amber face + pulsing ring; .chip.on demoted
+  to outline+text, TrigPad/HeroViewSeg actives promoted to SOLID+ink).
+  NEXT: E4 (hero strip: STEMS READY badge, remove CUE tag, middle-ellipsize
+  filename, 0:00 ruler anchor) → E5 (chip taxonomy; QUANTIZE toggle-vs-action
+  is a REPORT-AND-WAIT item; E5.2/5.3 may need quick mockup) → E6 sweep.
   Packaging pass queued AFTER Phase E.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
