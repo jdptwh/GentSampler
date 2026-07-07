@@ -70,8 +70,9 @@ clean, passes pluginval, and runs stable inside FL Studio.
   encode/mid-separation → heap corruption). All long worker jobs now
   abortable (chunked encodes/reads polling threadShouldExit; StemSeparator
   shouldAbort per segment + per bag submodel, abort = existing failure
-  shape, partials never adopted); dtor stopThread(10000) headroom. AWAITING
-  Joe's close-during-separation / close-during-cache-write check. AUDIT run 2026-07-05
+  shape, partials never adopted); dtor stopThread(10000) headroom.
+  **Close-during-separation check PASSED 2026-07-07** (Joe: clean FL closes
+  with no separation AND mid-separation, post-Phase-1 binary). AUDIT run 2026-07-05
   (multi-agent, wf_81cf0f51-134): 18 confirmed findings -> PREPACKAGE_AUDIT.md.
   **WAVE 1 (six HIGHs) COMPLETE** per the full ROUTING pipeline: drafter ->
   planner spec (WAVE1_SPEC.md, Joe-approved) -> implementer checkpoint commits
@@ -210,9 +211,16 @@ clean, passes pluginval, and runs stable inside FL Studio.
   doctests, pluginval 5 cold+warm); Opus reviewer PASS cycle 1, 0
   blocking, 1 informational nit (AU staging plumbing ruled in-scope),
   gates re-run independently, Windows branch verified byte-identical.
-  PHASE 2 BLOCKED ON: Joe's private-GitHub push (walkthrough delivered);
-  pending friend info = uname -m / macOS ver / free disk / Logic Pro
-  version (NOT GarageBand) / optional MIDI controller.
+  Phase 1 FL sanity PASS 2026-07-07 (Joe: load + function fine; one FL
+  close-hang observed ONCE post-Phase-1, then unreproducible in Joe's
+  retests at every stage incl. mid-separation — Phase 1 diff exonerated by
+  inspection (compile-time-only changes, statics unchanged), box-state
+  suspected per the 2026-07-06 OOM precedent; NO code action, watch for
+  recurrence + grab an FL64 dump if it ever hangs forever again).
+  PHASE 2 BLOCKED ON: Joe running `git push -u origin master` (remote
+  origin=github.com/jdptwh/GentSampler already configured; lead push was
+  permission-denied — Joe pushes himself). Friend info: latest Logic Pro
+  confirmed + disk OK; still pending uname -m + macOS version.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
