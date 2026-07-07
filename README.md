@@ -46,7 +46,7 @@ That last one installs Microsoft's command-line C++ compiler — no Visual Studi
 
 ## Build
 
-Double-click **build.bat** (right-click → Run as administrator to install system-wide). First build downloads JUCE and takes a few minutes; after that it's fast. The script installs to `C:\Program Files\Common Files\VST3` (or `Documents\VST3` without admin — it tells you if you need to add that path in FL).
+Double-click **build.bat** (right-click → Run as administrator to install system-wide). First build downloads JUCE, ONNX Runtime, and the Signalsmith Stretch engine and takes a few minutes; after that it's fast. The script installs to `C:\Program Files\Common Files\VST3` (or `Documents\VST3` without admin — it tells you if you need to add that path in FL).
 
 ## In FL Studio
 
@@ -58,7 +58,7 @@ Double-click **build.bat** (right-click → Run as administrator to install syst
 
 ## Honest engineering notes
 
-- Per-pad pitch is classic repitch (MPC style — pitch up plays slightly faster). Master pitch IS length-preserving. Formant-preserving per-pad stretch and AI stem separation are the v2 features.
+- Per-pad pitch is classic repitch (MPC style — pitch up plays slightly faster). Master pitch IS length-preserving. AI stem separation (drums/bass/vocals/other, +guitar/piano) and audio-to-MIDI transcription now ship in v1 — separation runs CPU-only (GPU acceleration is disabled pending further work) and downloads its ~1.79 GB model set on first use. Formant-preserving per-pad stretch is a v2 feature.
 - Tempo changes re-render in the background; a big jump on a long sample takes a moment, and sounding pads cut over to the new render when it lands.
 - Automating master pitch triggers re-renders — sound-design move, not a per-note move (use per-pad pitch or keyboard mode for that).
 - MIDI capture timestamps at audio-block resolution against a free-running clock; quantize in the piano roll if you want it tighter.

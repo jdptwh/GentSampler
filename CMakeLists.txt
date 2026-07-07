@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(GentSampler VERSION 1.0.0)
+project(GentSampler VERSION 1.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -23,9 +23,11 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 #  ONNX Runtime (GPU build: CUDA + TensorRT + CPU) for the stem-separation engine.
 #  Auto-downloaded as a NuGet package (.nupkg = zip) so build.bat stays one-click.
 #  The execution provider is chosen at RUNTIME by the provider-priority chain in
-#  StemSeparator (CUDA -> CPU in v1). The heavy CUDA/cuDNN runtime DLLs and the
-#  large CUDA EP DLL are NOT bundled here -- they are a first-run download (see
-#  ModelDownloader) so the installer stays small for CPU-only users.
+#  StemSeparator (CUDA -> CPU in v1, though CUDA is currently gated off --
+#  kEnableCuda=false). The heavy CUDA/cuDNN runtime DLLs and the large CUDA EP
+#  DLL are NOT bundled or downloaded by this build at all (no CUDA download path
+#  exists anywhere in the repo, including ModelDownloader, which only fetches the
+#  Demucs/Basic-Pitch .onnx model weights on first use) -- CPU-only installs stay small.
 # ============================================================================
 # Legacy ORT 1.18.1 (CUDA 11.8 + cuDNN 8.9 build). The modern 1.22 + cuDNN-9 path is
 # a dead end on this model/GPU (cuDNN-9 conv frontend wall + a 1.21/1.22 CUDA stream
@@ -111,8 +113,9 @@ target_link_libraries(GentSampler
 # ---- copy ONLY the small ONNX Runtime core DLLs next to the built VST3 binary ----
 # onnxruntime.dll + the EP shim are enough for the CPU path (the CUDA provider is
 # delay-loaded). The large CUDA EP DLL (onnxruntime_providers_cuda.dll) and the
-# CUDA/cuDNN runtime are first-run downloads (ModelDownloader), so CPU-only installs
-# stay small. (onnxruntime_providers_cuda.dll is collected into the CUDA pack instead.)
+# CUDA/cuDNN runtime are NOT downloaded by this build at all -- ModelDownloader only
+# fetches the Demucs/Basic-Pitch .onnx model weights, never the CUDA pack -- so
+# CPU-only installs stay small.
 add_custom_command(TARGET GentSampler_VST3 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_NATIVE_DIR}/onnxruntime.dll"
