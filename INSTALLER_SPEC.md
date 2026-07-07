@@ -364,3 +364,12 @@ locates ISCC on this authoring machine without requiring a manual PATH edit;
 the fail-closed behavior (loud non-zero exit with install instructions) is
 unchanged if none of the three locations resolve. Flagged for reviewer
 attention rather than silently folded in.
+
+**WAVE CLOSE 2026-07-07:** Opus reviewer PASS cycle 1, **0 findings, 0 nits**
+(gates re-run independently; .iss verified against all seven requirements +
+the dirifempty amendment; scope exact; shipped cut verified to postdate the
+amendment; the ISCC third-fallback deviation assessed additive-and-fail-closed
+— not a finding). verdict.json + verdict_lint exit 0. T1-T6 ALL PASS incl.
+Joe's dev-box cycle (T4) and clean-machine test (T5). **INSTALLER SPEC
+CLOSED.** Surviving BEFORE-PUBLIC-RELEASE gates (BACKLOG): JUCE commercial
+purchase, code-signing cert, EULA decision.

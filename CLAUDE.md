@@ -171,8 +171,22 @@ clean, passes pluginval, and runs stable inside FL Studio.
   **TEARDOWN FIX 2026-07-07 (5a66bc1, TEARDOWN_FIX_SPEC.md, Joe-verified
   CLOSED):** the forever FL-close hang was OUR static D2D glowSprite dtor
   deadlocking under the loader lock (dump-proven) — now intentionally
-  leaked; see the new landmine. NEXT: INSTALLER_SPEC.md (planner-owned,
-  pause lifted, pending Joe approval — headline: authorize Inno Setup 6).
+  leaked; see the new landmine. **INSTALLER WAVE COMPLETE + CLOSED
+  2026-07-07** (INSTALLER_SPEC.md T1-T6; reviewer PASS cycle 1, 0
+  findings): installer/GentSampler.iss (Inno Setup 6.7.3, Joe-authorized;
+  fail-closed /DAppVer version injection parsed from CMakeLists;
+  64-bit-forced {commoncf}; stable AppId; dirifempty uninstall cleanup —
+  T4 found+fixed the empty-skeleton-after-uninstall bug) +
+  installer/make_installer.bat (CUDA pre-flight, 3-keeper check, 3-path
+  ISCC locate) -> dist/GentSamplerSetup-1.1.0.exe (gitignored; REBUILD-
+  THEN-REPACKAGE before handing an exe to anyone — it snapshots the
+  artefact). Joe dev-box cycle PASS (T4, ACL re-grant proven) + Joe
+  clean-machine PASS (T5 — also closed PACKAGING P3's deferred rows).
+  README has the install path + PRIVATE-distribution warning. SHIP GATES
+  REMAINING (BACKLOG "BEFORE PUBLIC RELEASE"): JUCE commercial PURCHASE
+  (mode declared, not bought), code-signing cert, EULA decision.
+  NEXT (Joe-ordered): macOS PORT — BACKLOG item, needs its own spec in a
+  fresh session (drafter -> planner -> Joe approval per ROUTING).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
