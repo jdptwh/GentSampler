@@ -158,7 +158,7 @@ Code-signing execution; JUCE license purchase; EULA authoring; Standalone packag
 | Task | Commit / session log | Evidence | Reviewer verdict | Joe |
 |---|---|---|---|---|
 | T1 | IMPLEMENTER 2026-07-07 | see T1 evidence block below | pending | |
-| T2 | | | | |
+| T2 | IMPLEMENTER 2026-07-07 | see T2 evidence block below | pending | |
 | T3 | | | | |
 | T4 | | | | |
 | T5 | | | | — (Joe IS the gate) |
@@ -197,3 +197,49 @@ Exactly the 3 expected keepers, nothing else — matches PACKAGING's proof, no C
 - Patterns required absent (any match = exit non-zero, no compile): `cublas*.dll`, `cudart*.dll`, `cudnn*.dll`, `cufft*.dll`, `curand*.dll`, `nvrtc*.dll`, `onnxruntime_providers_cuda.dll`.
 
 **Models-dir independence note:** the installer never references `Documents\GentSampler` in any section. Verified by source citation — `Source/PluginProcessor.cpp:936` (`gentCheckStemEngine` one-time check) and `Source/PluginProcessor.cpp:1325` (stem-separation job) both resolve the models directory as `juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("GentSampler").getChildFile ("models")` — a per-user special-folder lookup resolved at runtime, wholly independent of where the VST3 bundle itself is installed. Installing to `{commoncf}\VST3\...` has no effect on model resolution.
+
+### T2 evidence (`installer\GentSampler.iss` authoring)
+
+**Inno Setup version installed (winget, this machine):** 6.7.3, at
+`C:\Users\JoeyD\AppData\Local\Programs\Inno Setup 6\ISCC.exe` (a per-user
+winget install — NOT under `%ProgramFiles(x86)%`; `where ISCC` alone does not
+find it because that dir is not on PATH. `make_installer.bat`'s ISCC-locate
+step in T3 accounts for this exact path). ISCC banner:
+`Inno Setup 6 Command-Line Compiler ... Compiler engine version: Inno Setup 6.7.3`.
+Since 6.7.3 ≥ 6.3, `ArchitecturesAllowed=x64compatible` /
+`ArchitecturesInstallIn64BitMode=x64compatible` (the modern directive names)
+are used, not the legacy `x64` token.
+
+**AppId GUID** (generated once via PowerShell `[guid]::NewGuid()`, committed
+in `installer\GentSampler.iss`'s `[Setup]` section): `{34A283D6-272B-491E-84BD-AFD079B239F7}`.
+
+**Compile WITHOUT `/DAppVer`** (expect failure via the `#error` guard):
+```
+Preprocessing
+   Reading file: C:\Users\JoeyD\AppData\Local\Programs\Inno Setup 6\ISPPBuiltins.iss
+Error on line 12 in C:\Users\JoeyD\Desktop\GentSampler\GentSampler\installer\GentSampler.iss: "AppVer must be defined on the command line, e.g. ISCC /DAppVer=1.1.0 GentSampler.iss -- do not hardcode a version here."
+Compile aborted.
+```
+Exit code 2 (failure), as required.
+
+**Compile WITH `/DAppVer=1.1.0`** (expect success):
+```
+Successful compile (3.594 sec). Resulting Setup program filename is:
+C:\Users\JoeyD\Desktop\GentSampler\GentSampler\dist\GentSamplerSetup-1.1.0.exe
+```
+`[Files]` section compiled and packed exactly the T1 payload (3 keepers from
+the staged artefact dir + the full `THIRD_PARTY_LICENSES` tree +
+`README.md`), confirmed by the compressing-file log lines emitted during this
+run (`GentSampler.vst3`, `onnxruntime.dll`, `onnxruntime_providers_shared.dll`,
+`THIRD_PARTY_LICENSES\README.md` + all 5 sub-license files, and the repo-root
+`README.md`) — no other files. This `dist\GentSamplerSetup-1.1.0.exe` was
+produced solely as T2's AC-T2(1) verification artefact; T3 defines the
+gitignore rule and is the task that owns the real end-to-end production run.
+
+All seven `.iss` requirements are present in the committed file: `#ifndef
+AppVer`/`#error` guard; `AppVersion`/`OutputBaseFilename` from `{#AppVer}`;
+`PrivilegesRequired=admin` + the two 64-bit architecture directives; fixed
+`DefaultDirName={commoncf}\VST3\GentSampler.vst3` + `DisableDirPage=yes`;
+stable committed `AppId`; no `LicenseFile` directive anywhere; no
+`[UninstallDelete]`/`[Registry]`/`[Run]` sections and no force-close
+directives (Inno's default abort/retry dialog is relied on for in-use files).
