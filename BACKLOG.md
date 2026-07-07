@@ -116,10 +116,10 @@ authorization. The follow-on spec must answer:
    GentSampler models dir — already user-writable, likely no change).
 4. Code-signing (unsigned binaries trip SmartScreen — cert cost/process is a
    Joe business decision).
-5. BLOCKER for public distribution: the JUCE license mode declaration
-   (THIRD_PARTY_LICENSES marks it UNRESOLVED; decision brief delivered
-   2026-07-07 — closed-source w/ no splash + no LICENSE file is not valid
-   under any JUCE regime for public release).
+5. BLOCKER for public distribution: JUCE COMMERCIAL license purchase.
+   Mode declared (commercial intent, Joe 2026-07-07 — recorded in
+   THIRD_PARTY_LICENSES); the actual purchase/activation must happen before
+   any public release. No splash/AGPL work needed under commercial.
 
 ## RESOLVED 2026-07-05 (`2ee2f53`, DATA_INTEGRITY_SPEC.md) — was: HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
 Data-integrity race on the state-restore path (paired with the sync-loadFile

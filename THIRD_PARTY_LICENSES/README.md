@@ -37,11 +37,13 @@ No changes were made to the model file; it is redistributed as-is.
   terms: https://github.com/juce-framework/JUCE/blob/8.0.4/LICENSE.md and
   https://juce.com/juce-8-licence/. Notice + tier summary reproduced in
   [`juce/NOTICE`](juce/NOTICE).
-- **Distribution mode:** `[UNRESOLVED — Joe to declare: AGPLv3 | JUCE free
-  tier | commercial license]`
-- **Flag:** if the AGPLv3 tier is elected, a top-level LICENSE file becomes
-  mandatory for this repository/distribution — none currently exists. This
-  entry flags that fact only; it does not create the file.
+- **Distribution mode:** COMMERCIAL (declared intent — Joe, 2026-07-07).
+  A JUCE commercial license has NOT yet been purchased/activated; that
+  purchase is REQUIRED before any public distribution. Until then, builds
+  are private/development-only.
+- **Flag (superseded):** the AGPLv3-tier LICENSE-file requirement no longer
+  applies under the commercial intent; the outstanding item is the license
+  purchase itself (tracked in BACKLOG's INSTALLER follow-on).
 - **Source:** https://github.com/juce-framework/JUCE
 
 ## Signalsmith Stretch (time-stretch / pitch-shift engine)
