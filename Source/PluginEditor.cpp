@@ -234,6 +234,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     padGrainSpray.onDragStart  = [this] { p.pushUndo(); };
     padGrainPitch.onDragStart  = [this] { p.pushUndo(); };
     addAndMakeVisible (grainBtn);
+    grainBtn.setButtonText (juce::String ("GRAIN ") + juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb8")));   // E5.1: view-opener glyph
     grainBtn.setTooltip ("Granular mode for this pad - turn the slice into an evolving texture. "
                          "Hold or latch for a sustained pad; combine with FREEZE for a drone.");
     addAndMakeVisible (freezeBtn);
@@ -293,6 +294,13 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
                                    "division). On by default when a tempo is known.");
     transcribeQuantBtn.setToggleState (p.getTranscribeQuantize(), juce::dontSendNotification);
     transcribeQuantBtn.onClick = [this] { p.setTranscribeQuantize (transcribeQuantBtn.getToggleState()); };
+
+    // E5.4: the one caption line under the TRIGGER segments (replaces sublabels)
+    addAndMakeVisible (trigCaption);
+    trigCaption.setInterceptsMouseClicks (false, false);
+    trigCaption.setJustificationType (juce::Justification::centred);
+    trigCaption.setFont (Theme::ui (7.5f * 1.12f).withExtraKerningFactor (0.12f));
+    trigCaption.setColour (juce::Label::textColourId, Theme::t3);
 
     addAndMakeVisible (transcribeLbl);
     transcribeLbl.setInterceptsMouseClicks (false, false);   // status only — never block the drag chip
@@ -464,11 +472,16 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     // "stemHue" component property (set in the skin block); no colour ids here —
     // a buttonColourId would trip the LnF's active-tint override.
     {
-        static const char* slbl[7] = { "FULL", "DRM", "BASS", "VOX", "GTR", "PNO", "OTH" };
+        // E5.2: one abbreviation scheme — all six stems 3-letter; tooltips carry
+        // the full names (BASS was the lone 4-letter offender).
+        static const char* slbl[7] = { "FULL", "DRM", "BAS", "VOX", "GTR", "PNO", "OTH" };
+        static const char* stip[7] = { "Full mix (all stems)", "Drums", "Bass", "Vocals",
+                                       "Guitar", "Piano", "Other" };
         for (int i = 0; i < 7; ++i)
         {
             auto& b = srcTag[(size_t) i];
             b.setButtonText (slbl[i]);
+            b.setTooltip (stip[i]);
             b.setClickingTogglesState (false);
             addAndMakeVisible (b);
             b.onClick = [this, i]
@@ -1149,19 +1162,24 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         l.setInterceptsMouseClicks (false, false);
     };
 
-    // ---- row 1: pad header (num + meta x2 + CLEAR) | TRIGGER segmented ----
+    // ---- row 1: pad header (num + meta x2 + CLEAR) | CHOKE | TRIGGER segmented ----
+    // E5.3: CHOKE relocated here (pad-routing behavior, adjacent to TRIGGER);
+    // meta/CLEAR tightened to make room. E5.4: segments slim to 34px and a
+    // caption line under the group carries the mode description.
     {
         auto r1 = q.removeFromTop (44);
         padTitle.setBounds (r1.getX(), r1.getY() + 4, 42, 30);
-        padMetaLbl.setBounds  (r1.getX() + 48, r1.getY() + 5, 148, 14);
-        padMeta2Lbl.setBounds (r1.getX() + 48, r1.getY() + 20, 148, 12);
-        clearPadBtn.setBounds (r1.getX() + 200, r1.getY() + 8, 58, 24);
-        slabelAt (r1.getRight() - 294, r1.getY() + 15, "TRIGGER");
-        auto seg = juce::Rectangle<int> (r1.getRight() - 240, r1.getY() + 3, 240, 38);
+        padMetaLbl.setBounds  (r1.getX() + 48, r1.getY() + 5, 110, 14);
+        padMeta2Lbl.setBounds (r1.getX() + 48, r1.getY() + 20, 110, 12);
+        clearPadBtn.setBounds (r1.getX() + 162, r1.getY() + 8, 50, 24);
+        chokeBox.setBounds (r1.getRight() - 350, r1.getY() + 8, 84, 26);
+        slabelAt (r1.getRight() - 262, r1.getY() + 15, "TRIGGER");
+        auto seg = juce::Rectangle<int> (r1.getRight() - 204, r1.getY() + 2, 204, 34);
         const int cw = seg.getWidth() / 3;
         trigSeg[0].setBounds (seg.removeFromLeft (cw));
         trigSeg[2].setBounds (seg.removeFromRight (cw));
         trigSeg[1].setBounds (seg);
+        trigCaption.setBounds (r1.getRight() - 204, r1.getY() + 36, 204, 9);
         playMode.setBounds (juce::Rectangle<int>());
         playMode.setVisible (false);
     }
@@ -1171,16 +1189,27 @@ void GentSamplerAudioProcessorEditor::layoutContent()
     {
         auto r2 = q.removeFromTop (56);
         slabelAt (r2.getX(), r2.getY() + 22, "SOURCE");
+        // E5.2: BLEED keeps its reserved end-of-row cell (baseline-aligned dock)
+        // but is HIDDEN when SOURCE = FULL (Joe ruling: hidden, not dimmed) —
+        // visibility toggles in timerCallback, layout stays stable.
         auto bleedCell = r2.removeFromRight (56);
         kwrap (bleedCell, 30, padBleed, pbL);
         r2.removeFromRight (8);
         r2.removeFromLeft (50);
-        const int stW = (r2.getWidth() - 6 * 4) / 7;
+        // E5.2: FULL is the composite chip — visually separated from the six
+        // stem chips by an extra gap + hairline.
+        const int fullGap = 10;
+        const int stW = (r2.getWidth() - 6 * 4 - fullGap) / 7;
         int sx = r2.getX();
         for (int i = 0; i < 7; ++i)
         {
             srcTag[(size_t) i].setBounds (sx, r2.getY() + 14, stW, 26);
             sx += stW + 4;
+            if (i == 0)
+            {
+                kdivRects.push_back ({ sx + fullGap / 2 - 1, r2.getY() + 16, 1, 22 });
+                sx += fullGap;
+            }
         }
     }
     sep();
@@ -1204,16 +1233,17 @@ void GentSamplerAudioProcessorEditor::layoutContent()
 
     // ---- row 4: SHAPE - FILTER (CHOKE/STOP column + 5 knobs + TYPE stack) ----
     {
+        // E5.3: heading split — AMP (attack/release/crush) left, FILTER heads the
+        // cutoff/reso/type stack right; CHOKE moved to row 1 (pad routing).
         auto r4 = q.removeFromTop (84);
         auto col = r4.removeFromLeft (84);
-        slabelAt (col.getX(), col.getY() + 2, "SHAPE - FILTER");
-        chokeBox.setBounds  (col.getX(), col.getY() + 16, 84, 26);
+        slabelAt (col.getX(), col.getY() + 2, "AMP");
         chokeLbl.setBounds (juce::Rectangle<int>());
         chokeLbl.setVisible (false);
-        sliceStop.setBounds (col.getX(), col.getY() + 47, 80, 26);
+        sliceStop.setBounds (col.getX(), col.getY() + 16, 80, 26);
         r4.removeFromLeft (8);
         auto types = r4.removeFromRight (60);
-        slabelAt (types.getX() + 14, types.getY() + 12, "TYPE");
+        slabelAt (types.getX() + 4, types.getY() + 12, "FILTER");
         ftypeLbl.setBounds (juce::Rectangle<int>());
         ftypeLbl.setVisible (false);
         ftypeBox.setBounds (types.getX(), types.getY() + 28, 56, 24);
@@ -1243,12 +1273,12 @@ void GentSamplerAudioProcessorEditor::layoutContent()
 
         if (! grainExpanded)
         {
-            // single centred line: GRANULAR grp left, MIDI grp right (mockup)
+            // single centred line: GRAIN opener left, MIDI grp right (E5.1: the
+            // redundant GRANULAR caption is gone — the chip IS the label)
             auto line = r5.withSizeKeepingCentre (r5.getWidth(), 36);
-            auto ggrp = juce::Rectangle<int> (line.getX(), line.getY(), 150, 36);
+            auto ggrp = juce::Rectangle<int> (line.getX(), line.getY(), 92, 36);
             grpRects.push_back (ggrp);
-            slabelAt (ggrp.getX() + 8, ggrp.getY() + 14, "GRANULAR");
-            grainBtn.setBounds (ggrp.getX() + 78, ggrp.getY() + 5, 60, 26);
+            grainBtn.setBounds (ggrp.getX() + 8, ggrp.getY() + 5, 76, 26);
             auto mgrp = juce::Rectangle<int> (line.getRight() - 330, line.getY(), 330, 36);
             grpRects.push_back (mgrp);
             slabelAt (mgrp.getX() + 8, mgrp.getY() + 14, "MIDI");
@@ -1260,11 +1290,11 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         else
         {
             // line 1: full-width granular strip (GRAIN + FREEZE + 5 mini-knobs)
+            // E5.1: GRANULAR caption dropped here too — GRAIN ▸ is the label
             auto line1 = r5.removeFromTop (58);
             grpRects.push_back (line1);
-            slabelAt (line1.getX() + 8, line1.getY() + 24, "GRANULAR");
-            grainBtn.setBounds  (line1.getX() + 62,  line1.getY() + 15, 56, 26);
-            freezeBtn.setBounds (line1.getX() + 122, line1.getY() + 15, 62, 26);
+            grainBtn.setBounds  (line1.getX() + 8,   line1.getY() + 15, 76, 26);
+            freezeBtn.setBounds (line1.getX() + 90,  line1.getY() + 15, 62, 26);
             const int kx0 = line1.getX() + 194;
             const int kstep = (line1.getRight() - 6 - kx0) / 5;
             kwrap ({ kx0,             line1.getY() + 2, kstep - 6, 54 }, 32, padGrainSize,  gsL);
@@ -1769,6 +1799,18 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         const int mode = playMode.getSelectedItemIndex();
         for (int i = 0; i < 3; ++i)
             trigSeg[(size_t) i].setActive (mode == i);
+        // E5.4: single caption line under the group replaces the in-segment sublabels
+        static const char* cap[3] = { "Hold to play", "Tap to fire", "Tap on / tap off" };
+        const auto capText = juce::String (mode >= 0 && mode < 3 ? cap[mode] : "");
+        if (trigCaption.getText() != capText)
+            trigCaption.setText (capText, juce::dontSendNotification);
+    }
+
+    // E5.2: BLEED is contextual — hidden when the pad's SOURCE is FULL (mask 0),
+    // docked visible at the end of the stem row when any stem is selected.
+    {
+        const bool stemSel = p.getPadStemMask (sel) != 0;
+        if (padBleed.isVisible() != stemSel) { padBleed.setVisible (stemSel); pbL.setVisible (stemSel); }
     }
 
     // D2: hero view seg mirrors the sanitized sticky request (D1 addendum:

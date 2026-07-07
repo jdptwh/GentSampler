@@ -1662,7 +1662,10 @@ public:
                     if (isOpenEnd)
                     {
                         g.setColour (Theme::well.withAlpha (0.85f));
-                        auto tag = juce::Rectangle<float> (x - 24.0f, (float) h - 13.0f, 24.0f, 11.0f);
+                        // E5.5: offset the tag clear of the handle line (2px gap) and clamp
+                        // inside the strip so it can't collide/clip when the grip sits at an edge
+                        const float tagX = juce::jlimit (2.0f, (float) getWidth() - 26.0f, x - 28.0f);
+                        auto tag = juce::Rectangle<float> (tagX, (float) h - 13.0f, 24.0f, 11.0f);
                         g.fillRoundedRectangle (tag, 3.0f);
                         g.setColour (Theme::accent.withAlpha (0.85f));
                         g.setFont (Theme::mono (8.0f * 1.12f, true));
@@ -1692,7 +1695,9 @@ public:
                 const int end = p.getEffectiveCueEnd (sel);
                 cueS = fmtTime (cue);
                 endS = p.isOpenSlice (sel) ? juce::String ("OPEN") : fmtTime (end);
-                lenS = p.isOpenSlice (sel) ? juce::String ("OPEN") : juce::String ((end - cue) / sr, 2) + "s";
+                // E5.5: an open end already says OPEN — LEN shows an em dash, not a third OPEN
+                lenS = p.isOpenSlice (sel) ? juce::String (juce::CharPointer_UTF8 ("\xe2\x80\x94"))
+                                           : juce::String ((end - cue) / sr, 2) + "s";
             }
             auto row = [&] (int y, const char* k, const juce::String& v)
             {
@@ -2711,16 +2716,13 @@ struct TrigPad : juce::Component
             g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
         }
 
-        const juce::Colour fg  = active ? Theme::inkOnAccent : (hover ? Theme::t2 : Theme::t3);
-        const juce::Colour sub = active ? Theme::inkOnAccent.withAlpha (0.75f) : Theme::t3;
-        auto tr = r.reduced (2.0f);
-        tr.removeFromTop (tr.getHeight() * 0.16f);
+        // E5.4: the in-segment sublabel ("hold"/"tap-fire"/"tap on/off") is GONE —
+        // too small to read; a single caption line under the group carries it now
+        // (trigCaption in the editor). The main label centres in the freed space.
+        const juce::Colour fg = active ? Theme::inkOnAccent : (hover ? Theme::t2 : Theme::t3);
         g.setColour (fg);
         g.setFont (Theme::ui (10.0f, true).withExtraKerningFactor (0.08f));
-        g.drawText (label, tr.removeFromTop (14.0f), juce::Justification::centred);
-        g.setColour (sub);
-        g.setFont (Theme::ui (7.5f).withExtraKerningFactor (0.12f));
-        g.drawText (word, tr, juce::Justification::centredTop);
+        g.drawText (label, r, juce::Justification::centred);
     }
 };
 
@@ -3011,6 +3013,7 @@ private:
     juce::uint32 stemsReadyAt = 0;                             // E4.1: when separation completed (badge fade clock)
     bool wasBusySep = false;                                   // E4.1: busy->ready edge detector
     juce::String lastRawFile;                                  // E4.3: middle-ellipsis cache key
+    juce::Label trigCaption;                                   // E5.4: one caption line under the TRIGGER segments
     juce::Slider padPitch, padLevel, padAtt, padRel, padCrush, padSpeed, padPan, padCutoff, padReso, padBleed;
     juce::Slider padGrainSize, padGrainDens, padGrainPos, padGrainSpray, padGrainPitch;
 
