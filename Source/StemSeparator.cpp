@@ -24,6 +24,8 @@
 
 #if JUCE_WINDOWS
  #include <windows.h>
+#elif JUCE_MAC
+ #include <dlfcn.h>
 #endif
 
 // Execution-provider entry points, resolved at runtime (no link-time imports).
@@ -59,7 +61,6 @@ static int          g_cudaDllsFound = 0;   // CUDA/cuDNN DLLs present beside the
 // ---------------------------------------------------------------------------
 static bool ensureOrtLoaded()
 {
-#if JUCE_WINDOWS
     // WAVE1_SPEC.md F4 (audit #3 stem-engine): every plugin instance runs its
     // own worker thread, and each independently reaches this function (via
     // gentCheckStemEngine() at worker-thread startup, stemEngine.initialise(),
@@ -74,6 +75,9 @@ static bool ensureOrtLoaded()
     // is rejected (its retry-on-exception semantics don't match this function's
     // existing tried-once/no-retry-on-failure contract); SpinLock is rejected
     // (the body can hold LoadLibraryExW for 100ms+, never spin that long).
+    // Hoisted OUT of the per-platform branches (MACOS_PORT_SPEC.md Phase 1 (a))
+    // so every platform serializes init identically and shares one tried-once,
+    // no-retry-on-failure contract.
     static juce::CriticalSection ortInitLock;
     const juce::ScopedLock sl (ortInitLock);
 
@@ -81,6 +85,7 @@ static bool ensureOrtLoaded()
     if (tried) return g_ortReady;
     tried = true;
 
+#if JUCE_WINDOWS
     HMODULE self = nullptr;
     if (! GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
                               | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -175,8 +180,56 @@ static bool ensureOrtLoaded()
 
     g_ortReady = true;
     return true;
-#else
+#elif JUCE_MAC
+    // Mac loader (MACOS_PORT_SPEC.md Phase 1 (c)): direct analog of the Windows
+    // manual-load path above, authored on this Windows box (compiled/verified
+    // in Phase 2 CI -- no mac compiler exists here). Same fail-closed contract:
+    // any missing symbol/handle returns false and g_ortReady stays false.
+    Dl_info info = {};
+    if (dladdr (reinterpret_cast<void*> (&ensureOrtLoaded), &info) == 0 || info.dli_fname == nullptr)
+        return false;
+
+    const juce::File self { juce::String (info.dli_fname) };
+    // Bundled dylib lives inside the .vst3/.component bundle, preferably under
+    // Contents/Frameworks/ (binary-sibling is the fallback -- see file plan (c)).
+    const juce::File frameworksDylib = self.getParentDirectory()
+                                            .getSiblingFile ("Frameworks")
+                                            .getChildFile ("libonnxruntime.1.18.1.dylib");
+    const juce::File siblingDylib = self.getParentDirectory()
+                                         .getChildFile ("libonnxruntime.1.18.1.dylib");
+    const juce::File dylib = frameworksDylib.existsAsFile() ? frameworksDylib : siblingDylib;
+
+    void* h = dlopen (dylib.getFullPathName().toRawUTF8(), RTLD_NOW | RTLD_LOCAL);
+    if (h == nullptr)
+        return false;
+
+    using GetApiBaseFn = const OrtApiBase* (ORT_API_CALL*) ();
+    auto getApiBase = reinterpret_cast<GetApiBaseFn> (dlsym (h, "OrtGetApiBase"));
+    if (getApiBase == nullptr)
+        return false;
+
+    const OrtApiBase* base = getApiBase();
+    if (base == nullptr)
+        return false;
+    if (const char* v = base->GetVersionString())
+        g_ortVersion = juce::String (v);
+
+    const OrtApi* api = base->GetApi (ORT_API_VERSION);
+    if (api == nullptr)
+        return false;
+    Ort::InitApi (api);   // <-- all subsequent Ort:: C++ calls use this table
+
+    // No CUDA analog on mac (kEnableCuda stays Windows-only); CoreML is future
+    // groundwork noted in GPU_HANDOFF.md §9, not part of this port.
+    g_ortReady = true;
     return true;
+#else
+    // Fail CLOSED on any platform without an authored loader above -- never
+    // report ORT ready without a successful load + Ort::InitApi (the prior
+    // "#else return true;" stub was the single most dangerous latent defect
+    // in this port per MACOS_PORT_SPEC.md Risk R1: a null API table would
+    // crash the host on the first Ort:: call).
+    return false;
 #endif
 }
 

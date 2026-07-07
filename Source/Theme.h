@@ -69,7 +69,14 @@ namespace Theme
     // ---- fonts ----
     inline juce::Font mono (float px, bool bold = false)
     {
+        // Consolas does not exist on macOS; silent fallback breaks the E2
+        // mono/tabular numeric alignment (MACOS_PORT_SPEC.md file plan).
+        // Windows rendering is byte-identical (still Consolas).
+       #if JUCE_WINDOWS
         return { juce::Font ("Consolas", px, bold ? juce::Font::bold : juce::Font::plain) };
+       #else
+        return { juce::Font ("Menlo", px, bold ? juce::Font::bold : juce::Font::plain) };
+       #endif
     }
     inline juce::Font ui (float px, bool bold = false)
     {

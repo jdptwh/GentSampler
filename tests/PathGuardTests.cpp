@@ -77,3 +77,19 @@ TEST_CASE ("PG.9 degenerate inputs never throw and never falsely match")
     CHECK_FALSE (gent::pathIsWithin ("", ""));        // both empty
     CHECK_FALSE (gent::pathIsWithin ("C:\\a", kDir)); // path shorter than dir
 }
+
+TEST_CASE ("PG.10 POSIX absolute paths (mac tempDir shape) — separator-agnostic core")
+{
+    // MACOS_PORT_SPEC.md — pathIsWithin is separator-agnostic and portable
+    // (EngineMath.h normPathForCompare), but every existing fixture above is
+    // Windows-shaped. Pin the POSIX equivalent: forward-slash absolute paths,
+    // as juce::File::getFullPathName() would canonicalize on mac.
+    const std::string macDir  = "/Users/joeyd/Library/Caches/GentSampler";
+    const std::string macPad  = "/Users/joeyd/Library/Caches/GentSampler/GentSampler_Pad12.wav";
+    const std::string macOutside = "/Users/joeyd/Music/breaks/amen.wav";
+    const std::string macSiblingPrefix = "/Users/joeyd/Library/Caches/GentSampler2/x.wav";
+
+    CHECK (gent::pathIsWithin (macPad, macDir));                 // inside
+    CHECK_FALSE (gent::pathIsWithin (macOutside, macDir));       // genuinely elsewhere
+    CHECK_FALSE (gent::pathIsWithin (macSiblingPrefix, macDir)); // sibling-prefix false positive
+}
