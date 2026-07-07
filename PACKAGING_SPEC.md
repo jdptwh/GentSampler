@@ -164,8 +164,8 @@ Actual installer build (deferred, OQ-PKG-A — BACKLOG tee-up only); `kEnableCud
 ## Record
 | Task | Commit / session log | Evidence | Reviewer verdict | Joe |
 |---|---|---|---|---|
-| P1 | (this commit) | 12 CUDA/cuDNN files deleted from artefact-bundle source (12-vs-13 resolved: 12 is correct, no zlibwapi present); rebuild resurrects none; Standalone folder already clean; build_test.sh + pluginval strictness 5 both green | — | — |
-| P2 | — | — | — | — |
+| P1 | `c488850` | 12 CUDA/cuDNN files deleted from artefact-bundle source (12-vs-13 resolved: 12 is correct, no zlibwapi present); rebuild resurrects none; Standalone folder already clean; build_test.sh + pluginval strictness 5 both green | — | — |
+| P2 | (this commit) | Dry-run listing (12 files, 2.07 GB, same set as P1) presented and **Joe-APPROVED 2026-07-07**; lead executed the approved literal-name delete (FL-not-running guard passed, no locks); post-delete dir = exactly the 3 keepers (GentSampler.vst3 6.6MB fresh from P1's rebuild deploy, onnxruntime.dll, onnxruntime_providers_shared.dll) | — | pending FL load + one CPU separation check (AC-P2.3) |
 | P3 | — | — | — | — |
 | P4 | — | — | — | — |
 | P5 | — | — | — | — |
