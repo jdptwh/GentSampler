@@ -160,7 +160,7 @@ Code-signing execution; JUCE license purchase; EULA authoring; Standalone packag
 | T1 | IMPLEMENTER 2026-07-07 | see T1 evidence block below | pending | |
 | T2 | IMPLEMENTER 2026-07-07 | see T2 evidence block below | pending | |
 | T3 | IMPLEMENTER 2026-07-07 | see T3 evidence block below | pending | |
-| T4 | | | | |
+| T4 | (this commit) | FL-closed verified; before-dir captured; install (Joe UAC): 64-bit path literal `Program Files`, 3 keepers + Resources licenses, ARP "GentSampler 1.1.0"; Joe FL smoke PASS incl. clean FL close; models dir untouched (8 files/1.67GB before+after); **finding: first uninstall left the empty bundle skeleton** (unins000.exe self-deletes after the empty-dir sweep) -> .iss amended with in-bundle dirifempty entries, exe re-cut (2:04 PM), install+uninstall re-tested: **bundle dir fully removed**; final reinstall + Joe re-ran the Desktop ACL bat; gates green (build+ctest, pluginval SUCCESS) and non-elevated write access to the deployed binary directly proven (File::Open ReadWrite OK) | — | dev-box cycle PASS 2026-07-07 |
 | T5 | | | | — (Joe IS the gate) |
 | T6 | | | | |
 

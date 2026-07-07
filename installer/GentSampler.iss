@@ -46,11 +46,23 @@ Source: "..\build\GentSampler_artefacts\Release\VST3\GentSampler.vst3\Contents\x
 Source: "..\THIRD_PARTY_LICENSES\*"; DestDir: "{app}\Contents\Resources\THIRD_PARTY_LICENSES"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\README.md"; DestDir: "{app}\Contents\Resources"; Flags: ignoreversion
 
-; No [UninstallDelete], [Registry], or [Run] sections: uninstall removes only
-; the files listed above plus then-empty directories under {app}. Nothing
-; outside {commoncf}\VST3\GentSampler.vst3 is ever touched, and
-; Documents\GentSampler is never referenced (models resolve independently of
-; install location — see INSTALLER_SPEC.md T1).
+; T4 finding (2026-07-07): the uninstaller (unins000.exe, living in {app})
+; self-deletes AFTER Inno's empty-dir sweep, so the bundle's empty skeleton
+; survived the first uninstall test. The dirifempty entries below clean that
+; up — they act ONLY inside the bundle (the one path this installer owns),
+; staying within the spec's nothing-outside-the-bundle rule, and dirifempty
+; never deletes a directory that still has content.
+[UninstallDelete]
+Type: dirifempty; Name: "{app}\Contents\x86_64-win"
+Type: dirifempty; Name: "{app}\Contents\Resources"
+Type: dirifempty; Name: "{app}\Contents"
+Type: dirifempty; Name: "{app}"
+
+; No OTHER [UninstallDelete] entries, and no [Registry]/[Run] sections:
+; uninstall removes only the files listed above plus then-empty directories
+; under {app}. Nothing outside {commoncf}\VST3\GentSampler.vst3 is ever
+; touched, and Documents\GentSampler is never referenced (models resolve
+; independently of install location — see INSTALLER_SPEC.md T1).
 ;
 ; In-use files (e.g. FL Studio has the plugin open): Inno's default
 ; abort/retry dialog is used as-is. No restart-manager force-close, no
