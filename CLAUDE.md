@@ -141,14 +141,18 @@ clean, passes pluginval, and runs stable inside FL Studio.
   flagged, accepted). **E2 DONE + Joe GREEN** (d71a88a; gent::fmt in
   EngineMath.h + tests/FormatTests.cpp doctests, all 15 attachPad sliders +
   header labels routed, LNF createSliderTextBox → Theme::mono tabular).
-  **E3 DONE pending Joe** (4cffcbe; rainbow padColour DELETED — pads 13-16
-  magenta source; padSourceColour→neutral bone fallback, single-stem pads
-  keep stem tokens; playing = amber face + pulsing ring; .chip.on demoted
-  to outline+text, TrigPad/HeroViewSeg actives promoted to SOLID+ink).
-  NEXT: E4 (hero strip: STEMS READY badge, remove CUE tag, middle-ellipsize
-  filename, 0:00 ruler anchor) → E5 (chip taxonomy; QUANTIZE toggle-vs-action
-  is a REPORT-AND-WAIT item; E5.2/5.3 may need quick mockup) → E6 sweep.
-  Packaging pass queued AFTER Phase E.
+  **E3 GREEN** (4cffcbe; rainbow padColour DELETED, amber hierarchy: solid =
+  primary + segmented actives only). **E4 GREEN** (8a8abe2; STEMS READY badge
+  w/ 3s fade + tooltip detail, CUE tag removed, filename middle-ellipsized,
+  E4.4 ruler audited already-compliant — no change). **E5 GREEN** (0e687f6;
+  Joe rulings: QUANTIZE = toggle, BLEED hidden on FULL, no mockup; BAS
+  3-letter + tooltips, FULL|stems hairline, AMP/FILTER split, CHOKE → row 1
+  beside TRIGGER (meta 110/CLEAR 50 to fit), TRIGGER caption line replaces
+  sublabels, LEN em-dash, OPEN tag clamped). **E6 DONE pending Joe's
+  phase-close pass** (abca2c0; one 26px height, 6px pill radius, 12/8
+  padding, abbreviation tooltips, empty-pad + hover, file-drag accent ring
+  on hero, 880 floor pass = zero truncation). PHASE E COMPLETE pending Joe's
+  final side-by-side + hands-on. THEN: the packaging pass.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
