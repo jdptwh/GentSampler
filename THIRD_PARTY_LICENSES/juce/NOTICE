@@ -1,0 +1,25 @@
+JUCE 8.0.4
+Copyright (c) 2024 - Raw Material Software Limited / JUCE
+
+GentSampler fetches JUCE 8.0.4 vanilla via CMake FetchContent (see
+CMakeLists.txt lines 10-14: GIT_REPOSITORY https://github.com/juce-framework/JUCE.git,
+GIT_TAG 8.0.4). No JUCE commercial license key and no JUCE_DISPLAY_SPLASH_SCREEN
+define are present anywhere in this repository.
+
+JUCE 8 is dual-licensed by its upstream author under a choice of terms:
+  - GNU Affero General Public License v3 (AGPLv3) - full copyleft, free of charge.
+  - JUCE 8 free tier - closed-source permitted below the upstream revenue cap,
+    conditioned on displaying the JUCE splash screen at startup.
+  - JUCE commercial license - paid, closed-source, no splash screen required.
+
+Upstream license text (all tiers) is maintained by JUCE and is not reproduced
+here verbatim because which tier applies to GentSampler's distribution has not
+yet been declared (see THIRD_PARTY_LICENSES/README.md, "Distribution mode"
+line). Once declared, obtain the corresponding license text directly from:
+  https://github.com/juce-framework/JUCE/blob/8.0.4/LICENSE.md
+  https://juce.com/juce-8-licence/
+
+If the AGPLv3 election is made, note that GentSampler currently has NO
+top-level LICENSE file in this repository; AGPLv3 distribution requires one
+(a project-wide license declaration is a separate, deliberate step -- not
+performed by this pass).
