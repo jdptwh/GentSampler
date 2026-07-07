@@ -1,10 +1,14 @@
+// signalsmith-stretch must be included BEFORE any JUCE header: on macOS its
+// Accelerate FFT backend pulls in MacTypes.h, whose legacy `Point` is
+// ambiguous once JuceHeader's `using namespace juce` is in effect
+// (CI run #1 failure, MACOS_PORT_SPEC.md Phase 2).
+#include "signalsmith-stretch.h"
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "ModelDownloader.h"
 #ifndef GENT_NO_STEMS
  #include "StemSeparator.h"
 #endif
-#include "signalsmith-stretch.h"
 #include <limits>
 
 // ----------------------------------------------------------------------------
