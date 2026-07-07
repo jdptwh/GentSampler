@@ -1,3 +1,11 @@
+# MACOS_PORT_SPEC.md Phase 1 (5): CMAKE_OSX_ARCHITECTURES must be set BEFORE
+# project() to take effect (CMake/Xcode-generator requirement) — APPLE-scoped,
+# no effect on Windows (the variable is simply unused there).
+if(APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Universal2 (macOS_PORT_SPEC.md)" FORCE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "macOS_PORT_SPEC.md deployment target" FORCE)
+endif()
+
 cmake_minimum_required(VERSION 3.22)
 project(GentSampler VERSION 1.1.0)
 
@@ -29,14 +37,23 @@ FetchContent_MakeAvailable(signalsmith_stretch)
 #  exists anywhere in the repo, including ModelDownloader, which only fetches the
 #  Demucs/Basic-Pitch .onnx model weights on first use) -- CPU-only installs stay small.
 # ============================================================================
-# Legacy ORT 1.18.1 (CUDA 11.8 + cuDNN 8.9 build). The modern 1.22 + cuDNN-9 path is
-# a dead end on this model/GPU (cuDNN-9 conv frontend wall + a 1.21/1.22 CUDA stream
-# regression that errors at Add nodes and can crash the host). 1.18's legacy cuDNN-8
-# conv path runs the FULL 7.8s model cleanly on the RTX 2060 (de-risked in Python).
+# Legacy ORT 1.18.1 (CUDA 11.8 + cuDNN 8.9 build on Windows). The modern 1.22 +
+# cuDNN-9 path is a dead end on this model/GPU (cuDNN-9 conv frontend wall + a
+# 1.21/1.22 CUDA stream regression that errors at Add nodes and can crash the
+# host). 1.18's legacy cuDNN-8 conv path runs the FULL 7.8s model cleanly on
+# the RTX 2060 (de-risked in Python). Stays pinned at 1.18.1 on EVERY platform
+# (MACOS_PORT_SPEC.md — ORT ships an official universal2 1.18.1 macOS asset,
+# CPU-only, matching the CPU-only mac target exactly; never diverge the pin).
 set(ORT_VERSION "1.18.1")
-FetchContent_Declare(onnxruntime_gpu
-    URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-gpu-${ORT_VERSION}.zip"
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+if(APPLE)
+    FetchContent_Declare(onnxruntime_gpu
+        URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-${ORT_VERSION}.tgz"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+else()
+    FetchContent_Declare(onnxruntime_gpu
+        URL "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-gpu-${ORT_VERSION}.zip"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+endif()
 FetchContent_MakeAvailable(onnxruntime_gpu)
 
 # The GitHub zip extracts to a top-level onnxruntime-win-x64-gpu-<ver>/ with include/
@@ -58,11 +75,22 @@ if(NOT EXISTS "${ORT_INCLUDE}/onnxruntime_cxx_api.h")
                     "If the build fails to find onnxruntime_cxx_api.h, paste this to Claude.")
 endif()
 
+# MACOS_PORT_SPEC.md Phase 1 (5): AU is staged only after VST3 goes pluginval-
+# green in CI (auval-gated, Phase 2) — the format is added here now so the
+# target exists, JUCE derives AU_MAIN_TYPE from IS_SYNTH TRUE (no new flags
+# needed; Jtgt/Gsmp are already AU-valid codes). No effect on Windows (AU is
+# not a Windows format regardless of FORMATS contents).
+if(APPLE)
+    set(GENT_PLUGIN_FORMATS VST3 AU Standalone)
+else()
+    set(GENT_PLUGIN_FORMATS VST3 Standalone)
+endif()
+
 juce_add_plugin(GentSampler
     COMPANY_NAME                "JoeyTheGent"
     PLUGIN_MANUFACTURER_CODE    Jtgt
     PLUGIN_CODE                 Gsmp
-    FORMATS                     VST3 Standalone
+    FORMATS                     ${GENT_PLUGIN_FORMATS}
     IS_SYNTH                    TRUE
     NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
@@ -116,6 +144,10 @@ target_link_libraries(GentSampler
 # CUDA/cuDNN runtime are NOT downloaded by this build at all -- ModelDownloader only
 # fetches the Demucs/Basic-Pitch .onnx model weights, never the CUDA pack -- so
 # CPU-only installs stay small.
+# Windows-only (MACOS_PORT_SPEC.md Phase 1 (5)): mac has no CUDA pack and no
+# onnxruntime_providers_shared.dll equivalent to stage this way; the mac ORT
+# dylib is placed inside the bundle's Contents/Frameworks/ instead, below.
+if(WIN32)
 add_custom_command(TARGET GentSampler_VST3 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${ORT_NATIVE_DIR}/onnxruntime.dll"
@@ -131,6 +163,51 @@ add_custom_command(TARGET GentSampler_Standalone POST_BUILD
         "${ORT_NATIVE_DIR}/onnxruntime_providers_shared.dll"
         "$<TARGET_FILE_DIR:GentSampler_Standalone>"
     VERBATIM)
+endif()
+
+# ---- mac equivalent: place the universal2 ORT dylib inside each bundle's
+# Contents/Frameworks/ (ensureOrtLoaded()'s #elif JUCE_MAC branch resolves it
+# from there first, sibling-to-binary as fallback). APPLE-scoped; no effect
+# on Windows. R3 (spec): osx archive layout may differ from the win zip —
+# glob for the actual dylib name under ORT_NATIVE_DIR rather than assuming
+# a fixed filename, since the release tarball may ship it unversioned or
+# symlinked.
+if(APPLE)
+    file(GLOB _ORT_OSX_DYLIB "${ORT_NATIVE_DIR}/libonnxruntime*.dylib")
+    if(_ORT_OSX_DYLIB)
+        list(GET _ORT_OSX_DYLIB 0 _ORT_OSX_DYLIB0)
+    else()
+        set(_ORT_OSX_DYLIB0 "${ORT_NATIVE_DIR}/libonnxruntime.1.18.1.dylib")
+        message(WARNING "ONNX Runtime osx dylib not found under ${ORT_NATIVE_DIR}; "
+                        "expected libonnxruntime*.dylib (MACOS_PORT_SPEC.md Risk R3).")
+    endif()
+
+    add_custom_command(TARGET GentSampler_VST3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_VST3>/Frameworks"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_ORT_OSX_DYLIB0}"
+            "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_VST3>/Frameworks/libonnxruntime.1.18.1.dylib"
+        VERBATIM)
+
+    add_custom_command(TARGET GentSampler_Standalone POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_Standalone>/Frameworks"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_ORT_OSX_DYLIB0}"
+            "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_Standalone>/Frameworks/libonnxruntime.1.18.1.dylib"
+        VERBATIM)
+
+    if(TARGET GentSampler_AU)
+        add_custom_command(TARGET GentSampler_AU POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_AU>/Frameworks"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_ORT_OSX_DYLIB0}"
+                "$<TARGET_BUNDLE_CONTENT_DIR:GentSampler_AU>/Frameworks/libonnxruntime.1.18.1.dylib"
+            VERBATIM)
+    endif()
+endif()
 
 # ---- deploy: merge-copy the fresh VST3 binary into the system VST3 folder ----
 # NOT COPY_PLUGIN_AFTER_BUILD: JUCE's copyDir.cmake deletes the destination first
