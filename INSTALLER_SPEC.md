@@ -159,7 +159,7 @@ Code-signing execution; JUCE license purchase; EULA authoring; Standalone packag
 |---|---|---|---|---|
 | T1 | IMPLEMENTER 2026-07-07 | see T1 evidence block below | pending | |
 | T2 | IMPLEMENTER 2026-07-07 | see T2 evidence block below | pending | |
-| T3 | | | | |
+| T3 | IMPLEMENTER 2026-07-07 | see T3 evidence block below | pending | |
 | T4 | | | | |
 | T5 | | | | — (Joe IS the gate) |
 | T6 | | | | |
@@ -243,3 +243,124 @@ AppVer`/`#error` guard; `AppVersion`/`OutputBaseFilename` from `{#AppVer}`;
 stable committed `AppId`; no `LicenseFile` directive anywhere; no
 `[UninstallDelete]`/`[Registry]`/`[Run]` sections and no force-close
 directives (Inno's default abort/retry dialog is relied on for in-use files).
+
+### T3 evidence (`installer\make_installer.bat` + `dist/` gitignore)
+
+**Script flow implemented exactly as specified:** parse VERSION from
+CMakeLists.txt (`findstr /r` locates the `^project(GentSampler VERSION` line,
+then two `for /f` passes strip it down to the bare `x.y.z` token) -> fail
+closed if empty -> T1 pre-flight (3 keepers present / 7 CUDA patterns absent)
+-> locate ISCC (`where ISCC`, then `%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe`,
+then `%LocalAppData%\Programs\Inno Setup 6\ISCC.exe` — see deviation note
+below — then fail with install instructions) -> compile with
+`/DAppVer=%VER%` -> emit `dist\GentSamplerSetup-%VER%.exe`. Never triggers a
+build; a missing/stale artefact dir is a loud non-zero exit.
+
+**Landmine found + fixed during T3 (worth recording for future batch work):**
+the first draft's 7-CUDA-pattern check used
+`for %%P in (cublas*.dll cudart*.dll ...) do ( for %%F in ("%ARTEFACT_DIR%\%%P") do ... )`.
+cmd.exe filesystem-expands wildcard tokens in a `for`'s `in (...)` set
+against the *current working directory* before iterating — since none of
+those patterns match anything in `installer\`, every wildcard list item
+silently vanished from the loop (only the one non-wildcard pattern,
+`onnxruntime_providers_cuda.dll`, ever actually got checked), so a planted
+`cudnn64_8.dll` in a scratch staging dir went undetected on first test.
+Fixed by looping non-wildcard prefixes (`cublas cudart cudnn cufft curand
+nvrtc`) and matching each via `dir /b /a-d "%ARTEFACT_DIR%\%%P*.dll"`, which
+matches against the explicit staged-dir path with no CWD dependency; the
+7th pattern (`onnxruntime_providers_cuda.dll`, no wildcard) is checked
+directly with `if exist`. Re-verified against both the real staged dir (no
+hit) and a scratch dummy (hit) after the fix — see below.
+
+A second, smaller landmine: `echo [FAIL] ... file(s): ...` inside a
+parenthesized `if defined ... ( ... )` block broke cmd's block parser
+(`file(s)` is unquoted text with an unbalanced-looking `(`/`)` pair inside an
+`if (...)` block — cmd's parser trips over embedded, unquoted parens there
+even though they are balanced). Fixed by rewording to "file or files"
+(two occurrences: the missing-keeper message and the CUDA-hit message).
+
+**AC-T3(1) — real green run, positive test:**
+```
+============================================================
+GentSampler installer build
+============================================================
+[OK] Parsed version: 1.1.0
+[OK] All 3 keeper files present.
+[OK] No CUDA payload files present.
+[OK] Using ISCC: "C:\Users\JoeyD\AppData\Local\Programs\Inno Setup 6\ISCC.exe"
+...
+Successful compile (3.657 sec). Resulting Setup program filename is:
+C:\Users\JoeyD\Desktop\GentSampler\GentSampler\dist\GentSamplerSetup-1.1.0.exe
+============================================================
+[OK] Installer built: "C:\Users\JoeyD\Desktop\GentSampler\GentSampler\installer\..\dist\GentSamplerSetup-1.1.0.exe"
+============================================================
+```
+Confirmed via `dir`: `dist\GentSamplerSetup-1.1.0.exe` exists (6,800,140
+bytes), version parsed and filename correct — ran after this same session's
+`build_test.sh` gate rebuilt the artefact (payload re-checked at 3 keepers,
+no CUDA, both before and after that rebuild).
+
+**AC-T3(2) — four failure modes, each exercised once, all exit non-zero:**
+
+1. **Version-parse-empty** (scratch COPY of CMakeLists.txt, in the session
+   scratchpad — `project(GentSampler)` with the ` VERSION x.y.z` clause
+   removed, real CMakeLists.txt never touched):
+   ```
+   [FAIL] Could not find a "project(GentSampler VERSION ...)" line in CMakeLists.txt
+   ```
+   Exit code 1.
+2. **Missing keeper** (scratch STAGING COPY of the artefact tree, built fresh
+   under the session scratchpad — real artefact dir never touched — with
+   `onnxruntime_providers_shared.dll` absent):
+   ```
+   [OK] Parsed version: 1.1.0
+   [FAIL] Missing required keeper file or files:  onnxruntime_providers_shared.dll
+   ```
+   Exit code 1.
+3. **Planted CUDA dummy** (same scratch staging copy, all 3 keepers restored,
+   a zero-byte `cudnn64_8.dll` added):
+   ```
+   [OK] Parsed version: 1.1.0
+   [OK] All 3 keeper files present.
+   [FAIL] CUDA payload file or files detected in staged artefact dir -- refusing to package:  cudnn64_8.dll
+   ```
+   Exit code 1.
+4. **ISCC absent** (PATH-shadow, per spec allowance: the real dev box already
+   has no Inno Setup dir on PATH, so this test shadowed only the two fallback
+   env vars — `LocalAppData` and `ProgramFiles(x86)` — to a directory with no
+   ISCC.exe, run against the REAL repo/artefact dir since the failure is
+   purely about ISCC discovery, not payload state):
+   ```
+   [OK] Parsed version: 1.1.0
+   [OK] All 3 keeper files present.
+   [OK] No CUDA payload files present.
+   [FAIL] ISCC.exe not found on PATH or in the standard Inno Setup 6 install locations.
+           Install Inno Setup 6 from https://jrsoftware.org/isinfo.php and retry,
+           or add ISCC.exe's directory to PATH.
+   ```
+   Exit code 1.
+
+**AC-T3(3) — `dist/` gitignored, clean status:** `.gitignore` gained a
+`dist/` line (alongside `build/`/`out/`/`cmake-build-*/`). `git status
+--porcelain` after the full positive run showed only the two intended T3
+file-plan changes (`M .gitignore`, `?? installer/make_installer.bat`) —
+`dist\GentSamplerSetup-1.1.0.exe` did not appear as untracked.
+
+**AC-T3(4) — repo gates green:** `bash .claude/hooks/build_test.sh` ->
+Release build succeeded, ctest `100% tests passed, 0 tests failed out of 1`
+(EngineMath, 0.02s). `bash .claude/hooks/pluginval_gate.sh` -> strictness-5
+run completed through every stage (cold/warm open, plugin info, programs,
+audio processing at 3 sample rates x 5 block sizes, plugin state,
+automation, automatable parameters, bus enumeration/enable/disable/restore)
+ending `SUCCESS`; no cold-open timeout.
+
+**Deviation from the literal T3 flow text (flagged, not hidden):** the spec's
+ISCC-locate step names two lookup steps (`where ISCC`, then
+`%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe`). This machine's actual winget
+install landed at the per-user `%LocalAppData%\Programs\Inno Setup 6\ISCC.exe`
+(confirmed in T2's evidence), which is neither of those two locations. A
+third fallback check for that exact path was added so the script actually
+locates ISCC on this authoring machine without requiring a manual PATH edit;
+the fail-closed behavior (loud non-zero exit with install instructions) is
+unchanged if none of the three locations resolve. Flagged for reviewer
+attention rather than silently folded in.
