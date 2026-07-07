@@ -234,11 +234,23 @@ clean, passes pluginval, and runs stable inside FL Studio.
   pending). Iteration commits reviewer PASS cycle 1, 0 findings (gates
   re-run independently; EngineMath-untouched ruling upheld — fixture tie
   was an analytic artifact, never blunt an ear-gate-approved comparison
-  for a test-only defect). REMAINING (human half): relay artifact to
-  friend + Joe-directed Logic/Zoom checklist session
-  (MACOS_TEST_CHECKLIST.md); friend info still pending uname -m + macOS
-  version (Logic Pro latest confirmed, disk OK). Port close = criterion
-  12 session GREEN, Joe-arbitrated.
+  for a test-only defect). **MACOS PKG INSTALLER DONE — CI run #7 GREEN
+  2026-07-07** (MACOS_PKG_SPEC.md, Joe-approved; session WAITS for pkg per
+  Joe ruling): unsigned GentSampler-1.1.0.pkg, both formats, system-domain
+  install (installer payloads carry NO quarantine xattr -> checklist
+  Terminal step retired to fallback appendix; friend flow = right-click
+  Open -> Install -> password). Implementer `e220172` (pure-append workflow
+  + checklist rewrite); two CI-peeled defects lead-fixed: `3cbadc9`
+  (PlistBuddy Set can't create the missing BundleIsRelocatable key ->
+  Set-then-Add + Print) + `66eb479` (pkgutil --expand-full lays payload
+  RELATIVE to install-location -> assert Payload/ path + PackageInfo
+  install-location greps — gate strengthened). Run #7 = all gates + pkg
+  machine gate green, 2 artifacts (pkg + zip fallback). Reviewer PASS
+  cycle 1, 0 blocking, 1 nit (applied). CI budget: ~7 mac runs spent this
+  month (free tier ~8-12). REMAINING (human half): relay pkg to friend +
+  Joe-directed Logic/Zoom session (MACOS_TEST_CHECKLIST.md); friend info
+  still pending uname -m + macOS version (Logic Pro latest confirmed, disk
+  OK). Port close = criterion 12 session GREEN, Joe-arbitrated.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions

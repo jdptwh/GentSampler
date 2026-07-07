@@ -3,8 +3,9 @@
 **PRIVATE TESTING ONLY.** This document is for one specific friend-and-Zoom
 test session (MACOS_PORT_SPEC.md, Amendments A1+A2) and is never intended to
 become public install guidance — the bundle it tests is ad-hoc signed, not
-notarized, and the quarantine-strip step below is a private-testing-only
-workaround, not a supported install path. Joe is the sole PASS arbiter; the
+notarized, and the quarantine-strip step (in the fallback appendix) is a
+private-testing-only workaround, not a supported install path. Joe is the
+sole PASS arbiter; the
 friend is the hands, not the judge (loop-4 human touchpoint).
 
 You need exactly two things: **the `GentSampler-<version>.pkg` installer**
