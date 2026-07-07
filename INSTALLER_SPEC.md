@@ -161,7 +161,7 @@ Code-signing execution; JUCE license purchase; EULA authoring; Standalone packag
 | T2 | IMPLEMENTER 2026-07-07 | see T2 evidence block below | pending | |
 | T3 | IMPLEMENTER 2026-07-07 | see T3 evidence block below | pending | |
 | T4 | (this commit) | FL-closed verified; before-dir captured; install (Joe UAC): 64-bit path literal `Program Files`, 3 keepers + Resources licenses, ARP "GentSampler 1.1.0"; Joe FL smoke PASS incl. clean FL close; models dir untouched (8 files/1.67GB before+after); **finding: first uninstall left the empty bundle skeleton** (unins000.exe self-deletes after the empty-dir sweep) -> .iss amended with in-bundle dirifempty entries, exe re-cut (2:04 PM), install+uninstall re-tested: **bundle dir fully removed**; final reinstall + Joe re-ran the Desktop ACL bat; gates green (build+ctest, pluginval SUCCESS) and non-elevated write access to the deployed binary directly proven (File::Open ReadWrite OK) | — | dev-box cycle PASS 2026-07-07 |
-| T5 | | | | — (Joe IS the gate) |
+| T5 | `90a3c07` (checklist) | INSTALLER_TEST_CHECKLIST.md delivered (self-contained: exe + FL only); Joe ran it on his separate clean machine with GentSamplerSetup-1.1.0.exe (2:04 PM cut, incl. the dirifempty fix) | — | **PASS (Joe, 2026-07-07: "seems like we are all good" — itemized report-back waived by Joe; install + FL + separation confirmed working on the clean box).** Closes PACKAGING P3's deferred rows per OQ-INST-5 scope (no-toolchain clean machine, Joe FL round-trip, first-run model download). |
 | T6 | | | | |
 
 ### T1 evidence (payload definition + pre-flight rule)
