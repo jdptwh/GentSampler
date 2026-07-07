@@ -11,19 +11,18 @@
 #include "PluginProcessor.h"
 #include "Theme.h"
 
-inline juce::Colour padColour (int i)
-{
-    return juce::Colour::fromHSV ((float) i / 16.0f, 0.65f, 0.95f, 1.0f);
-}
-
 // stem hues come from the Theme tokens (DRM/BASS/VOX/GTR/PNO/OTH)
 inline juce::Colour stemColour (int k) { return Theme::stem (k); }
 
-// a pad set to a single stem takes that stem's colour; FULL or multi keeps its default hue
+// PHASE E3.1: the pre-redesign rainbow padColour(i) HSV wheel is GONE — it was
+// the source of the off-palette magenta/purple on pads 13-16. A pad set to a
+// single stem takes that stem's Theme token (the intentional state colour,
+// matching the hero map's legend); FULL/multi/unset pads read neutral bone,
+// exactly like padMapHue below.
 inline juce::Colour padSourceColour (int i, const GentSamplerAudioProcessor& p)
 {
     const int k = gent::singleStemIndex (p.getPadStemMask (i));
-    return k >= 0 ? stemColour (k) : padColour (i);
+    return k >= 0 ? stemColour (k) : Theme::fullStem;
 }
 
 // C2: the hero-map visuals (flags/slice-line glow, playheads) show what each pad
@@ -1973,11 +1972,11 @@ public:
             const bool playing = p.isPadPlaying (i);
             const bool assigned = p.getCue (i) >= 0;
 
-            // mockup .pad face: raised dark gradient (empty pads slightly darker),
-            // lit with the pad hue while playing
-            const juce::Colour faceHi = playing ? col.withAlpha (0.55f)
+            // mockup .pad face: raised dark gradient (empty pads slightly darker).
+            // E3.1: playing lights the face AMBER (subtle) — the rainbow tint is gone.
+            const juce::Colour faceHi = playing ? Theme::accent.withAlpha (0.22f)
                                      : assigned ? Theme::padFaceHi : Theme::padFaceEmptyHi;
-            const juce::Colour faceLo = playing ? col.darker (0.4f).withAlpha (0.55f)
+            const juce::Colour faceLo = playing ? Theme::accent.withAlpha (0.10f)
                                      : assigned ? Theme::padFaceLo : Theme::padFaceEmptyLo;
             // .pad box-shadow 0 2px 5px black .4 (soft under-shadow)
             Theme::dropShadow (g, r, 8.0f, 5.5f, 2.2f, 0.40f, 4);
@@ -1991,8 +1990,17 @@ public:
             g.setColour (juce::Colours::white.withAlpha (playing ? 0.18f : 0.07f));
             g.drawLine (r.getX() + 8.0f, r.getY() + 0.8f, r.getRight() - 8.0f, r.getY() + 0.8f, 1.1f);
 
-            // .pad.sel — accent ring + real outer bloom (box-shadow 0 0 16px .22)
-            if (i == sel)
+            // .pad.sel — accent ring + real outer bloom (box-shadow 0 0 16px .22).
+            // E3.1: PLAYING = brighter amber pulse on the ring (30Hz timer already
+            // repaints the grid, so the sine phase animates for free).
+            if (playing)
+            {
+                const float ph = 0.72f + 0.28f * (float) std::sin ((double) juce::Time::getMillisecondCounter() * 0.012);
+                Theme::featherGlow (g, r, 8.0f, Theme::accent.withAlpha (0.38f * ph), 4.2f, 4);
+                g.setColour (Theme::glow.withAlpha (ph));
+                g.drawRoundedRectangle (r, 8.0f, 1.4f);
+            }
+            else if (i == sel)
             {
                 Theme::featherGlow (g, r, 8.0f, Theme::accent.withAlpha (0.30f), 3.4f, 4);
                 g.setColour (Theme::accent.withAlpha (0.8f));
@@ -2705,20 +2713,19 @@ struct TrigPad : juce::Component
         auto pill = r.reduced (3.5f);
         if (active)
         {
-            // .seg .s.on — amber pill with a soft bloom (box-shadow 0 0 10px .25)
-            Theme::featherGlow (g, pill, 5.0f, Theme::accent.withAlpha (0.25f), 4.0f, 4);
-            juce::ColourGradient bg (Theme::accent.withAlpha (0.28f), pill.getX(), pill.getY(),
-                                     Theme::accent.withAlpha (0.12f), pill.getX(), pill.getBottom(), false);
+            // .seg .s.on — PHASE E3.2: the active segmented option is SOLID amber
+            // (the only solid fill besides the primary action), ink text on top.
+            Theme::featherGlow (g, pill, 5.0f, Theme::accent.withAlpha (0.30f), 4.0f, 4);
+            juce::ColourGradient bg (Theme::glow, pill.getX(), pill.getY(),
+                                     Theme::accent, pill.getX(), pill.getBottom(), false);
             g.setGradientFill (bg);
             g.fillRoundedRectangle (pill, 5.0f);
-            g.setColour (Theme::accent.withAlpha (0.30f));
-            g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.setColour (juce::Colours::white.withAlpha (0.30f));
             g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
         }
 
-        const juce::Colour fg  = active ? Theme::accentTextOn : (hover ? Theme::t2 : Theme::t3);
-        const juce::Colour sub = active ? Theme::accentTextOn.withAlpha (0.6f) : Theme::t3;
+        const juce::Colour fg  = active ? Theme::inkOnAccent : (hover ? Theme::t2 : Theme::t3);
+        const juce::Colour sub = active ? Theme::inkOnAccent.withAlpha (0.75f) : Theme::t3;
         auto tr = r.reduced (2.0f);
         tr.removeFromTop (tr.getHeight() * 0.16f);
         g.setColour (fg);
@@ -2791,20 +2798,18 @@ struct HeroViewSeg : juce::Component
 
         const bool hover = isMouseOver();
         auto pill = r.reduced (3.5f);
-        if (active)   // .seg .s.on -- amber pill with a soft bloom (box-shadow 0 0 10px .25)
+        if (active)   // .seg .s.on -- PHASE E3.2: active segmented option = SOLID amber, ink text
         {
-            Theme::featherGlow (g, pill, 5.0f, Theme::accent.withAlpha (0.25f), 4.0f, 4);
-            juce::ColourGradient bg (Theme::accent.withAlpha (0.28f), pill.getX(), pill.getY(),
-                                     Theme::accent.withAlpha (0.12f), pill.getX(), pill.getBottom(), false);
+            Theme::featherGlow (g, pill, 5.0f, Theme::accent.withAlpha (0.30f), 4.0f, 4);
+            juce::ColourGradient bg (Theme::glow, pill.getX(), pill.getY(),
+                                     Theme::accent, pill.getX(), pill.getBottom(), false);
             g.setGradientFill (bg);
             g.fillRoundedRectangle (pill, 5.0f);
-            g.setColour (Theme::accent.withAlpha (0.30f));
-            g.drawRoundedRectangle (pill, 5.0f, 1.0f);
-            g.setColour (juce::Colours::white.withAlpha (0.08f));
+            g.setColour (juce::Colours::white.withAlpha (0.30f));
             g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
         }
 
-        const juce::Colour fg = active ? Theme::accentTextOn : (hover ? Theme::t2 : Theme::t3);
+        const juce::Colour fg = active ? Theme::inkOnAccent : (hover ? Theme::t2 : Theme::t3);
         g.setColour (fg);
         // .seg .s -- 9px CSS, 600 weight, .1em tracking, uppercase; ×1.12 visual correction
         g.setFont (labelFont());

@@ -253,18 +253,11 @@ namespace Theme
             topEdge (0.30f * dim);
             return;
         }
-        if (on)                                            // .chip.on — amber tint + amber bloom
-        {
-            if (enabled)
-                featherGlow (g, face, rad, accent.withAlpha (down ? 0.20f : (hover ? 0.36f : 0.28f)), blur);
-            juce::ColourGradient bg (accent.withAlpha (0.22f * dim), face.getX(), face.getY(),
-                                     accent.withAlpha (0.10f * dim), face.getX(), face.getBottom(), false);
-            g.setGradientFill (bg);
-            g.fillRoundedRectangle (face, rad);
-            g.setColour (accent.withAlpha (0.55f * dim));
-            g.drawRoundedRectangle (face, rad, 1.0f);
-            topEdge (0.08f * dim);
-            return;
+        if (on)                                            // .chip.on — PHASE E3.2: amber TEXT/OUTLINE only.
+        {                                                  // Solid fill + bloom is reserved for the primary
+            g.setColour (accent.withAlpha ((down ? 0.85f : (hover ? 0.75f : 0.60f)) * dim));
+            g.drawRoundedRectangle (face, rad, 1.0f);      // action and active segmented options; active-but-
+            return;                                        // secondary toggles read as amber outline + text.
         }
         if (kind == 1)                                     // .chip.ghost — outline only, no shadow
         {
@@ -284,12 +277,9 @@ namespace Theme
             g.fillRoundedRectangle (face, rad);
             if (on && enabled)
             {
-                featherGlow (g, face, rad, accent.withAlpha (down ? 0.20f : (hover ? 0.36f : 0.28f)), blur);
-                juce::ColourGradient tint (accent.withAlpha (0.26f), face.getX(), face.getY(),
-                                           accent.withAlpha (0.12f), face.getX(), face.getBottom(), false);
-                g.setGradientFill (tint);
-                g.fillRoundedRectangle (face, rad);
-                g.setColour (accent.withAlpha (0.55f));
+                // PHASE E3.2: overlay chips follow the same hierarchy — active =
+                // amber outline + text on the opaque face, no bloom, no tint fill.
+                g.setColour (accent.withAlpha (hover ? 0.75f : 0.60f));
             }
             else
             {
