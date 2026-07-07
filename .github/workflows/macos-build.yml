@@ -141,3 +141,132 @@ jobs:
           name: GentSampler-macOS-universal2
           path: dist/*.zip
           if-no-files-found: error
+
+      # ==================================================================
+      # MACOS_PKG_SPEC.md — unsigned .pkg installer (private testing).
+      # Runs AFTER ad-hoc re-signing so the payload always holds the FINAL
+      # shipping binaries, never a pre-sign copy (ordering is load-bearing —
+      # see the spec's file plan). Additive only: every step above is
+      # untouched, so a pkg-step failure below still leaves the existing
+      # gate diagnostics (build/ctest/pluginval/auval/lipo) intact in the
+      # same run.
+      # ==================================================================
+
+      # ---- parse <version> from CMakeLists (fail-closed) ----
+      # Same discipline as installer/make_installer.bat's /DAppVer parse:
+      # never hardcode, exit 1 if the regex doesn't match x.y.z.
+      - name: Parse version (fail-closed)
+        id: pkgver
+        run: |
+          set -euo pipefail
+          PROJLINE="$(grep -E '^project\(GentSampler VERSION' CMakeLists.txt || true)"
+          if [ -z "$PROJLINE" ]; then
+            echo "::error::No 'project(GentSampler VERSION ...)' line found in CMakeLists.txt"
+            exit 1
+          fi
+          VER="$(echo "$PROJLINE" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)"
+          if [ -z "$VER" ]; then
+            echo "::error::Version parse produced an empty result from line: $PROJLINE"
+            exit 1
+          fi
+          echo "Parsed version: $VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # ---- force BundleIsRelocatable = false on both component plists ----
+      # The pkgbuild relocatability trap (Risk R-c / spec criterion 2): a
+      # relocatable component pkg "updates" a stray copy of the bundle
+      # wherever Spotlight last saw one, instead of installing to the
+      # declared --install-location. pkgbuild --analyze emits the plist;
+      # PlistBuddy (stock at /usr/libexec/PlistBuddy) is Apple's own
+      # documented tool for editing pkgbuild component plists, so it's used
+      # here rather than plutil.
+      - name: Build component pkgs (relocatability forced false)
+        env:
+          PKGVER: ${{ steps.pkgver.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist/pkgroot
+
+          pkgbuild --analyze --root "$(dirname "${AU_BUNDLE}")" au-component.plist
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" au-component.plist
+
+          pkgbuild --analyze --root "$(dirname "${VST3_BUNDLE}")" vst3-component.plist
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" vst3-component.plist
+
+          pkgbuild \
+            --root "$(dirname "${AU_BUNDLE}")" \
+            --component-plist au-component.plist \
+            --identifier com.gentsampler.pkg.au \
+            --version "${PKGVER}" \
+            --install-location /Library/Audio/Plug-Ins/Components \
+            dist/pkgroot/au.pkg
+
+          pkgbuild \
+            --root "$(dirname "${VST3_BUNDLE}")" \
+            --component-plist vst3-component.plist \
+            --identifier com.gentsampler.pkg.vst3 \
+            --version "${PKGVER}" \
+            --install-location /Library/Audio/Plug-Ins/VST3 \
+            dist/pkgroot/vst3.pkg
+
+      # ---- compose the distribution pkg ----
+      - name: Compose distribution pkg
+        env:
+          PKGVER: ${{ steps.pkgver.outputs.version }}
+        run: |
+          set -euo pipefail
+          productbuild \
+            --package dist/pkgroot/au.pkg \
+            --package dist/pkgroot/vst3.pkg \
+            "dist/GentSampler-${PKGVER}.pkg"
+
+      # ---- MACHINE GATE (spec criterion 3): expand, assert payload paths,
+      # codesign, and universal2 archs on the pkg's own extracted binaries.
+      # This proves the payload holds the final ad-hoc re-signed binaries
+      # (the step ordering made observable), not pre-sign copies. ----
+      - name: pkg machine gate (expand + payload + codesign + lipo asserts)
+        env:
+          PKGVER: ${{ steps.pkgver.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf dist/pkg-expanded
+          pkgutil --expand-full "dist/GentSampler-${PKGVER}.pkg" dist/pkg-expanded
+
+          AU_PAYLOAD="dist/pkg-expanded/au.pkg/Library/Audio/Plug-Ins/Components/GentSampler.component"
+          VST3_PAYLOAD="dist/pkg-expanded/vst3.pkg/Library/Audio/Plug-Ins/VST3/GentSampler.vst3"
+
+          if [ ! -d "$AU_PAYLOAD" ]; then
+            echo "::error::Expanded pkg payload missing AU bundle at expected path: $AU_PAYLOAD"
+            exit 1
+          fi
+          if [ ! -d "$VST3_PAYLOAD" ]; then
+            echo "::error::Expanded pkg payload missing VST3 bundle at expected path: $VST3_PAYLOAD"
+            exit 1
+          fi
+          echo "Payload paths confirmed: $AU_PAYLOAD ; $VST3_PAYLOAD"
+
+          AU_BIN="${AU_PAYLOAD}/Contents/MacOS/GentSampler"
+          VST3_BIN="${VST3_PAYLOAD}/Contents/MacOS/GentSampler"
+
+          codesign -dv "$AU_BIN"
+          codesign -dv "$VST3_BIN"
+
+          check_pkg_universal() {
+            local path="$1"
+            local archs
+            archs="$(lipo -archs "$path")"
+            echo "lipo -archs $path => $archs"
+            if [[ "$archs" != *"x86_64"* || "$archs" != *"arm64"* ]]; then
+              echo "::error::$path is not universal2 (got: $archs)"
+              exit 1
+            fi
+          }
+          check_pkg_universal "$AU_BIN"
+          check_pkg_universal "$VST3_BIN"
+
+      - name: Upload pkg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GentSampler-macOS-pkg
+          path: dist/GentSampler-*.pkg
+          if-no-files-found: error
