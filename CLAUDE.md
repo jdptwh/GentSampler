@@ -217,10 +217,24 @@ clean, passes pluginval, and runs stable inside FL Studio.
   inspection (compile-time-only changes, statics unchanged), box-state
   suspected per the 2026-07-06 OOM precedent; NO code action, watch for
   recurrence + grab an FL64 dump if it ever hangs forever again).
-  PHASE 2 BLOCKED ON: Joe running `git push -u origin master` (remote
-  origin=github.com/jdptwh/GentSampler already configured; lead push was
-  permission-denied — Joe pushes himself). Friend info: latest Logic Pro
-  confirmed + disk OK; still pending uname -m + macOS version.
+  **PHASE 2 MACHINE GATES GREEN 2026-07-07 (CI run #4, commit 564d42e):**
+  repo pushed to private github.com/jdptwh/GentSampler; pre-work reviewed
+  (PASS c1, 3 nits applied `8bdc1c5`); CI iteration peeled three mac-only
+  defects — `7eb04b9` signalsmith include before JUCE (MacTypes Point
+  ambiguity under Accelerate FFT), `85e0868` NoveltyTests exact-tie fix
+  (linear-ramp fixture symmetric under t<->1-t -> two bit-identical peak
+  samples -> strict-greater peak-pick decided by platform rounding;
+  fixture-only quadratic ease-in, algorithm untouched, >=2 assert intact),
+  `564d42e` no GNU timeout on stock macOS (exit 127; timeout/gtimeout/
+  unguarded fallback, bash-3.2-safe). Run #4 = FULL GREEN: build + 124/124
+  ctest + pluginval 5 + **auval PASS (16-bus layout accepted — R4
+  retired)** + lipo universal2 (VST3/AU/dylib) + dylib-absent degradation
+  + ad-hoc sign + ditto artifact `GentSampler-macOS-universal2` (37.2 MB).
+  Spec checkpoints 3+4 COMPLETE; checklist authored (cp 5 = relay
+  pending). Iteration-commits reviewer pass in flight. REMAINING: relay
+  artifact to friend + Joe-directed Logic/Zoom checklist session
+  (MACOS_TEST_CHECKLIST.md); friend info still pending uname -m + macOS
+  version (Logic Pro latest confirmed, disk OK).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
