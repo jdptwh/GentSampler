@@ -179,4 +179,4 @@ follow-on teed up (payload / tooling / downloader interplay / code-signing /
 JUCE-mode blocker); CLAUDE.md updated. JOE CLOSE-OUT 2026-07-07: P2 FL check VERIFIED; 1.0.0-project reopen VERIFIED;
 clean-machine run DEFERRED to the installer-package test; JUCE mode DECLARED
 (commercial intent — purchase required before public distribution, tracked in
-BACKLOG's INSTALLER item).
+BACKLOG's INSTALLER item). Clean-machine run completed via the installer-package test — evidence in INSTALLER_SPEC.md Record (T5).

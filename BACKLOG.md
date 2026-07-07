@@ -147,22 +147,28 @@ design note, corrected in CMakeLists comments + THIRD_PARTY_LICENSES this
 pass). build.bat's robocopy `/xf` exclusion (WAVE4 F5) guards the install
 path. Clean-machine proxy validated (PACKAGING_SPEC P3).
 
-## INSTALLER — follow-on spec (teed up 2026-07-07 per PACKAGING_SPEC OQ-PKG-A)
-Prerequisites are DONE (CUDA-free payload, licenses complete, README accurate,
-version 1.1.0). A real installer is a NEW-DEPENDENCY decision requiring Joe's
-authorization. The follow-on spec must answer:
-1. Payload definition: VST3 (+ Standalone?), the 2 core ORT DLLs, license
-   texts; models stay a first-run ModelDownloader fetch (~1.79 GB).
-2. Tooling choice (Joe authorizes): Inno Setup vs NSIS vs WiX vs "zip +
-   install.bat" zero-dependency option.
-3. First-run-downloader interplay (install dir permissions vs Documents\
-   GentSampler models dir — already user-writable, likely no change).
-4. Code-signing (unsigned binaries trip SmartScreen — cert cost/process is a
-   Joe business decision).
-5. BLOCKER for public distribution: JUCE COMMERCIAL license purchase.
-   Mode declared (commercial intent, Joe 2026-07-07 — recorded in
-   THIRD_PARTY_LICENSES); the actual purchase/activation must happen before
-   any public release. No splash/AGPL work needed under commercial.
+## RESOLVED 2026-07-07 (INSTALLER_SPEC.md T1-T5, Joe clean-machine PASS) — was: INSTALLER — follow-on spec
+Inno Setup 6 installer built (payload = VST3 + 2 core ORT DLLs + license
+texts, no Standalone, no CUDA), version-parsed and fail-closed
+(`installer\make_installer.bat` / `installer\GentSampler.iss`). Dev-box
+install/uninstall/restore cycle PASS (T4). Joe's separate clean machine ran
+`INSTALLER_TEST_CHECKLIST.md` with no toolchain: install, FL load, one CPU
+separation (first-run ~1.79 GB model download) all confirmed working — T5
+PASS 2026-07-07 ("seems like we are all good"), closing PACKAGING P3's
+deferred no-toolchain/FL-round-trip/model-download rows per OQ-INST-5 scope.
+
+## BEFORE PUBLIC RELEASE — three remaining gates
+Prerequisites and the installer itself are DONE. Public distribution of the
+installer still needs, in no particular order:
+1. JUCE commercial license PURCHASE — mode declared 2026-07-07 (commercial
+   intent, recorded in THIRD_PARTY_LICENSES); the actual purchase/activation
+   is the blocker. No splash/AGPL work needed once purchased.
+2. Code-signing certificate — the installer exe is unsigned today, which
+   trips SmartScreen ("More info -> Run anyway"); cert cost/process is a Joe
+   business decision.
+3. EULA decision — no license text ships with the installer today
+   (deliberate, per PACKAGING OQ-PKG-C precedent: no invented legal text);
+   whether GentSampler needs one is still an open decision.
 
 ## RESOLVED 2026-07-05 (`2ee2f53`, DATA_INTEGRITY_SPEC.md) — was: HIGH — async clobber on project reopen silently drops slice edits (filed 2026-07-04)
 Data-integrity race on the state-restore path (paired with the sync-loadFile

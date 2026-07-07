@@ -32,6 +32,23 @@ The plugin exposes a Main stereo output plus 16 optional per-pad stereo outputs.
 
 **Full state recall** — everything saves with your FL project.
 
+## Install (no build)
+
+If you already have a built installer, this is the fast path: run
+`installer\make_installer.bat` after a Release build to produce
+`dist\GentSamplerSetup-<version>.exe`, then double-click it. The wizard
+installs the VST3 to the standard Common Files VST3 folder (no directory
+choice needed) and works in FL Studio or any Windows VST3 host. Uninstall
+later via Windows Add/Remove Programs.
+
+**Distribution is currently PRIVATE — do not publish the installer.** The
+JUCE commercial license purchase is still pending (see
+`THIRD_PARTY_LICENSES`); the exe is for direct, personal hand-off only until
+that's resolved.
+
+If you don't have a built installer yet, or want to build from source, keep
+reading.
+
 ## One-time setup (about 10 minutes, mostly download time)
 
 Open **PowerShell** and run:
