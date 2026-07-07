@@ -36,8 +36,19 @@ if [[ "$(uname)" == "Darwin" ]]; then
     exit 0
   fi
 
-  # Same 10-min stall guard as Windows (pluginval has stalled indefinitely once).
-  timeout 600 "$PLUGINVAL" --strictness-level 5 --skip-gui-tests --validate "$PLUGIN_ARTIFACT"
+  # Same 10-min stall guard as Windows (pluginval has stalled indefinitely once)
+  # — but stock macOS has NO `timeout` (GNU coreutils; CI run #3 failed exit 127
+  # on this) and /bin/bash is 3.2 (no safe empty-array expansion under set -u),
+  # so: plain explicit branches. Unguarded fallback is acceptable — the CI
+  # job-level timeout is the backstop there; a local mac dev can install
+  # coreutils (gtimeout) for the guard.
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 600 "$PLUGINVAL" --strictness-level 5 --skip-gui-tests --validate "$PLUGIN_ARTIFACT"
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout 600 "$PLUGINVAL" --strictness-level 5 --skip-gui-tests --validate "$PLUGIN_ARTIFACT"
+  else
+    "$PLUGINVAL" --strictness-level 5 --skip-gui-tests --validate "$PLUGIN_ARTIFACT"
+  fi
   exit $?
 else
   # Installed 2026-07-02 to %LOCALAPPDATA%\Programs\pluginval — appended here so
