@@ -187,11 +187,23 @@ jobs:
           set -euo pipefail
           mkdir -p dist/pkgroot
 
+          # PlistBuddy `Set` only edits EXISTING keys, and pkgbuild --analyze
+          # omits BundleIsRelocatable when its default (true) applies — CI run
+          # #5 failed on exactly that ("Does Not Exist"). Set-then-Add covers
+          # both shapes; the trailing verification makes the forced value
+          # observable in the log either way.
+          force_not_relocatable() {
+            local plist="$1"
+            /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" "$plist" 2>/dev/null \
+              || /usr/libexec/PlistBuddy -c "Add :0:BundleIsRelocatable bool false" "$plist"
+            /usr/libexec/PlistBuddy -c "Print :0:BundleIsRelocatable" "$plist"
+          }
+
           pkgbuild --analyze --root "$(dirname "${AU_BUNDLE}")" au-component.plist
-          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" au-component.plist
+          force_not_relocatable au-component.plist
 
           pkgbuild --analyze --root "$(dirname "${VST3_BUNDLE}")" vst3-component.plist
-          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" vst3-component.plist
+          force_not_relocatable vst3-component.plist
 
           pkgbuild \
             --root "$(dirname "${AU_BUNDLE}")" \
