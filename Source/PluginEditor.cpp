@@ -206,6 +206,17 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     initRotary (padCutoff, pcoL, "CUTOFF");
     initRotary (padReso,   preL, "RESO");
     // (E2: value units come from gent::fmt in attachPad — no ad-hoc suffixes)
+    // E6: tooltips on every abbreviated control (full words on hover)
+    padReso.setTooltip ("Filter resonance");
+    padCrush.setTooltip ("Bit crush");
+    padCutoff.setTooltip ("Filter cutoff");
+    ftypeBox.setTooltip ("Filter type");
+    padGrainDens.setTooltip ("Grain density");
+    padGrainPos.setTooltip ("Grain position");
+    padGrainSpray.setTooltip ("Grain spray");
+    padGrainPitch.setTooltip ("Grain pitch");
+    padGrainSize.setTooltip ("Grain size");
+    masterPitch.setTooltip ("Master pitch in semitones - drag vertically, double-click to type, right-click to reset");
 
     // BLEED: 36px mini-knob at the right of the SOURCE row (mockup bleedSlot)
     addAndMakeVisible (padBleed);
@@ -1082,17 +1093,17 @@ void GentSamplerAudioProcessorEditor::layoutContent()
     {
         auto in = displayRect.reduced (8);
         // top-left: SEPARATE STEMS (primary) + status + filename
-        sepStemsBtn.setBounds   (in.getX(), in.getY(), 122, 24);
-        stemStatusLbl.setBounds (in.getX() + 128, in.getY(), 190, 24);
+        sepStemsBtn.setBounds   (in.getX(), in.getY(), 122, 26);   // E6: one 26px control height
+        stemStatusLbl.setBounds (in.getX() + 128, in.getY(), 190, 26);
         fileLbl.setBounds       (in.getX() + 322, in.getY() + 4, 250, 16);
         // top-right: COMPOSITE/STEMS seg, then the HQ quality caret-chip (mockup
         // order HTML 247-253: seg first, then .chip.caret; .ov flex gap 6px, CSS 90-102)
-        qualityBox.setBounds (in.getRight() - 58, in.getY(), 58, 24);
+        qualityBox.setBounds (in.getRight() - 58, in.getY(), 58, 26);
         {
             // Text-sized segments (mockup .s padding model) — a fixed 58px half
             // truncated "COMPOSITE" (D6 capture finding). Widths come from the
             // shared label font so paint and layout can never disagree.
-            const int segH = 24, segGap = 6;
+            const int segH = 26, segGap = 6;
             const int w0 = viewSeg[0].preferredWidth();
             const int w1 = viewSeg[1].preferredWidth();
             auto segR = juce::Rectangle<int> (qualityBox.getX() - segGap - (w0 + w1), in.getY(), w0 + w1, segH);
@@ -1101,16 +1112,16 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         }
         // bottom-left: PREVIEW / SNAP / FOLLOW / SLICE
         int bx = in.getX();
-        const int by = in.getBottom() - 24;
-        previewBtn.setBounds (bx, by, 68, 24); bx += 72;
-        snapBtn.setBounds    (bx, by, 48, 24); bx += 52;
-        followBtn.setBounds  (bx, by, 58, 24); bx += 62;
+        const int by = in.getBottom() - 26;
+        previewBtn.setBounds (bx, by, 68, 26); bx += 72;
+        snapBtn.setBounds    (bx, by, 48, 26); bx += 52;
+        followBtn.setBounds  (bx, by, 58, 26); bx += 62;
         // SECTIONS_SPEC.md PART 3: split chip is text-sized (HeroViewSeg precedent)
         // since its label now varies with the selected mode ("SLICE · SECTIONS" is
         // wider than the old fixed "SLICE").
-        sliceMenu.setBounds  (bx, by, sliceMenu.preferredWidth(), 24);
+        sliceMenu.setBounds  (bx, by, sliceMenu.preferredWidth(), 26);
         // bottom-right: FULL VIEW ghost
-        fullBtn.setBounds (in.getRight() - 78, by, 78, 24);
+        fullBtn.setBounds (in.getRight() - 78, by, 78, 26);
 
         // C2: tell the wave how tall the bottom chip band is — this is the mockup's
         // own 8px .ov inset + 24px chip height (in), expressed via the layout rects
@@ -1141,7 +1152,7 @@ void GentSamplerAudioProcessorEditor::layoutContent()
     inspRect = body;
 
     // inspector content (panel padding 14 x / 9 y)
-    auto q = inspRect.reduced (14, 9);
+    auto q = inspRect.reduced (12, 8);   // E6: 8px-grid reconcile with the pad gutter
     auto sep = [&]
     {
         q.removeFromTop (6);
@@ -1171,7 +1182,7 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         padTitle.setBounds (r1.getX(), r1.getY() + 4, 42, 30);
         padMetaLbl.setBounds  (r1.getX() + 48, r1.getY() + 5, 110, 14);
         padMeta2Lbl.setBounds (r1.getX() + 48, r1.getY() + 20, 110, 12);
-        clearPadBtn.setBounds (r1.getX() + 162, r1.getY() + 8, 50, 24);
+        clearPadBtn.setBounds (r1.getX() + 162, r1.getY() + 8, 50, 26);
         chokeBox.setBounds (r1.getRight() - 350, r1.getY() + 8, 84, 26);
         slabelAt (r1.getRight() - 262, r1.getY() + 15, "TRIGGER");
         auto seg = juce::Rectangle<int> (r1.getRight() - 204, r1.getY() + 2, 204, 34);
@@ -1342,6 +1353,18 @@ void GentSamplerAudioProcessorEditor::paintOverChildren (juce::Graphics& g)
     }
     g.drawImage (vignetteImg, getLocalBounds().toFloat());
 
+    // E6: drop-target highlight — accent ring around the hero while a file drag
+    // hovers the editor (drops load the source; the hero is where it lands).
+    if (fileDragOver && ! displayRect.isEmpty())
+    {
+        const float sx = (float) getWidth()  / (float) kDesignW;
+        const float sy = (float) getHeight() / (float) kDesignH;
+        auto r = juce::Rectangle<float> ((float) displayRect.getX() * sx, (float) displayRect.getY() * sy,
+                                         (float) displayRect.getWidth() * sx, (float) displayRect.getHeight() * sy);
+        g.setColour (Theme::accent.withAlpha (0.65f));
+        g.drawRoundedRectangle (r.expanded (2.0f), 9.0f, 1.6f);
+    }
+
     // mockup .plugin::after — film grain at ~3.5% (pre-rendered 96x96 tile)
     if (! noiseImg.isValid())
     {
@@ -1471,6 +1494,7 @@ bool GentSamplerAudioProcessorEditor::isInterestedInFileDrag (const juce::String
 
 void GentSamplerAudioProcessorEditor::filesDropped (const juce::StringArray& files, int, int)
 {
+    fileDragOver = false; repaint();   // E6: drop ends the drag-over state (no fileDragExit after a drop)
     if (files.isEmpty()) return;
     const juce::File f (files[0]);
     // Reject drops of our OWN temp exports: GentSampler_Pad*.wav / Performance.mid

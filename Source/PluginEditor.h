@@ -2040,7 +2040,8 @@ public:
 
             if (! assigned)
             {
-                g.setColour (Theme::padPlus);
+                // E6: hover affordance — the + brightens under the cursor
+                g.setColour (i == hoverPad ? Theme::t2 : Theme::padPlus);
                 g.setFont (Theme::ui (17.0f));
                 g.drawText ("+", r, juce::Justification::centred);
             }
@@ -2711,7 +2712,7 @@ struct TrigPad : juce::Component
             juce::ColourGradient bg (Theme::glow, pill.getX(), pill.getY(),
                                      Theme::accent, pill.getX(), pill.getBottom(), false);
             g.setGradientFill (bg);
-            g.fillRoundedRectangle (pill, 5.0f);
+            g.fillRoundedRectangle (pill, 6.0f);   // E6: unified chip radius
             g.setColour (juce::Colours::white.withAlpha (0.30f));
             g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
         }
@@ -2793,7 +2794,7 @@ struct HeroViewSeg : juce::Component
             juce::ColourGradient bg (Theme::glow, pill.getX(), pill.getY(),
                                      Theme::accent, pill.getX(), pill.getBottom(), false);
             g.setGradientFill (bg);
-            g.fillRoundedRectangle (pill, 5.0f);
+            g.fillRoundedRectangle (pill, 6.0f);   // E6: unified chip radius
             g.setColour (juce::Colours::white.withAlpha (0.30f));
             g.drawLine (pill.getX() + 5.0f, pill.getY() + 0.9f, pill.getRight() - 5.0f, pill.getY() + 0.9f, 1.1f);
         }
@@ -2935,6 +2936,10 @@ public:
     void layoutContent();                  // lays out all children at design size (scaled by root)
     bool isInterestedInFileDrag (const juce::StringArray& files) override;
     void filesDropped (const juce::StringArray& files, int, int) override;
+    // E6: distinct drop-target state — the hero gets an accent ring while a file drag hovers
+    void fileDragEnter (const juce::StringArray&, int, int) override { fileDragOver = true;  repaint(); }
+    void fileDragExit  (const juce::StringArray&)           override { fileDragOver = false; repaint(); }
+    bool fileDragOver = false;
     bool keyPressed (const juce::KeyPress& k, juce::Component* origin) override;
 
 private:
