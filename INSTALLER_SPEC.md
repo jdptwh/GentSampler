@@ -1,4 +1,11 @@
-# INSTALLER_SPEC — FINAL (planner-owned; pause LIFTED 2026-07-07 — FL-close hang fixed & Joe-verified; **pending Joe approval**)
+# INSTALLER_SPEC — FINAL (planner-owned; **Joe-APPROVED 2026-07-07** — incl. Inno Setup 6 tooling authorization)
+
+## APPROVAL RECORD (Joe, 2026-07-07)
+- Spec approved as written; **Inno Setup 6 authorized** as a one-time authoring-machine tool.
+- Scope Q&A at approval: installer + plugin are WINDOWS-ONLY; the VST3 installs to the
+  standard Common Files path scanned by all Windows VST3 DAWs (hands-on validated in FL;
+  pluginval strictness 5 = host-agnostic evidence for others; Pro Tools/AAX not supported).
+  macOS port = separate future project, logged in BACKLOG at Joe's request.
 
 **Repo:** `C:\Users\JoeyD\Desktop\GentSampler\GentSampler` @ master tip (post-PACKAGING close).
 **Provenance:** drafted by SPEC-DRAFTER; reviewed, corrected, and OWNED by the PLANNER 2026-07-07. Sources verified: BACKLOG.md INSTALLER item, PACKAGING_SPEC.md (P3 ledger + Joe close-out), build.bat, CMakeLists.txt:1–160, CLEAN_MACHINE_CHECKLIST.md, Source/ModelDownloader.cpp, Source/PluginProcessor.cpp:933–940/1322–1352 (models-dir resolution — install-independent, claim TRUE), THIRD_PARTY_LICENSES/README.md:23–47 (JUCE commercial declaration), .claude/agent.config, .gitignore (NO dist/ entry today), README.md.

@@ -3,6 +3,19 @@
 Items here need a spec before any implementation. Do not pick these up
 without Joe green-lighting a spec.
 
+## macOS PORT — future project (Joe-requested 2026-07-07 at installer approval)
+GentSampler is Windows-x64-only today. A Mac build is feasible (JUCE is
+cross-platform; AU + VST3 targets) but is a real porting project, not a
+packaging task: Xcode/clang toolchain; macOS ONNX Runtime binaries (the
+current manual LoadLibraryExW loading in StemSeparator.cpp is Windows-
+specific -> dlopen or direct-link path needed); universal Intel/Apple-Silicon
+binaries; Apple code-signing + NOTARIZATION (mandatory — unsigned plugins
+effectively don't run on modern macOS; Apple Developer account required);
+Direct2D-specific rendering landmines re-audited under CoreGraphics/Metal;
+first-run model download path re-verified; full re-validation (pluginval mac
++ a mac DAW). Needs its own spec + Joe's Apple-account/business decisions
+before any work.
+
 ## RESOLVED 2026-07-07 (TEARDOWN_FIX_SPEC.md, 5a66bc1, Joe-verified) — was: HIGH — FL hangs on close with GentSampler loaded
 Repro (Joe): open any FL project containing GentSampler -> close FL -> FL goes
 unresponsive, requires force-close. Happens EVERY time, ONLY when GentSampler
