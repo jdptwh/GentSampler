@@ -2968,7 +2968,7 @@ private:
     juce::TextButton previewBtn { "PREVIEW" }, clearBtn { "CLEAR..." }, undoBtn { juce::CharPointer_UTF8 ("\xe2\x86\xb6") }, redoBtn { juce::CharPointer_UTF8 ("\xe2\x86\xb7") };
     juce::TextButton fullBtn { "FULL VIEW" };   // map-tools: zoom waveform to whole sample
     juce::ComboBox sliceMode, tempoMode, keyPick, playMode, chokeBox, ftypeBox, qualityBox;
-    juce::ToggleButton kbBtn { "KEYBOARD" }, sliceStop { "STOP AT NEXT CUE" }, followBtn { "FOLLOW" };
+    juce::ToggleButton kbBtn { "KBD" }, sliceStop { "STOP AT NEXT CUE" }, followBtn { "FOLLOW" };   // E6 addendum: 3-letter + tooltip (text overflowed)
     juce::ToggleButton snapBtn { "SNAP" }, loopBtn { "LOOP" }, revBtn { "REVERSE" };
     juce::ToggleButton grainBtn { "GRAIN" }, freezeBtn { "FREEZE" };   // per-pad granular
     // 0.3: grain on/freeze push undo BEFORE the toggle mutates its APVTS param.
@@ -3000,7 +3000,7 @@ private:
     juce::TextButton   transcribeBtn { "TRANSCRIBE" };                 // per-pad audio-to-MIDI
     juce::ToggleButton transcribeQuantBtn { "QUANTIZE" };              // snap notes to the grid
     juce::Label        transcribeLbl;                                  // status / note count
-    juce::ToggleButton velBtn { "VELOCITY" };                         // MIDI velocity -> level (global)
+    juce::ToggleButton velBtn { "VEL" };                              // MIDI velocity -> level (global); E6 addendum: 3-letter + tooltip
     juce::TextButton   clearPadBtn { "CLEAR" };                        // clear the selected pad
 
     // ---- stem separation UI (Stage 3) ----

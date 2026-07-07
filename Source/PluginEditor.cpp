@@ -321,7 +321,8 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
 
     // MIDI velocity-respect toggle (global, default on) — sits by the MIDI buttons
     addAndMakeVisible (velBtn);
-    velBtn.setTooltip ("When on, incoming MIDI note velocity scales the pad's playback level. "
+    kbBtn.setTooltip ("Keyboard mode: play the selected pad chromatically across the MIDI keyboard.");
+    velBtn.setTooltip ("Velocity: when on, incoming MIDI note velocity scales the pad's playback level. "
                        "Off = every note plays at the pad's set level.");
     velBtn.setToggleState (p.getVelToLevel(), juce::dontSendNotification);
     velBtn.onClick = [this] { p.setVelToLevel (velBtn.getToggleState()); };
@@ -1072,13 +1073,16 @@ void GentSamplerAudioProcessorEditor::layoutContent()
         tempoMode.setBounds (686, chipY, 74, chipH);          // E1.4: sized for "CUSTOM", zero truncation
         divvAt (772);
 
-        // ---- INPUT: VELOCITY / KEYBOARD toggles + MIDI cluster (LED-REC-MID) ----
+        // ---- INPUT: VEL / KBD toggles + MIDI cluster (LED-REC-MID) ----
+        // E6 addendum (Joe): VELOCITY/KEYBOARD overflowed their chips — now the
+        // E5 3-letter scheme (VEL/KBD) with full-name tooltips; freed width
+        // relaxes the cluster spacing.
         zoneAt (784, "INPUT");
-        velBtn.setBounds (784, chipY, 62, chipH);
-        kbBtn.setBounds  (850, chipY, 66, chipH);
-        midiLed.setBounds (920, chipY, 14, chipH);            // E1.5: passive activity LED
-        recBtn.setBounds (938, chipY, 42, chipH);
-        if (midiChip) midiChip->setBounds (984, chipY, 42, chipH);
+        velBtn.setBounds (784, chipY, 44, chipH);
+        kbBtn.setBounds  (834, chipY, 44, chipH);
+        midiLed.setBounds (888, chipY, 14, chipH);            // E1.5: passive activity LED
+        recBtn.setBounds (908, chipY, 46, chipH);
+        if (midiChip) midiChip->setBounds (960, chipY, 48, chipH);
     }
 
     full.removeFromTop (8);   // mockup .hero margin: 8px 12px 0
