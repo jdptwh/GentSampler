@@ -23,7 +23,7 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 
   cmake --build build --parallel || exit 1
-  ctest --test-dir build --output-on-failure || exit 1
+  ctest --test-dir build --output-on-failure --no-tests=error || exit 1
 else
   # A finished/killed pluginval can linger and hold the .vst3 open, failing the
   # next link with LNK1104 — clear any strays before building.

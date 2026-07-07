@@ -102,6 +102,7 @@ jobs:
           check_universal "${VST3_BUNDLE}/Contents/MacOS/GentSampler"
           check_universal "${AU_BUNDLE}/Contents/MacOS/GentSampler"
           check_universal "${VST3_BUNDLE}/Contents/Frameworks/libonnxruntime.1.18.1.dylib"
+          check_universal "${AU_BUNDLE}/Contents/Frameworks/libonnxruntime.1.18.1.dylib"
 
       # ---- dylib-absent degradation, MACHINE half (criterion 10) ----
       # Copy the built VST3 bundle, strip the ORT dylib, re-ad-hoc-sign, and

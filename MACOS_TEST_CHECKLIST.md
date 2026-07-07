@@ -65,9 +65,8 @@ with an actual bug — do this step first if you hit that.
 1. Quit Logic Pro if it's running, then relaunch it. Logic scans for new AU
    components at launch.
 2. If GentSampler does NOT show up in the instrument list (step 4 below):
-   Logic Pro menu → Sound Library... no — use **Logic Pro → Settings →
-   Plug-in Manager**, select GentSampler (or "AU Instruments" generally),
-   and run a **Full Rescan**.
+   open **Logic Pro → Settings → Plug-in Manager**, select GentSampler
+   (or "AU Instruments" generally), and run a **Full Rescan**.
 3. Logic re-runs Apple's own `auval` validator during this scan — since our
    CI already ran `auval -v aumu Gsmp Jtgt` and it passed, Logic seeing the
    plugin at all is the leading indicator that carried over correctly. If
