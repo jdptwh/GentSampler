@@ -244,8 +244,14 @@ jobs:
           rm -rf dist/pkg-expanded
           pkgutil --expand-full "dist/GentSampler-${PKGVER}.pkg" dist/pkg-expanded
 
-          AU_PAYLOAD="dist/pkg-expanded/au.pkg/Library/Audio/Plug-Ins/Components/GentSampler.component"
-          VST3_PAYLOAD="dist/pkg-expanded/vst3.pkg/Library/Audio/Plug-Ins/VST3/GentSampler.vst3"
+          # --expand-full extracts each component's Payload RELATIVE to its
+          # install-location; the install-location itself is PackageInfo
+          # metadata, not a directory prefix in the payload tree (CI run #6
+          # failed asserting the prefixed path). Assert both halves:
+          # (1) the bundle exists under <component>.pkg/Payload/, and
+          # (2) PackageInfo declares the exact install-location.
+          AU_PAYLOAD="dist/pkg-expanded/au.pkg/Payload/GentSampler.component"
+          VST3_PAYLOAD="dist/pkg-expanded/vst3.pkg/Payload/GentSampler.vst3"
 
           if [ ! -d "$AU_PAYLOAD" ]; then
             echo "::error::Expanded pkg payload missing AU bundle at expected path: $AU_PAYLOAD"
@@ -255,7 +261,15 @@ jobs:
             echo "::error::Expanded pkg payload missing VST3 bundle at expected path: $VST3_PAYLOAD"
             exit 1
           fi
-          echo "Payload paths confirmed: $AU_PAYLOAD ; $VST3_PAYLOAD"
+          if ! grep -q 'install-location="/Library/Audio/Plug-Ins/Components"' dist/pkg-expanded/au.pkg/PackageInfo; then
+            echo "::error::au.pkg PackageInfo does not declare install-location /Library/Audio/Plug-Ins/Components"
+            exit 1
+          fi
+          if ! grep -q 'install-location="/Library/Audio/Plug-Ins/VST3"' dist/pkg-expanded/vst3.pkg/PackageInfo; then
+            echo "::error::vst3.pkg PackageInfo does not declare install-location /Library/Audio/Plug-Ins/VST3"
+            exit 1
+          fi
+          echo "Payload paths + install-locations confirmed: $AU_PAYLOAD ; $VST3_PAYLOAD"
 
           AU_BIN="${AU_PAYLOAD}/Contents/MacOS/GentSampler"
           VST3_BIN="${VST3_PAYLOAD}/Contents/MacOS/GentSampler"
