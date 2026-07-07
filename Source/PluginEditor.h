@@ -2625,6 +2625,17 @@ public:
                     juce::jmax (2.0f, r * 0.07f));
     }
 
+    // ---- PHASE E2.2: tabular figures — every slider value box renders in the
+    //      mono face so digits are fixed-width and values don't jitter while
+    //      dragging (Theme::mono is the numeric variant the skin already uses
+    //      for the header readouts).
+    juce::Label* createSliderTextBox (juce::Slider& s) override
+    {
+        auto* l = juce::LookAndFeel_V4::createSliderTextBox (s);
+        l->setFont (Theme::mono (10.0f));
+        return l;
+    }
+
     // ---- BLEED: linear slider as a recessed track + accent fill + glow tip ----
     void drawLinearSlider (juce::Graphics& g, int x, int y, int width, int height,
                            float sliderPos, float, float, juce::Slider::SliderStyle style,

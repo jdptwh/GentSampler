@@ -26,6 +26,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
@@ -1469,5 +1470,71 @@ inline std::vector<int> kitHits (const std::vector<std::pair<int, float>>& onset
 
     return result;
 }
+
+// ============================================================================
+//  PHASE E2 — formatValue: THE numeric formatting system. Every UI readout
+//  routes through exactly one of these (PHASE_E_POLISH_PASS.md E2.1 table).
+//  Pure std::string so they live on the doctest surface; call sites wrap in
+//  juce::String. snprintf keeps decimal output deterministic and locale-free.
+// ============================================================================
+
+namespace fmt
+{
+    inline std::string num (double v, int decimals)
+    {
+        char b[32];
+        std::snprintf (b, sizeof (b), "%.*f", decimals, v);
+        return b;
+    }
+
+    // Time (attack/release/grain size): ms below 1000, then s with 1 decimal.
+    inline std::string timeMs (double ms)
+    {
+        if (ms < 999.5)
+            return num (ms, 0) + " ms";
+        return num (ms / 1000.0, 1) + " s";
+    }
+
+    // Frequency: Hz below 1000, then kHz with 1 decimal.
+    inline std::string hz (double f)
+    {
+        if (f < 999.5)
+            return num (f, 0) + " Hz";
+        return num (f / 1000.0, 1) + " kHz";
+    }
+
+    // Semitones: signed integer + st ("0 st", "-5 st", "+7 st").
+    inline std::string semitones (double v)
+    {
+        const int st = (int) std::lround (v);
+        return (st > 0 ? "+" : "") + std::to_string (st) + " st";
+    }
+
+    // Ratio/speed: 2 decimals + multiplication sign ("1.00\xC3\x97").
+    inline std::string ratio (double r)
+    {
+        return num (r, 2) + "\xC3\x97";      // UTF-8 U+00D7
+    }
+
+    // Normalized 0..1-ish (crush, reso, bleed, level, grain density/pos/spray).
+    inline std::string norm (double v)
+    {
+        return num (v, 2);
+    }
+
+    // Pan -1..+1: "L25" / "C" / "R50".
+    inline std::string pan (double v)
+    {
+        const int n = (int) std::lround (std::abs (v) * 100.0);
+        if (n == 0) return "C";
+        return (v < 0 ? "L" : "R") + std::to_string (n);
+    }
+
+    // BPM: 1 decimal.
+    inline std::string bpm (double b)
+    {
+        return num (b, 1);
+    }
+} // namespace fmt
 
 } // namespace gent

@@ -205,8 +205,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     initRotary (padPan,   ppanL, "PAN");
     initRotary (padCutoff, pcoL, "CUTOFF");
     initRotary (padReso,   preL, "RESO");
-    padSpeed.setTextValueSuffix ("x");
-    padCutoff.setTextValueSuffix (" Hz");
+    // (E2: value units come from gent::fmt in attachPad — no ad-hoc suffixes)
 
     // BLEED: 36px mini-knob at the right of the SOURCE row (mockup bleedSlot)
     addAndMakeVisible (padBleed);
@@ -224,7 +223,6 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     initRotary (padGrainPos,   gpL, "POS");
     initRotary (padGrainSpray, gyL, "SPRAY");
     initRotary (padGrainPitch, gtL, "G.PITCH");
-    padGrainSize.setTextValueSuffix (" ms");
     // 0.3 / D-0.3b: one pushUndo per drag GESTURE, not per value change.
     // Slider::onDragStart fires once at mouseDown, before any value is changed
     // (Slider::Pimpl::sendDragStart precedes the drag's first value commit),
@@ -329,10 +327,7 @@ GentSamplerAudioProcessorEditor::GentSamplerAudioProcessorEditor (GentSamplerAud
     // E1.3: install the "-N st" text pair AFTER the attachment (its ctor set the
     // parameter's own text functions); aMaster never rebinds, so these stick.
     masterPitch.textFromValueFunction = [] (double v)
-    {
-        const int st = (int) std::round (v);
-        return juce::String (st > 0 ? "+" : "") + juce::String (st) + " st";
-    };
+    { return juce::String (gent::fmt::semitones (v)); };            // E2: one formatValue system
     masterPitch.valueFromTextFunction = [] (const juce::String& t) { return t.getDoubleValue(); };
     aTempoMode = std::make_unique<CA> (p.apvts, "tempoMode", tempoMode);
     aKb        = std::make_unique<BA> (p.apvts, "kbMode", kbBtn);
@@ -1514,16 +1509,15 @@ void GentSamplerAudioProcessorEditor::attachPad (int pad)
     padTitle.setText (juce::String (pad + 1), juce::dontSendNotification);
     padTitle.setColour (juce::Label::textColourId, Theme::accent);   // .padNum is accent per mockup
 
-    // mockup value formats — set AFTER the attachments: SliderAttachment overwrites
-    // textFromValueFunction/valueFromTextFunction with the parameter's own strings on
-    // every rebind, so this is the only spot where custom formats survive pad switches.
-    padPan.textFromValueFunction = [] (double v)
-    {
-        const int n = juce::roundToInt (std::abs (v) * 100.0);
-        if (n == 0) return juce::String ("C");
-        return (v < 0 ? juce::String ("L") : juce::String ("R")) + juce::String (n);
-    };
-    padPan.valueFromTextFunction = [] (const juce::String& t)
+    // PHASE E2: value formats — set AFTER the attachments: SliderAttachment
+    // overwrites textFromValueFunction/valueFromTextFunction with the parameter's
+    // own strings on every rebind, so this is the only spot where formats survive
+    // pad switches. EVERY readout routes through gent::fmt (EngineMath.h) — the
+    // one formatValue system; doctest-covered in tests/FormatTests.cpp.
+    auto F = [] (std::string s) { return juce::String (juce::CharPointer_UTF8 (s.c_str())); };
+
+    padPan.textFromValueFunction  = [F] (double v) { return F (gent::fmt::pan (v)); };
+    padPan.valueFromTextFunction  = [] (const juce::String& t)
     {
         auto s = t.trim().toUpperCase();
         if (s.startsWithChar ('C')) return 0.0;
@@ -1534,15 +1528,53 @@ void GentSamplerAudioProcessorEditor::attachPad (int pad)
         }
         return juce::jlimit (-1.0, 1.0, s.retainCharacters ("-0123456789.").getDoubleValue());
     };
-    padPitch.textFromValueFunction = [] (double v)
+
+    auto semitoneText = [F] (juce::Slider& s)
     {
-        const int i = juce::roundToInt (v);
-        return (i > 0 ? "+" : "") + juce::String (i) + " st";
+        s.textFromValueFunction  = [F] (double v) { return F (gent::fmt::semitones (v)); };
+        s.valueFromTextFunction  = [] (const juce::String& t)
+        { return t.retainCharacters ("-0123456789.").getDoubleValue(); };
     };
-    padPitch.valueFromTextFunction = [] (const juce::String& t)
-    { return t.retainCharacters ("-0123456789.").getDoubleValue(); };
-    padPan.updateText();
-    padPitch.updateText();
+    semitoneText (padPitch);
+    semitoneText (padGrainPitch);
+
+    auto timeText = [F] (juce::Slider& s)
+    {
+        s.textFromValueFunction  = [F] (double v) { return F (gent::fmt::timeMs (v)); };
+        s.valueFromTextFunction  = [] (const juce::String& t)
+        {
+            const double v = t.retainCharacters ("0123456789.").getDoubleValue();
+            return t.trim().endsWithIgnoreCase ("s") && ! t.trim().endsWithIgnoreCase ("ms")
+                       ? v * 1000.0 : v;                       // "1.2 s" -> 1200 ms
+        };
+    };
+    timeText (padAtt);
+    timeText (padRel);
+    timeText (padGrainSize);
+
+    padCutoff.textFromValueFunction = [F] (double v) { return F (gent::fmt::hz (v)); };
+    padCutoff.valueFromTextFunction = [] (const juce::String& t)
+    {
+        const double v = t.retainCharacters ("0123456789.").getDoubleValue();
+        return t.containsIgnoreCase ("k") ? v * 1000.0 : v;    // "2.5 kHz" -> 2500 Hz
+    };
+
+    padSpeed.textFromValueFunction = [F] (double v) { return F (gent::fmt::ratio (v)); };
+    padSpeed.valueFromTextFunction = [] (const juce::String& t)
+    { return t.retainCharacters ("0123456789.").getDoubleValue(); };
+
+    for (auto* s : { &padLevel, &padCrush, &padReso, &padBleed,
+                     &padGrainDens, &padGrainPos, &padGrainSpray })
+    {
+        s->textFromValueFunction = [F] (double v) { return F (gent::fmt::norm (v)); };
+        s->valueFromTextFunction = [] (const juce::String& t)
+        { return t.retainCharacters ("-0123456789.").getDoubleValue(); };
+    }
+
+    for (auto* s : { &padPan, &padPitch, &padGrainPitch, &padAtt, &padRel, &padGrainSize,
+                     &padCutoff, &padSpeed, &padLevel, &padCrush, &padReso, &padBleed,
+                     &padGrainDens, &padGrainPos, &padGrainSpray })
+        s->updateText();
 }
 
 // WAVE4 F2 (PREPACKAGE_AUDIT_2.md #2): a MIDI-driven pad reselection mid-tick must not
@@ -1598,7 +1630,7 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         if (p.analyzing.load())
             bpmLbl.setText ("ANALYZING...", juce::dontSendNotification);
         else if (srcB > 0.0)
-            bpmLbl.setText (juce::String (srcB, 1)
+            bpmLbl.setText (juce::String (gent::fmt::bpm (srcB))                       // E2: formatValue
                             + (p.getSourceBpmOverride() > 1.0 ? "*" : ""),
                             juce::dontSendNotification);
         else
@@ -1614,14 +1646,14 @@ void GentSamplerAudioProcessorEditor::timerCallback()
         else if (tm == 1) { playB = p.getHostBpm(); alpha = 0.65f; }
         else              { playB = (double) p.apvts.getRawParameterValue ("customBpm")->load(); }
         playLbl.setColour (juce::Label::textColourId, Theme::t1.withAlpha (alpha));   // theme, kept per-tick (mode-dependent alpha)
-        playLbl.setText (playB > 0.0 ? juce::String (playB, 1) : "--",
+        playLbl.setText (playB > 0.0 ? juce::String (gent::fmt::bpm (playB)) : "--",   // E2: formatValue
                          juce::dontSendNotification);
     }
 
     {
+        // E2: ratio format is "1.00x" -> "1.00×" via the one formatValue system
         const double ratio = p.currentTargetSpeed();
-        ratioLbl.setText (std::abs (ratio - 1.0) < 0.005 ? juce::String ("x1.00")
-                                                         : "x" + juce::String (ratio, 2),
+        ratioLbl.setText (juce::String (juce::CharPointer_UTF8 (gent::fmt::ratio (ratio).c_str())),
                           juce::dontSendNotification);
     }
 
