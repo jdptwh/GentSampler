@@ -151,8 +151,11 @@ clean, passes pluginval, and runs stable inside FL Studio.
   sublabels, LEN em-dash, OPEN tag clamped). **E6 DONE pending Joe's
   phase-close pass** (abca2c0; one 26px height, 6px pill radius, 12/8
   padding, abbreviation tooltips, empty-pad + hover, file-drag accent ring
-  on hero, 880 floor pass = zero truncation). PHASE E COMPLETE pending Joe's
-  final side-by-side + hands-on. THEN: the packaging pass.
+  on hero, 880 floor pass = zero truncation; addendum 86abfb6: VEL/KBD
+  3-letter chips, Joe-requested — labels overflowed). **PHASE E CLOSED —
+  Joe GREEN 2026-07-07 (all six tasks + addendum).** NEXT: the packaging
+  pass (spec in flight: CUDA-pack exclusion at the SOURCE + deployed-folder
+  cleanup + installer payload per BACKLOG).
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
