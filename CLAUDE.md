@@ -185,8 +185,20 @@ clean, passes pluginval, and runs stable inside FL Studio.
   README has the install path + PRIVATE-distribution warning. SHIP GATES
   REMAINING (BACKLOG "BEFORE PUBLIC RELEASE"): JUCE commercial PURCHASE
   (mode declared, not bought), code-signing cert, EULA decision.
-  NEXT (Joe-ordered): macOS PORT — BACKLOG item, needs its own spec in a
-  fresh session (drafter -> planner -> Joe approval per ROUTING).
+  **macOS PORT SPEC APPROVED 2026-07-07** (MACOS_PORT_SPEC.md; full ROUTING
+  pipeline: drafter audit -> planner corrected/owned -> Joe APPROVED +
+  AMENDMENT A1). Planner review caught a latent host-crash bug: the
+  pre-existing non-Windows `#else return true;` stub in ensureOrtLoaded()
+  fails OPEN (reports ORT ready with a null API table). Settled facts: ORT
+  1.18.1 ships osx-universal2 (no pin divergence); dlopen/dlsym mirror,
+  dylib in-bundle; AU staged after VST3, auval-gated. A1 (remote-friend
+  model): no local Mac — friend's Mac via Zoom is VALIDATION ONLY (no
+  source, no agents, artifacts relayed by Joe); BUILD machine = GitHub
+  Actions macos-14 CI running the SAME hooks (repo has NO remote yet —
+  Joe's private-GitHub push is the Phase 2 precondition); transferred
+  bundles are quarantined -> CI ad-hoc re-sign + checklist xattr strip
+  (private testing only). Phase 1 (Windows-side: fail-closed loader + mac
+  branch, Menlo font select, inert CMake mac branch) EXECUTES NOW.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
