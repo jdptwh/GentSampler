@@ -71,6 +71,42 @@ void appendRamp (std::vector<gent::FrameFeatures>& frames, int rampLen,
         frames.push_back (makeFrame (band, chroma));
     }
 }
+
+// Like appendRamp, but with a quadratic (ease-in, t*t) blend curve instead of
+// linear. A LINEAR ramp is exactly symmetric under t <-> 1-t around its
+// midpoint, and cosine distance from a linearly-interpolated point is itself
+// symmetric under that same reflection -- so the raw (pre-smoothing) novelty
+// curve for a linear ramp has an EXACT tie (equal to the last printed digit
+// in double precision, confirmed by instrumentation during MACOS_PORT_SPEC.md
+// Phase 2 diagnosis) between its two center frames, which the box-filter
+// smoothing preserves as a two-sample plateau at the peak. Two adjacent,
+// exactly-tied smoothed samples make pickNoveltyPeaks's "strictly greater
+// than both neighbors" local-max test decide on nothing but which sample's
+// floating-point rounding lands a few ULPs higher -- exactly the kind of
+// comparison that is free to flip under FMA contraction / instruction
+// scheduling / libm differences across compilers and architectures (observed:
+// MSVC x64 keeps 1 boundary that AppleClang arm64 loses, macOS CI run #2).
+// The quadratic skew breaks the t<->1-t reflection so the peak is a genuine,
+// non-accidental single maximum (measured margin to its nearest neighbor is
+// ~500x float32 epsilon, not a near-cancellation), which is robust to the
+// same class of FP reordering. Used only where a test's assertion depends on
+// exactly one ramp's peak surviving peak-picking (the beat-snap test below);
+// the other ramp-based tests assert set-membership/ordering, which tolerates
+// a +-1 frame peak-index wobble and was unaffected on macOS CI.
+void appendSkewedRamp (std::vector<gent::FrameFeatures>& frames, int rampLen,
+                        const float bandA[4], const float chromaA[12],
+                        const float bandB[4], const float chromaB[12])
+{
+    for (int i = 0; i < rampLen; ++i)
+    {
+        const float tl = (float) (i + 1) / (float) (rampLen + 1);
+        const float t = tl * tl;
+        float band[4], chroma[12];
+        for (int k = 0; k < 4;  ++k) band[k]   = bandA[k]   * (1.0f - t) + bandB[k]   * t;
+        for (int k = 0; k < 12; ++k) chroma[k] = chromaA[k] * (1.0f - t) + chromaB[k] * t;
+        frames.push_back (makeFrame (band, chroma));
+    }
+}
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +356,20 @@ TEST_CASE ("NOVELTY beat snap: boundary snaps to an exact beat multiple")
     const int rampLen = w + 2;   // wide enough for a genuine (non-plateau) peak
 
     // Off-beat transition position: not aligned to any nice frame boundary.
+    // Uses appendSkewedRamp (not the plain linear appendRamp) — see its
+    // doc comment: a linear ramp's raw novelty curve is exactly symmetric
+    // around its midpoint, producing an exact tie between the two center
+    // frames that survives smoothing as a two-sample plateau. This test's
+    // assertion depends on exactly one boundary surviving peak-picking, so
+    // it is the one test in this file exposed to that tie (confirmed via
+    // MACOS_PORT_SPEC.md Phase 2 CI run #2: AppleClang arm64's FMA
+    // contraction broke the tie the other way from MSVC x64, dropping the
+    // sole candidate peak below the "strictly greater than both neighbors"
+    // bar). The quadratic skew makes the peak a genuine, non-accidental
+    // maximum instead.
     std::vector<gent::FrameFeatures> frames;
     for (int i = 0; i < 223; ++i) frames.push_back (makeFrame (bandA, chromaA));
-    appendRamp (frames, rampLen, bandA, chromaA, bandB, chromaB);
+    appendSkewedRamp (frames, rampLen, bandA, chromaA, bandB, chromaB);
     for (int i = 0; i < 401; ++i) frames.push_back (makeFrame (bandB, chromaB));
     const auto boundaries = gent::noveltyBoundaries (frames, kFrameRate, kSamplesPerBar, kSampleRate, 1);
 
