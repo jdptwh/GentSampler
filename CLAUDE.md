@@ -197,8 +197,22 @@ clean, passes pluginval, and runs stable inside FL Studio.
   Actions macos-14 CI running the SAME hooks (repo has NO remote yet —
   Joe's private-GitHub push is the Phase 2 precondition); transferred
   bundles are quarantined -> CI ad-hoc re-sign + checklist xattr strip
-  (private testing only). Phase 1 (Windows-side: fail-closed loader + mac
-  branch, Menlo font select, inert CMake mac branch) EXECUTES NOW.
+  (private testing only). **AMENDMENT A2** (same day): friend's DAW is
+  LOGIC PRO (AU-only, no VST3) -> AU + auval move to the FIRST CI run
+  (bus-layout risk R4 front-loaded; STOP-and-escalate if auval rejects),
+  criterion 12 hands-on rewritten for Logic (AU rescan, Musical Typing,
+  multi-out insert variant, save/reopen state row; GarageBand explicitly
+  excluded), mac VST3 accepted at pluginval-only coverage (R14, README
+  nuance required). **PHASE 1 COMPLETE** (`7cf8354` StemSeparator
+  fail-closed + mac dlopen branch + Theme.h Menlo select + PG.10 POSIX
+  test; `949401f` inert if(APPLE) CMake branch — osx-universal2 ORT, AU
+  format, arm64;x86_64, Frameworks dylib staging). Gates green (124
+  doctests, pluginval 5 cold+warm); Opus reviewer PASS cycle 1, 0
+  blocking, 1 informational nit (AU staging plumbing ruled in-scope),
+  gates re-run independently, Windows branch verified byte-identical.
+  PHASE 2 BLOCKED ON: Joe's private-GitHub push (walkthrough delivered);
+  pending friend info = uname -m / macOS ver / free disk / Logic Pro
+  version (NOT GarageBand) / optional MIDI controller.
 - Blocked on: host-process CUDA integration fault (see GPU_HANDOFF.md §3).
 
 ## Conventions
